@@ -21,23 +21,23 @@ CATALOGUE_COMPOSER = {
 }
 _CAT_RE = re.compile(
     r"\b(op(?:us)?|bwv|kv?|d|wab|hob|hwv|wwv|s|lw|sz|bb|l|rv|trv|av|m|lwv|jw|woo|h|b)\.?\s*"
-    r"([ivxlc]+:\s*)?(\d+[a-z]?)(?:\s*,?\s*no\.?\s*(\d+))?", re.I)
-_KEY_RE = re.compile(r"\bin\s+[a-g](?:[\s-]*(?:flat|sharp|♭|♯|b|#))?(?:\s+(?:major|minor))?\b", re.I)
+    r"([ivxlc]+:\s*)?(\d+[a-z]?)(?:\s*,?\s*no\.?\s*(\d+))?", re.IGNORECASE)
+_KEY_RE = re.compile(r"\bin\s+[a-g](?:[\s-]*(?:flat|sharp|♭|♯|b|#))?(?:\s+(?:major|minor))?\b", re.IGNORECASE)
 _FORM_RE = re.compile(
     r"^(?P<form>(?:[a-z]+\s){0,3}?(?:symphony|symphonie|sinfonia|concerto|sonata|quartet|quintet|trio|sextet|"
     r"octet|suite|mass|cantata|serenade|divertimento|partita|etude|prelude|nocturne|ballade|scherzo|"
     r"impromptu|rhapsody|overture|string quartet|piano trio|piano sonata|violin sonata|piano concerto|"
-    r"violin concerto|cello concerto))\s+no\.?\s*(?P<n>\d+)\b", re.I)
+    r"violin concerto|cello concerto))\s+no\.?\s*(?P<n>\d+)\b", re.IGNORECASE)
 _EXCERPT_RE = re.compile(r"\b(excerpts?|selections?|highlights|aria|duet|trio '|scene|act [ivx\d]+\s*[:,]"
-                         r"|movement|mvt|intermezzo from|overture to|prelude to)\b", re.I)
+                         r"|movement|mvt|intermezzo from|overture to|prelude to)\b", re.IGNORECASE)
 _ARR_RE = re.compile(r"\s*(?:,\s*|\()\s*(?:arr\.?|arranged|transcr\.?|orch\.?|attributed|attr\.?|after|ed\.)"
-                     r"[^)]*\)?\s*$", re.I)
+                     r"[^)]*\)?\s*$", re.IGNORECASE)
 _GENERIC = re.compile(
     r"(?:[a-z]+ ){0,3}(?:symphony|concerto|sonata|quartet|quintet|trio|sextet|octet|suite|mass|cantata|"
     r"serenade|divertimento|partita|etude|prelude|nocturne|ballade|scherzo|impromptu|rhapsody|overture|"
     r"fantasia|fugue|toccata|variations|waltz|mazurka|polonaise|sinfonia|motet|aria|song|romance|dance)"
     r"(?: [a-z]+){0,2}?(?: in [a-g](?: flat| sharp)?(?: major| minor)?)?(?: (?:for|no) .*)?")
-_UNIDENTIFIED = re.compile(r"\b(unidentified|unknown|encores?\b.*if any|untitled)\b", re.I)
+_UNIDENTIFIED = re.compile(r"\b(unidentified|unknown|encores?\b.*if any|untitled)\b", re.IGNORECASE)
 
 
 def clean_composer(name: str | None) -> str:
@@ -66,18 +66,18 @@ def catalogue_key(cat: str | None) -> str | None:
 def split_excerpt(title: str) -> tuple[str, str] | None:
     """('Così fan tutte', "'Ah guarda, sorella'") for an excerpt title, else None."""
     t = title.strip()
-    m = re.match(r"^['\"‘“](.+?)['\"’”]\s+from\s+(.+)$", t, re.I)
+    m = re.match(r"^['\"‘“](.+?)['\"’”]\s+from\s+(.+)$", t, re.IGNORECASE)
     if m:
         return m.group(2).strip(), m.group(1).strip()
     m = re.match(r"^(.+?)\s+from\s+(?:the\s+)?([A-Z].+)$", t)
-    if m and not re.search(r"\bsuite\b", m.group(1), re.I):
+    if m and not re.search(r"\bsuite\b", m.group(1), re.IGNORECASE):
         return m.group(2).strip(), m.group(1).strip()
     if ":" in _CAT_RE.sub("", t):      # not the colon of a catalogue number (Hob. I:104)
         head, tail = t.split(":", 1)
         if len(head) > 2 and tail.strip():
             return head.strip(), tail.strip()
     m = re.match(r"^(.+?)\s*\(([^)]*\b(?:excerpts?|selections?|closing|opening|scenes?|highlights|"
-                 r"movements?|finale)\b[^)]*)\)", t, re.I)
+                 r"movements?|finale)\b[^)]*)\)", t, re.IGNORECASE)
     if m:
         return m.group(1).strip(), m.group(2).strip()
     return None

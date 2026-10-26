@@ -1,0 +1,83 @@
+{
+ "disambiguation": "",
+ "first-release-date": "1993",
+ "id": "e40b8e05-d10a-4cb9-9219-818ee6b9d329",
+ "length": 675266,
+ "relations": [
+  {
+   "artist": {
+    "country": "HU",
+    "disambiguation": "conductor",
+    "id": "6a42216a-f3cd-4710-9e6e-c00d6cd2fbb1",
+    "name": "István Kertész",
+    "sort-name": "Kertész, István",
+    "type": "Person",
+    "type-id": "b6e035f4-3ce9-331c-97df-83397230b0df"
+   },
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "backward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "artist",
+   "type": "conductor",
+   "type-id": "234670ce-5f22-4fd0-921b-ef1662695c5d"
+  },
+  {
+   "artist": {
+    "country": "IL",
+    "disambiguation": "Israeli orchestra",
+    "id": "c8a88cc7-c93e-42b5-ba29-68859b5716e3",
+    "name": "התזמורת הפילהרמונית הישראלית",
+    "sort-name": "Israel Philharmonic Orchestra",
+    "type": "Orchestra",
+    "type-id": "a0b36c92-3eb1-3839-a4f9-4799823f54a5"
+   },
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "backward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "Israel Philharmonic Orchestra",
+   "target-type": "artist",
+   "type": "performing orchestra",
+   "type-id": "3b6616c5-88ba-4341-b4ee-81ce1e6d7ebb"
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "performance",
+   "type-id": "a3005666-a872-32c3-ad06-98af558e99b0",
+   "work": {
+    "attributes": [],
+    "disambiguation": "Die Moldau",
+    "id": "009b2276-f259-3f13-9112-7f1df8e6962a",
+    "iswcs": [],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "Má vlast: II. Vltava, JB 1:112/2",
+    "type": "Symphonic poem",
+    "type-id": "01ef2ab4-d58d-3ef9-b309-eef98b58435f"
+   }
+  }
+ ],
+ "title": "Má Vlast (My Country): Vltava (Die Moldau)",
+ "video": false
+}

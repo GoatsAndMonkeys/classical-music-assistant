@@ -13,11 +13,12 @@ from __future__ import annotations
 import json
 import sys
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from classical_core.mb import RECORDING_INC, WORK_INC  # noqa: E402
+from classical_core.mb import RECORDING_INC, WORK_INC
 
 OUT = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "mb"
 BASE = "https://musicbrainz.org/ws/2"
@@ -31,9 +32,17 @@ def get(contact: str, path: str) -> dict:
         time.sleep(wait)
     req = urllib.request.Request(f"{BASE}/{path}", headers={
         "User-Agent": f"ClassicalMusicAssistant-fixtures/0.1 ({contact})", "Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310 - fixed https base
-        _last = time.monotonic()
-        return json.load(r)
+    for attempt in range(5):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                _last = time.monotonic()
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            _last = time.monotonic()
+            if e.code != 503 or attempt == 4:
+                raise
+            time.sleep(2 ** (attempt + 1))
+    raise RuntimeError("unreachable")
 
 
 def save(kind: str, mbid: str, data: dict) -> None:

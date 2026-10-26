@@ -1,0 +1,812 @@
+{
+ "aliases": [
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "\"Adagio\" from The New World Symphony",
+   "primary": null,
+   "sort-name": "\"Adagio\" from The New World Symphony",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "\"Adagio\" from the New World Symphony",
+   "primary": null,
+   "sort-name": "\"Adagio\" from the New World Symphony",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "'Adagio' From The New World Symphony",
+   "primary": null,
+   "sort-name": "'Adagio' From The New World Symphony",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "'Adagio' from the New World Symphony",
+   "primary": null,
+   "sort-name": "'Adagio' from the New World Symphony",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Adagio (1st mvt, excerpt) from Symphony No. 9 in E minor, Op. 95 \"From the New World\"",
+   "primary": null,
+   "sort-name": "Adagio (1st mvt, excerpt) from Symphony No. 9 in E minor, Op. 95 \"From the New World\"",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Adagio aus der Symphonie Nr. 9 \"Aus der Neuen Welt\"",
+   "primary": null,
+   "sort-name": "Adagio aus der Symphonie Nr. 9 \"Aus der Neuen Welt\"",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Aus der neuen Welt: 1. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Aus der neuen Welt: 1. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "From the New World: I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "From the New World: I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "New World Symphony No. 9: I. Adagio",
+   "primary": null,
+   "sort-name": "New World Symphony No. 9: I. Adagio",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "New World: I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "New World: I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Sinfonia No. 9 em mi menor, Op. 95 \"Do novo mundo\": I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Sinfonia No. 9 em mi menor, Op. 95 \"Do novo mundo\": I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Sinfonia No. 9 em mi menor, Op. 95 \"Do novo mundo\": I. Adagio - allegro molto",
+   "primary": null,
+   "sort-name": "Sinfonia No. 9 em mi menor, Op. 95 \"Do novo mundo\": I. Adagio - allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Sinfonia No. 9 in Mi minore, Op. 95 \"Dal nuovo mondo\": I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Sinfonia No. 9 in Mi minore, Op. 95 \"Dal nuovo mondo\": I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Sinfonia No. 9, Op. 95 \"Dal nuovo mondo\": I. Adagio. Allegro molto",
+   "primary": null,
+   "sort-name": "Sinfonia No. 9, Op. 95 \"Dal nuovo mondo\": I. Adagio. Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Sinfonie No. 9 e-Moll, Op. 95 \"Aus der Neuen Welt\": I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Sinfonie No. 9 e-Moll, Op. 95 \"Aus der Neuen Welt\": I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Sinfonie No. 9 e-Moll, Op. 95 \"Aus der neuen Welt\": I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Sinfonie No. 9 e-Moll, Op. 95 \"Aus der neuen Welt\": I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "de",
+   "name": "Sinfonie Nr. 9 e-Moll, Op. 95 \"Aus der Neuen Welt\": I. Adagio - Allegro molto",
+   "primary": true,
+   "sort-name": "Sinfonie Nr. 9 e-Moll, Op. 95 \"Aus der Neuen Welt\": I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Sinfonie Nr. 9 e-Moll, Op. 95 \"Aus der Neuen Welt\": I. Adagio, Allegro molto",
+   "primary": null,
+   "sort-name": "Sinfonie Nr. 9 e-Moll, Op. 95 \"Aus der Neuen Welt\": I. Adagio, Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Sinfonie Nr. 9 e-Moll, Op. 95: I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Sinfonie Nr. 9 e-Moll, Op. 95: I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Sinfonía No. 9 em Mi menor, Op. 95: I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Sinfonía No. 9 em Mi menor, Op. 95: I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Sinfonía No. 9 en Mi menor, Op. 95 \"Del Nuevo Mundo\": I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Sinfonía No. 9 en Mi menor, Op. 95 \"Del Nuevo Mundo\": I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie No. 9 \"Aus der Neuen Welt\": 1. Satz",
+   "primary": null,
+   "sort-name": "Symphonie No. 9 \"Aus der Neuen Welt\": 1. Satz",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie No. 9 \"Du nouveau monde\" (1er mouvement)",
+   "primary": null,
+   "sort-name": "Symphonie No. 9 \"Du nouveau monde\" (1er mouvement)",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie No. 9 e-Moll, Op. 95 \"Aus der Neuen Welt\": I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Symphonie No. 9 e-Moll, Op. 95 \"Aus der Neuen Welt\": I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie No. 9 e-Moll, Op. 95: I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Symphonie No. 9 e-Moll, Op. 95: I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie No. 9 en Mi mineur, Op. 95 \"Du nouveau monde\": I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Symphonie No. 9 en Mi mineur, Op. 95 \"Du nouveau monde\": I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie No. 9 en Mi mineur, Op. 95 \"Du nouveau monde\": I. Adagio – Allegro molto",
+   "primary": null,
+   "sort-name": "Symphonie No. 9 en Mi mineur, Op. 95 \"Du nouveau monde\": I. Adagio – Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie No. 9 en Mi mineur, Op. 95: I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Symphonie No. 9 en Mi mineur, Op. 95: I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie No. 9 in E minor Op. 95 'Aus der Neuen Welt': I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Symphonie No. 9 in E minor Op. 95 'Aus der Neuen Welt': I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie No. 9(5) e-Moll, Op. 95 \"Aus der Neuen Welt\": I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Symphonie No. 9(5) e-Moll, Op. 95 \"Aus der Neuen Welt\": I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie No. 9: I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Symphonie No. 9: I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie Nr. 9 E-moll, Op. 95 \"Aus der Neuen Welt\": I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Symphonie Nr. 9 E-moll, Op. 95 \"Aus der Neuen Welt\": I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie Nr. 9 e-Moll, Op. 95: I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Symphonie Nr. 9 e-Moll, Op. 95: I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 5 in E minor, Op. 95 \"From the New World\": I. Adagio - allegro molto",
+   "primary": null,
+   "sort-name": "Symphony No. 5 in E minor, Op. 95 \"From the New World\": I. Adagio - allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 5 in E minor, Op. 95 \"From the New World\": I. Adagio – Allegro molto",
+   "primary": null,
+   "sort-name": "Symphony No. 5 in E minor, Op. 95 \"From the New World\": I. Adagio – Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 \"From the New World\": I. Adagio; Allegro Molto",
+   "primary": null,
+   "sort-name": "Symphony No. 9 \"From the New World\": I. Adagio; Allegro Molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"For the New World\": I. Adagio – Allegro molto",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"For the New World\": I. Adagio – Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": I. Adagio",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": I. Adagio",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": I. Adagio - allegro molto",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": I. Adagio - allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": I. Adagio – Allegro molto",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": I. Adagio – Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": I. Adagio. Allegro molto",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": I. Adagio. Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": I. Adagio: Allegro molto",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": I. Adagio: Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": I. Adagio; Allegro molto",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": I. Adagio; Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"New World\": I. Adagio",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"New World\": I. Adagio",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"New World\": I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"New World\": I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"New World\": I. Adagio – Allegro molto",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"New World\": I. Adagio – Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"The New World\": I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"The New World\": I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 (B. 178) \"From the New World\": I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 (B. 178) \"From the New World\": I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "en",
+   "name": "Symphony No. 9 in E minor, Op. 95 “From the New World”: I. Adagio – Allegro molto",
+   "primary": true,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": I. Adagio — Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95, B. 178 \"From the New World\": I. Adagio – Allegro molto",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95, B. 178 \"From the New World\": I. Adagio – Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95: I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95: I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95: I. Adagio – Allegro molto",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95: I. Adagio – Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9, Op. 95: I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Symphony No. 9, Op. 95: I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9: I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Symphony No. 9: I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No.9: I. Adagio - Allegro molto",
+   "primary": null,
+   "sort-name": "Symphony No.9: I. Adagio - Allegro molto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony, No. 9 in E minor, Op. 95 \"New World Symphony\": Adagio allegro molto",
+   "primary": null,
+   "sort-name": "Symphony, No. 9 in E minor, Op. 95 \"New World Symphony\": Adagio allegro molto",
+   "type": null,
+   "type-id": null
+  }
+ ],
+ "attributes": [
+  {
+   "type": "Key",
+   "type-id": "7526c19d-3be4-3420-b6cc-9fb6e49fa1a9",
+   "value": "E minor",
+   "value-id": "6107f24b-ed48-31ce-a62e-2eaf58dd6124"
+  }
+ ],
+ "disambiguation": "",
+ "id": "aec2489b-051c-4892-8df5-6c601877e5f6",
+ "iswcs": [],
+ "language": "zxx",
+ "languages": [
+  "zxx"
+ ],
+ "relations": [
+  {
+   "artist": {
+    "country": "CZ",
+    "disambiguation": "composer",
+    "id": "819eaeb2-8dd8-48a5-ad07-0bcd137985ef",
+    "name": "Antonín Dvořák",
+    "sort-name": "Dvořák, Antonín",
+    "type": "Person",
+    "type-id": "b6e035f4-3ce9-331c-97df-83397230b0df"
+   },
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": "1893-01-10",
+   "direction": "backward",
+   "end": "1893-05-24",
+   "ended": true,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "artist",
+   "type": "composer",
+   "type-id": "d59d99ea-23d4-4a80-b066-edca32ee158f"
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "arrangement",
+   "type-id": "51975ed8-bbfa-486b-9f28-5947f4370299",
+   "work": {
+    "attributes": [],
+    "disambiguation": "arranged for piano by Nacar",
+    "id": "b6ec5dcb-5b7a-4a0a-920d-8d34cf62123d",
+    "iswcs": [],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "New World Symphony, mvt. I",
+    "type": null,
+    "type-id": null
+   }
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "arrangement",
+   "type-id": "51975ed8-bbfa-486b-9f28-5947f4370299",
+   "work": {
+    "attributes": [],
+    "disambiguation": "catch-all for arrangements",
+    "id": "633fe13d-5a44-462b-b13a-2b60cecc060c",
+    "iswcs": [],
+    "language": null,
+    "languages": [],
+    "title": "Symfonie č. 9 e moll, op. 95 „Z Nového světa“: I. Adagio — Allegro molto",
+    "type": null,
+    "type-id": null
+   }
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "arrangement",
+   "type-id": "51975ed8-bbfa-486b-9f28-5947f4370299",
+   "work": {
+    "attributes": [],
+    "disambiguation": "arr. Dvorak for piano 4 hands",
+    "id": "d15e5922-189c-45bf-ac69-af8f746fc69e",
+    "iswcs": [],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "Symfonie č. 9 e moll, op. 95 „Z Nového světa“: I. Adagio — Allegro molto",
+    "type": null,
+    "type-id": null
+   }
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "backward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "medley",
+   "type-id": "c1dca2cd-194c-36dd-93f8-6a359167e992",
+   "work": {
+    "attributes": [],
+    "disambiguation": "",
+    "id": "eaca1114-c1c2-4e57-a6bf-8d29e719fe3e",
+    "iswcs": [],
+    "language": null,
+    "languages": [],
+    "title": "Hooked on America",
+    "type": null,
+    "type-id": null
+   }
+  },
+  {
+   "attribute-ids": {
+    "movement": "1d05bc4b-9884-4c9f-9f69-616f119047f3"
+   },
+   "attribute-values": {},
+   "attributes": [
+    "movement"
+   ],
+   "begin": null,
+   "direction": "backward",
+   "end": null,
+   "ended": false,
+   "ordering-key": 1,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "parts",
+   "type-id": "ca8d3642-ce5f-49f8-91f2-125d72524e6a",
+   "work": {
+    "attributes": [],
+    "disambiguation": "",
+    "id": "aacb1ab0-c740-436a-a782-ed60026cf82b",
+    "iswcs": [
+     "T-905.029.737-5"
+    ],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "Symfonie č. 9 e moll, op. 95 „Z Nového světa“",
+    "type": "Symphony",
+    "type-id": "174314aa-0aa4-30cf-96a6-50b281d8d208"
+   }
+  }
+ ],
+ "title": "Symfonie č. 9 e moll, op. 95 „Z Nového světa“: I. Adagio — Allegro molto",
+ "type": null,
+ "type-id": null
+}

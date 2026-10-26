@@ -1,0 +1,751 @@
+{
+ "aliases": [
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Aus der neuen Welt: 3. Scherzo: Molto vivace",
+   "primary": null,
+   "sort-name": "Aus der neuen Welt: 3. Scherzo: Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "From the New World: III. Scherzo. Molto vivace",
+   "primary": null,
+   "sort-name": "From the New World: III. Scherzo. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "New World Symphony No. 9: III. Scherzo. Molto vivace",
+   "primary": null,
+   "sort-name": "New World Symphony No. 9: III. Scherzo. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "New World: III. Scherzo. Molto vivace",
+   "primary": null,
+   "sort-name": "New World: III. Scherzo. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Sinfonia No. 9 em mi menor, Op. 95 \"Do novo mundo\": III. Scherzo: Molto vivace",
+   "primary": null,
+   "sort-name": "Sinfonia No. 9 em mi menor, Op. 95 \"Do novo mundo\": III. Scherzo: Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Sinfonia No. 9 em mi menor, Op. 95 \"Do novo mundo\": III. Scherzo: Molto vivace - poco sostemuto",
+   "primary": null,
+   "sort-name": "Sinfonia No. 9 em mi menor, Op. 95 \"Do novo mundo\": III. Scherzo: Molto vivace - poco sostemuto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Sinfonia No. 9 in Mi minore, Op. 95 \"Dal nuovo mondo\": III. Molto vivace",
+   "primary": null,
+   "sort-name": "Sinfonia No. 9 in Mi minore, Op. 95 \"Dal nuovo mondo\": III. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Sinfonia No. 9, Op. 95 \"Dal nuovo mondo\": III. Scherzo. Molto vivace",
+   "primary": null,
+   "sort-name": "Sinfonia No. 9, Op. 95 \"Dal nuovo mondo\": III. Scherzo. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Sinfonie No. 9 e-Moll, Op. 95 \"Aus der Neuen Welt\": III. Scherzo. Molto vivace",
+   "primary": null,
+   "sort-name": "Sinfonie No. 9 e-Moll, Op. 95 \"Aus der Neuen Welt\": III. Scherzo. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Sinfonie No. 9 e-Moll, Op. 95 \"Aus der neuen Welt\": III. Scherzo. Molto vivace",
+   "primary": null,
+   "sort-name": "Sinfonie No. 9 e-Moll, Op. 95 \"Aus der neuen Welt\": III. Scherzo. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "de",
+   "name": "Sinfonie Nr. 9 e-Moll, Op. 95 \"Aus der Neuen Welt\": III. Scherzo. Molto vivace",
+   "primary": true,
+   "sort-name": "Sinfonie Nr. 9 e-Moll, Op. 95 \"Aus der Neuen Welt\": III. Scherzo. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Sinfonie Nr. 9 e-Moll, Op. 95 \"Aus der Neuen Welt\": III. Vivace",
+   "primary": null,
+   "sort-name": "Sinfonie Nr. 9 e-Moll, Op. 95 \"Aus der Neuen Welt\": III. Vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Sinfonie Nr. 9 e-Moll, Op. 95: III. Scherzo. Molto vivace",
+   "primary": null,
+   "sort-name": "Sinfonie Nr. 9 e-Moll, Op. 95: III. Scherzo. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Sinfonía No. 9 em Mi menor, Op. 95: III. Scherzo. Moto vivace",
+   "primary": null,
+   "sort-name": "Sinfonía No. 9 em Mi menor, Op. 95: III. Scherzo. Moto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Sinfonía No. 9 en Mi menor, Op. 95 \"Del Nuevo Mundo\": III. Molto vivace",
+   "primary": null,
+   "sort-name": "Sinfonía No. 9 en Mi menor, Op. 95 \"Del Nuevo Mundo\": III. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie No. 9 e-Moll, Op. 95 \"Aus der Neuen Welt\": III. Molt vivace",
+   "primary": null,
+   "sort-name": "Symphonie No. 9 e-Moll, Op. 95 \"Aus der Neuen Welt\": III. Molt vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie No. 9 e-Moll, Op. 95 \"Aus der Neuen Welt\": III. Molto vivace",
+   "primary": null,
+   "sort-name": "Symphonie No. 9 e-Moll, Op. 95 \"Aus der Neuen Welt\": III. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie No. 9 e-Moll, Op. 95 \"Aus der Neuen Welt\": III. Scherzo. Molto vivace",
+   "primary": null,
+   "sort-name": "Symphonie No. 9 e-Moll, Op. 95 \"Aus der Neuen Welt\": III. Scherzo. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie No. 9 e-Moll, Op. 95: III. Scherzo. Molto vivace",
+   "primary": null,
+   "sort-name": "Symphonie No. 9 e-Moll, Op. 95: III. Scherzo. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie No. 9 en Mi mineur, Op. 95 \"Du nouveau monde\": III. Scherzo - Molto vivace",
+   "primary": null,
+   "sort-name": "Symphonie No. 9 en Mi mineur, Op. 95 \"Du nouveau monde\": III. Scherzo - Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie No. 9 en Mi mineur, Op. 95 \"Du nouveau monde\": III. Scherzo. Molto vivace",
+   "primary": null,
+   "sort-name": "Symphonie No. 9 en Mi mineur, Op. 95 \"Du nouveau monde\": III. Scherzo. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie No. 9 en Mi mineur, Op. 95 \"Du nouveau monde\": III. Scherzo. Molto vivace - Poco sostenuto",
+   "primary": null,
+   "sort-name": "Symphonie No. 9 en Mi mineur, Op. 95 \"Du nouveau monde\": III. Scherzo. Molto vivace - Poco sostenuto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie No. 9 en Mi mineur, Op. 95 \"Du nouveau monde\": III. Scherzo. Molto vivace un poco sostenuto",
+   "primary": null,
+   "sort-name": "Symphonie No. 9 en Mi mineur, Op. 95 \"Du nouveau monde\": III. Scherzo. Molto vivace un poco sostenuto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie No. 9 en Mi mineur, Op. 95: III. Molto vivace",
+   "primary": null,
+   "sort-name": "Symphonie No. 9 en Mi mineur, Op. 95: III. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie No. 9 in E minor Op. 95 'Aus der Neuen Welt': III. Molto vivace",
+   "primary": null,
+   "sort-name": "Symphonie No. 9 in E minor Op. 95 'Aus der Neuen Welt': III. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie No. 9(5) e-Moll, Op. 95 \"Aus der Neuen Welt\": III. Scherzo. Molto vivace - Poco sostenuto",
+   "primary": null,
+   "sort-name": "Symphonie No. 9(5) e-Moll, Op. 95 \"Aus der Neuen Welt\": III. Scherzo. Molto vivace - Poco sostenuto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie No. 9: III. Molto vivace",
+   "primary": null,
+   "sort-name": "Symphonie No. 9: III. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie Nr. 9 E-moll, Op. 95 \"Aus der Neuen Welt\": III. Molto vivace",
+   "primary": null,
+   "sort-name": "Symphonie Nr. 9 E-moll, Op. 95 \"Aus der Neuen Welt\": III. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie Nr. 9 E-moll, Op. 95 \"Aus der Neuen Welt\": III. Scherzo. Molto vivace",
+   "primary": null,
+   "sort-name": "Symphonie Nr. 9 E-moll, Op. 95 \"Aus der Neuen Welt\": III. Scherzo. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphonie Nr. 9 e-Moll, Op. 95: III. Scherzo. Molto vivace",
+   "primary": null,
+   "sort-name": "Symphonie Nr. 9 e-Moll, Op. 95: III. Scherzo. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 5 in E minor, Op. 95 \"From the New World\": III. Scherzo - molto vivace",
+   "primary": null,
+   "sort-name": "Symphony No. 5 in E minor, Op. 95 \"From the New World\": III. Scherzo - molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 5 in E minor, Op. 95 \"From the New World\": III. Scherzo. Molto vivace – Poco sostenuto",
+   "primary": null,
+   "sort-name": "Symphony No. 5 in E minor, Op. 95 \"From the New World\": III. Scherzo. Molto vivace – Poco sostenuto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 \"From the New World\": III. Scherzo; Molto Vivace",
+   "primary": null,
+   "sort-name": "Symphony No. 9 \"From the New World\": III. Scherzo; Molto Vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"For the New World\": III. Scherzo. Molto vivace",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"For the New World\": III. Scherzo. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": III. Molto vivace",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": III. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": III. Scherzo",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": III. Scherzo",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": III. Scherzo (Molto vivace)",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": III. Scherzo (Molto vivace)",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": III. Scherzo — Molto vivace",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": III. Scherzo — Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": III. Scherzo, molto vivace",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": III. Scherzo, molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": III. Scherzo. Molto vivace",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": III. Scherzo. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": III. Scherzo. Molto vivace – Poco sostenuto",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": III. Scherzo. Molto vivace – Poco sostenuto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": III. Scherzo: Molto vivace",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": III. Scherzo: Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": III. Scherzo: molto vivace",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": III. Scherzo: molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"New World\": III. Molto vivace",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"New World\": III. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"New World\": III. Scherzo. Molto vivace",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"New World\": III. Scherzo. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 \"The New World\": III. Molto vivace",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"The New World\": III. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95 (B. 178) \"From the New World\": III. Molto vivace",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 (B. 178) \"From the New World\": III. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "en",
+   "name": "Symphony No. 9 in E minor, Op. 95 “From the New World”: III. Scherzo. Molto vivace – Poco sostenuto",
+   "primary": true,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\": III. Scherzo. Molto vivace — Poco sostenuto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95, B. 178 \"From the New World\": III. Scherzo. Molto vivace",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95, B. 178 \"From the New World\": III. Scherzo. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95, B. 178 \"From the New World\": III. Scherzo. Molto vivace – Poco sostenuto",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95, B. 178 \"From the New World\": III. Scherzo. Molto vivace – Poco sostenuto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95: III. Scherzo. Molto vivace",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95: III. Scherzo. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9 in E minor, Op. 95: III. Scherzo. Molto vivace – Poco sostenuto",
+   "primary": null,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95: III. Scherzo. Molto vivace – Poco sostenuto",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9, Op. 95: III. Scherzo. Molto vivace",
+   "primary": null,
+   "sort-name": "Symphony No. 9, Op. 95: III. Scherzo. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No. 9: III. Scherzo. Molto vivace",
+   "primary": null,
+   "sort-name": "Symphony No. 9: III. Scherzo. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony No.9: III. Scherzo. Molto vivace",
+   "primary": null,
+   "sort-name": "Symphony No.9: III. Scherzo. Molto vivace",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Symphony, No. 9 in E minor, Op. 95 \"New World Symphony\": Scherzo molto vivace",
+   "primary": null,
+   "sort-name": "Symphony, No. 9 in E minor, Op. 95 \"New World Symphony\": Scherzo molto vivace",
+   "type": null,
+   "type-id": null
+  }
+ ],
+ "attributes": [
+  {
+   "type": "Key",
+   "type-id": "7526c19d-3be4-3420-b6cc-9fb6e49fa1a9",
+   "value": "E minor",
+   "value-id": "6107f24b-ed48-31ce-a62e-2eaf58dd6124"
+  }
+ ],
+ "disambiguation": "",
+ "id": "3acb9f1c-9a4a-4421-bcce-2ebdfbf23b00",
+ "iswcs": [],
+ "language": "zxx",
+ "languages": [
+  "zxx"
+ ],
+ "relations": [
+  {
+   "artist": {
+    "country": "CZ",
+    "disambiguation": "composer",
+    "id": "819eaeb2-8dd8-48a5-ad07-0bcd137985ef",
+    "name": "Antonín Dvořák",
+    "sort-name": "Dvořák, Antonín",
+    "type": "Person",
+    "type-id": "b6e035f4-3ce9-331c-97df-83397230b0df"
+   },
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": "1893-01-10",
+   "direction": "backward",
+   "end": "1893-05-24",
+   "ended": true,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "artist",
+   "type": "composer",
+   "type-id": "d59d99ea-23d4-4a80-b066-edca32ee158f"
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "arrangement",
+   "type-id": "51975ed8-bbfa-486b-9f28-5947f4370299",
+   "work": {
+    "attributes": [],
+    "disambiguation": "arranged for piano by Nacar",
+    "id": "d1fb5ec4-579a-4051-938f-008e43f39f79",
+    "iswcs": [],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "New World Symphony, mvt. III",
+    "type": null,
+    "type-id": null
+   }
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "arrangement",
+   "type-id": "51975ed8-bbfa-486b-9f28-5947f4370299",
+   "work": {
+    "attributes": [],
+    "disambiguation": "arr. Dvorak for piano 4 hands",
+    "id": "c0b8f1ef-3000-4c34-abe9-3afd97c3fa20",
+    "iswcs": [],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "Symfonie č. 9 e moll, op. 95 „Z Nového světa“: III. Scherzo. Molto vivace — Poco sostenuto",
+    "type": null,
+    "type-id": null
+   }
+  },
+  {
+   "attribute-ids": {
+    "movement": "1d05bc4b-9884-4c9f-9f69-616f119047f3"
+   },
+   "attribute-values": {},
+   "attributes": [
+    "movement"
+   ],
+   "begin": null,
+   "direction": "backward",
+   "end": null,
+   "ended": false,
+   "ordering-key": 3,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "parts",
+   "type-id": "ca8d3642-ce5f-49f8-91f2-125d72524e6a",
+   "work": {
+    "attributes": [],
+    "disambiguation": "",
+    "id": "aacb1ab0-c740-436a-a782-ed60026cf82b",
+    "iswcs": [
+     "T-905.029.737-5"
+    ],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "Symfonie č. 9 e moll, op. 95 „Z Nového světa“",
+    "type": "Symphony",
+    "type-id": "174314aa-0aa4-30cf-96a6-50b281d8d208"
+   }
+  }
+ ],
+ "title": "Symfonie č. 9 e moll, op. 95 „Z Nového světa“: III. Scherzo. Molto vivace — Poco sostenuto",
+ "type": null,
+ "type-id": null
+}

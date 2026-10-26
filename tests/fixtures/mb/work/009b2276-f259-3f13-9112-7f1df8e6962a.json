@@ -1,0 +1,655 @@
+{
+ "aliases": [
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "de",
+   "name": "Die Moldau",
+   "primary": false,
+   "sort-name": "Moldau, Die",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Die Moldau - Mein Vaterland",
+   "primary": null,
+   "sort-name": "Die Moldau - Mein Vaterland",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "es",
+   "name": "El Moldava",
+   "primary": false,
+   "sort-name": "Moldava, El",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "From My Fatherland (Symphonic Poems): The Moldau",
+   "primary": null,
+   "sort-name": "From My Fatherland (Symphonic Poems): The Moldau",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "From My Fatherland Symphonic Poems the Moldau",
+   "primary": null,
+   "sort-name": "From My Fatherland Symphonic Poems the Moldau",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "II. Vltava (The Moldau)",
+   "primary": null,
+   "sort-name": "II. Vltava (The Moldau)",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "La Moldau",
+   "primary": null,
+   "sort-name": "La Moldau",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "it",
+   "name": "La Moldava",
+   "primary": false,
+   "sort-name": "Moldava, La",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "fr",
+   "name": "La Moldavie",
+   "primary": false,
+   "sort-name": "Moldavie, La",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "de",
+   "name": "Mein Vaterland JB 1:112: II. Vltava - Die Moldau",
+   "primary": true,
+   "sort-name": "Mein Vaterland JB 1:112: II. Vltava - Die Moldau",
+   "type": "Work name",
+   "type-id": "a18cab3f-0ae2-3978-8f75-dd9c09702b25"
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Moldau (ilman tekstiä)",
+   "primary": null,
+   "sort-name": "Moldau (ilman tekstiä)",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Moldau: \"Ja linnoista suurin ja kaunein, ja myös vanhin, on Vyšehrad.\"",
+   "primary": null,
+   "sort-name": "Moldau: \"Ja linnoista suurin ja kaunein, ja myös vanhin, on Vyšehrad.\"",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Moldau: \"Joenpoikanen kasvaa joeksi.\"",
+   "primary": null,
+   "sort-name": "Moldau: \"Joenpoikanen kasvaa joeksi.\"",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Moldau: \"Josstain Moldaun rantametsikötä kuuluu äkkiä metsästystorven kaikuja.\"",
+   "primary": null,
+   "sort-name": "Moldau: \"Josstain Moldaun rantametsikötä kuuluu äkkiä metsästystorven kaikuja.\"",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Moldau: \"Kaikki on vaiti hiljaisessa yössä.\"",
+   "primary": null,
+   "sort-name": "Moldau: \"Kaikki on vaiti hiljaisessa yössä.\"",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Moldau: \"Kaukaa kuuluu musiikkia. Kylästä, jonka Moldau ohittaa, soivat polkan sävelet: kylässä on häät.\"",
+   "primary": null,
+   "sort-name": "Moldau: \"Kaukaa kuuluu musiikkia. Kylästä, jonka Moldau ohittaa, soivat polkan sävelet: kylässä on häät.\"",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Moldau: \"Kivenjärkäleet ja kalliot vaikeuttavat veden kulkua.\"",
+   "primary": null,
+   "sort-name": "Moldau: \"Kivenjärkäleet ja kalliot vaikeuttavat veden kulkua.\"",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Moldau: \"Lopultakin tie on audi, ja Moldau virtaa leveänä tasangolle.\"",
+   "primary": null,
+   "sort-name": "Moldau: \"Lopultakin tie on audi, ja Moldau virtaa leveänä tasangolle.\"",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Moldau: \"Moldau jättää hyvästit Prahalle.\"",
+   "primary": null,
+   "sort-name": "Moldau: \"Moldau jättää hyvästit Prahalle.\"",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Moldau: \"Moldau on virta. Se on virtaavaa vettä.\"",
+   "primary": null,
+   "sort-name": "Moldau: \"Moldau on virta. Se on virtaavaa vettä.\"",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Moldau: \"Virta alkaa lähteestään.\"",
+   "primary": null,
+   "sort-name": "Moldau: \"Virta alkaa lähteestään.\"",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Moldau: \"Vyšehradin linnan jälkeen Moldau halkaisee keseltä Tšekkoslovakian pääkaupungin.\"",
+   "primary": null,
+   "sort-name": "Moldau: \"Vyšehradin linnan jälkeen Moldau halkaisee keseltä Tšekkoslovakian pääkaupungin.\"",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Moldau: \"Yö on mennyt.\"",
+   "primary": null,
+   "sort-name": "Moldau: \"Yö on mennyt.\"",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "My Country: II. Vltava",
+   "primary": null,
+   "sort-name": "My Country: II. Vltava",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Má vlast: II. Die Moldau",
+   "primary": null,
+   "sort-name": "Má vlast: II. Die Moldau",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Sinfonische Dichtung \"Die Moldau\" / Symphonic Poem \"The Moldau\"",
+   "primary": null,
+   "sort-name": "Sinfonische Dichtung \"Die Moldau\" / Symphonic Poem \"The Moldau\"",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "en",
+   "name": "The Moldau",
+   "primary": false,
+   "sort-name": "Moldau, The",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Vltava",
+   "primary": null,
+   "sort-name": "Vltava",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Vltava (The Moldau)",
+   "primary": null,
+   "sort-name": "Vltava (The Moldau)",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Vltava (The Moldau) from \"Má Vlast (My Fatherland)\"",
+   "primary": null,
+   "sort-name": "Vltava (The Moldau) from \"Má Vlast (My Fatherland)\"",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "モルダウ",
+   "primary": null,
+   "sort-name": "モルダウ",
+   "type": null,
+   "type-id": null
+  }
+ ],
+ "attributes": [],
+ "disambiguation": "Die Moldau",
+ "id": "009b2276-f259-3f13-9112-7f1df8e6962a",
+ "iswcs": [],
+ "language": "zxx",
+ "languages": [
+  "zxx"
+ ],
+ "relations": [
+  {
+   "artist": {
+    "country": "CZ",
+    "disambiguation": "composer",
+    "id": "6eb5695e-cf7b-4b94-b441-a09901127ef9",
+    "name": "Bedřich Smetana",
+    "sort-name": "Smetana, Bedřich",
+    "type": "Person",
+    "type-id": "b6e035f4-3ce9-331c-97df-83397230b0df"
+   },
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": "1874-11-20",
+   "direction": "backward",
+   "end": "1874-12-08",
+   "ended": true,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "artist",
+   "type": "composer",
+   "type-id": "d59d99ea-23d4-4a80-b066-edca32ee158f"
+  },
+  {
+   "attribute-ids": {
+    "number": "a59c5830-5ec7-38fe-9a21-c7ea54f6650a"
+   },
+   "attribute-values": {
+    "number": "B. 111"
+   },
+   "attributes": [
+    "number"
+   ],
+   "begin": null,
+   "direction": "backward",
+   "end": null,
+   "ended": false,
+   "ordering-key": 28,
+   "series": {
+    "disambiguation": "",
+    "id": "7f48be24-0a58-4851-9683-62ab0262c459",
+    "name": "B. number catalogue by František Bartoš",
+    "type": "Catalogue",
+    "type-id": "49482ff0-fc9e-3b8c-a2d0-30e84d9df002"
+   },
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "series",
+   "type": "part of",
+   "type-id": "b0d44366-cdf0-3acb-bee6-0f65a77a6ef0"
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "arrangement",
+   "type-id": "51975ed8-bbfa-486b-9f28-5947f4370299",
+   "work": {
+    "attributes": [],
+    "disambiguation": "for baritone and orchestra",
+    "id": "3e7acfd0-5efa-4173-9bfc-70c887b4d87b",
+    "iswcs": [],
+    "language": null,
+    "languages": [],
+    "title": "Vltava",
+    "type": null,
+    "type-id": null
+   }
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "arrangement",
+   "type-id": "51975ed8-bbfa-486b-9f28-5947f4370299",
+   "work": {
+    "attributes": [],
+    "disambiguation": "catch-all for arrangements",
+    "id": "b238225f-9064-41e0-9cc0-739e13f5c4e1",
+    "iswcs": [],
+    "language": null,
+    "languages": [],
+    "title": "Má vlast: II. Vltava, JB 1:112/2 (Die Moldau)",
+    "type": "Song",
+    "type-id": "f061270a-2fd6-32f1-a641-f0f8676d14e6"
+   }
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "arrangement",
+   "type-id": "51975ed8-bbfa-486b-9f28-5947f4370299",
+   "work": {
+    "attributes": [],
+    "disambiguation": "",
+    "id": "24efd895-b5c3-4e85-998c-f4d650bcca48",
+    "iswcs": [],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "Vltava, op. 43",
+    "type": null,
+    "type-id": null
+   }
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "arrangement",
+   "type-id": "51975ed8-bbfa-486b-9f28-5947f4370299",
+   "work": {
+    "attributes": [],
+    "disambiguation": "arr. Smetana for piano 4 hands",
+    "id": "124c80af-9982-45b4-bd6a-71fe9a587ca9",
+    "iswcs": [],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "Má vlast: II. Vltava, JB 1:112/2",
+    "type": "Symphonic poem",
+    "type-id": "01ef2ab4-d58d-3ef9-b309-eef98b58435f"
+   }
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "backward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "based on",
+   "type-id": "6bb1df6b-57f3-434d-8a39-5dc363d2eb78",
+   "work": {
+    "attributes": [],
+    "disambiguation": "",
+    "id": "96234267-94ed-476a-83d7-3ee2ecc42627",
+    "iswcs": [],
+    "language": null,
+    "languages": [],
+    "title": "La Mantovana",
+    "type": null,
+    "type-id": null
+   }
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "based on",
+   "type-id": "6bb1df6b-57f3-434d-8a39-5dc363d2eb78",
+   "work": {
+    "attributes": [],
+    "disambiguation": "",
+    "id": "a7932220-dc4d-40d9-a083-58dcbb6a18f5",
+    "iswcs": [
+     "T-004.040.474-7"
+    ],
+    "language": "fra",
+    "languages": [
+     "fra"
+    ],
+    "title": "Ma rivière",
+    "type": "Song",
+    "type-id": "f061270a-2fd6-32f1-a641-f0f8676d14e6"
+   }
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "based on",
+   "type-id": "6bb1df6b-57f3-434d-8a39-5dc363d2eb78",
+   "work": {
+    "attributes": [],
+    "disambiguation": "",
+    "id": "e8a0855d-6a3a-4a3b-b436-b2607041ea5f",
+    "iswcs": [],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "Is uwe lamp wel brandend?",
+    "type": null,
+    "type-id": null
+   }
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "based on",
+   "type-id": "6bb1df6b-57f3-434d-8a39-5dc363d2eb78",
+   "work": {
+    "attributes": [],
+    "disambiguation": "",
+    "id": "7a81e34c-3840-435f-ae2f-fcb528ac6123",
+    "iswcs": [
+     "T-802.110.633-3"
+    ],
+    "language": "deu",
+    "languages": [
+     "deu"
+    ],
+    "title": "Die Blätter sind gefallen",
+    "type": "Song",
+    "type-id": "f061270a-2fd6-32f1-a641-f0f8676d14e6"
+   }
+  },
+  {
+   "attribute-ids": {
+    "part of collection": "5821a77f-f805-4c4f-beae-2fedb6ca5278"
+   },
+   "attribute-values": {},
+   "attributes": [
+    "part of collection"
+   ],
+   "begin": null,
+   "direction": "backward",
+   "end": null,
+   "ended": false,
+   "ordering-key": 2,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "parts",
+   "type-id": "ca8d3642-ce5f-49f8-91f2-125d72524e6a",
+   "work": {
+    "attributes": [],
+    "disambiguation": "My Country / My Fatherland",
+    "id": "be255a2d-85b1-4258-b78c-280e8739df95",
+    "iswcs": [],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "Má vlast, JB 1:112",
+    "type": "Symphonic poem",
+    "type-id": "01ef2ab4-d58d-3ef9-b309-eef98b58435f"
+   }
+  }
+ ],
+ "title": "Má vlast: II. Vltava, JB 1:112/2",
+ "type": "Symphonic poem",
+ "type-id": "01ef2ab4-d58d-3ef9-b309-eef98b58435f"
+}

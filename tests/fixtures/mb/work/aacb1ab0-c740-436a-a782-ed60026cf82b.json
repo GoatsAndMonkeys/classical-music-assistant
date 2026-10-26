@@ -1,0 +1,850 @@
+{
+ "aliases": [
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "en",
+   "name": "\"New World\" Symphony",
+   "primary": false,
+   "sort-name": "\"New World\" Symphony",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "en",
+   "name": "'New World' Symphony",
+   "primary": false,
+   "sort-name": "'New World' Symphony",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "nl",
+   "name": "De nieuwe wereld",
+   "primary": false,
+   "sort-name": "De nieuwe wereld",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "en",
+   "name": "From the New World",
+   "primary": false,
+   "sort-name": "From the New World",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "en",
+   "name": "New World Symphony",
+   "primary": false,
+   "sort-name": "New World Symphony",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "en",
+   "name": "New World Symphony No. 9",
+   "primary": false,
+   "sort-name": "New World Symphony No. 9",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "pt",
+   "name": "Sinfonia No 9 em Mi menor, op. 95 \"Do Novo Mundo\"",
+   "primary": true,
+   "sort-name": "Sinfonia No 9 em Mi menor, op. 95 \"Do Novo Mundo\"",
+   "type": "Work name",
+   "type-id": "a18cab3f-0ae2-3978-8f75-dd9c09702b25"
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "it",
+   "name": "Sinfonia No. 9 \"Dal nuovo mondo\"",
+   "primary": true,
+   "sort-name": "Sinfonia No. 9 \"Dal nuovo mondo\"",
+   "type": "Work name",
+   "type-id": "a18cab3f-0ae2-3978-8f75-dd9c09702b25"
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "fi",
+   "name": "Sinfonia nro 9 e-molli, op. 95 \"Uudesta maailmasta\"",
+   "primary": true,
+   "sort-name": "Sinfonia nro 9 e-molli, op. 95 \"Uudesta maailmasta\"",
+   "type": "Work name",
+   "type-id": "a18cab3f-0ae2-3978-8f75-dd9c09702b25"
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Sinfonie Nr. 9 e-Moll, Op. 95",
+   "primary": null,
+   "sort-name": "Sinfonie Nr. 9 e-Moll, Op. 95",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "de",
+   "name": "Sinfonie Nr. 9 e-Moll, Op. 95 \"Aus der Neuen Welt\"",
+   "primary": true,
+   "sort-name": "Sinfonie Nr. 9 e-Moll, Op. 95 \"Aus der Neuen Welt\"",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "es",
+   "name": "Sinfonía No. 9 \"Del Nuevo Mundo\"",
+   "primary": false,
+   "sort-name": "Sinfonía No. 9 \"Del Nuevo Mundo\"",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "es",
+   "name": "Sinfonía Nº 9 en mi menor, Op. 95 \"Del Nuevo Mundo\"",
+   "primary": true,
+   "sort-name": "Sinfonía Nº 9 en mi menor, Op. 95 \"Del Nuevo Mundo\"",
+   "type": "Work name",
+   "type-id": "a18cab3f-0ae2-3978-8f75-dd9c09702b25"
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "da",
+   "name": "Symfoni nr. 9 i E-mol, opus 95 \"Fra den nye verden\"",
+   "primary": true,
+   "sort-name": "Symfoni nr. 9 i E-mol, opus 95 \"Fra den nye verden\"",
+   "type": "Work name",
+   "type-id": "a18cab3f-0ae2-3978-8f75-dd9c09702b25"
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "nl",
+   "name": "Symfonie nr. 9 in E-mineur, Op. 95 \"Uit de nieuwe wereld\"",
+   "primary": true,
+   "sort-name": "Symfonie nr. 9 in E-mineur, Op. 95 \"Uit de nieuwe wereld\"",
+   "type": "Work name",
+   "type-id": "a18cab3f-0ae2-3978-8f75-dd9c09702b25"
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "cs",
+   "name": "Symfonie č. 9 e moll „Z Nového světa“, op. 95",
+   "primary": false,
+   "sort-name": "Symfonie č. 9 e moll „Z Nového světa“, op. 95",
+   "type": "Work name",
+   "type-id": "a18cab3f-0ae2-3978-8f75-dd9c09702b25"
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "cs",
+   "name": "Symfonie č. 9 e moll, op. 95 „Novosvětská“",
+   "primary": false,
+   "sort-name": "Symfonie č. 9 e moll, op. 95 „Novosvětská“",
+   "type": "Work name",
+   "type-id": "a18cab3f-0ae2-3978-8f75-dd9c09702b25"
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "fr",
+   "name": "Symphonie No. 9 \"Du nouveau monde\"",
+   "primary": false,
+   "sort-name": "Symphonie No. 9 \"Du nouveau monde\"",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "fr",
+   "name": "Symphonie No. 9 \"Du nouveau monde\"",
+   "primary": false,
+   "sort-name": "Symphonie No. 9 \"Du nouveau monde\"",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "de",
+   "name": "Symphonie Nr. 9 e-Moll, Op. 95 \"Aus der Neuen Welt\"",
+   "primary": false,
+   "sort-name": "Symphonie Nr. 9 e-Moll, Op. 95 \"Aus der Neuen Welt\"",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "de",
+   "name": "Symphonie Nr. 9 e-Moll, op. 95 „Aus der Neuen Welt“",
+   "primary": false,
+   "sort-name": "Symphonie Nr. 9 e-Moll, op. 95 „Aus der Neuen Welt“",
+   "type": "Work name",
+   "type-id": "a18cab3f-0ae2-3978-8f75-dd9c09702b25"
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "fr",
+   "name": "Symphonie du Nouveau Monde",
+   "primary": false,
+   "sort-name": "Symphonie du Nouveau Monde",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "fr",
+   "name": "Symphonie du Nouveau Monde (Audi)",
+   "primary": false,
+   "sort-name": "Symphonie du Nouveau Monde (Audi)",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "fr",
+   "name": "Symphonie n° 9 en mi mineur, op. 95 « Du Nouveau Monde »",
+   "primary": true,
+   "sort-name": "Symphonie n° 9 en mi mineur, op. 95 « Du Nouveau Monde »",
+   "type": "Work name",
+   "type-id": "a18cab3f-0ae2-3978-8f75-dd9c09702b25"
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": true,
+   "locale": "en",
+   "name": "Symphony No. 5 in E minor “From the New World”",
+   "primary": false,
+   "sort-name": "Symphony No. 5 in E minor “From the New World”",
+   "type": "Work name",
+   "type-id": "a18cab3f-0ae2-3978-8f75-dd9c09702b25"
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "en",
+   "name": "Symphony No. 9 \"From the New World\"",
+   "primary": false,
+   "sort-name": "Symphony No. 9 \"From the New World\"",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "en",
+   "name": "Symphony No. 9 in E minor, Op. 95",
+   "primary": false,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "en",
+   "name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\":",
+   "primary": false,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"From the New World\":",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "en",
+   "name": "Symphony No. 9 in E minor, Op. 95 \"New World\"",
+   "primary": false,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"New World\"",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "en",
+   "name": "Symphony No. 9 in E minor, Op. 95 \"New World\":",
+   "primary": false,
+   "sort-name": "Symphony No. 9 in E minor, Op. 95 \"New World\":",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "en",
+   "name": "Symphony no. 9 in E minor, op. 95 “From the New World”",
+   "primary": true,
+   "sort-name": "Symphony no. 9 in E minor, op. 95 “From the New World”",
+   "type": "Work name",
+   "type-id": "a18cab3f-0ae2-3978-8f75-dd9c09702b25"
+  }
+ ],
+ "attributes": [
+  {
+   "type": "Key",
+   "type-id": "7526c19d-3be4-3420-b6cc-9fb6e49fa1a9",
+   "value": "E minor",
+   "value-id": "6107f24b-ed48-31ce-a62e-2eaf58dd6124"
+  },
+  {
+   "type": "JASRAC ID",
+   "type-id": "31048fcc-3dbb-3979-8f85-805afb933e0c",
+   "value": "0O5-2907-1"
+  }
+ ],
+ "disambiguation": "",
+ "id": "aacb1ab0-c740-436a-a782-ed60026cf82b",
+ "iswcs": [
+  "T-905.029.737-5"
+ ],
+ "language": "zxx",
+ "languages": [
+  "zxx"
+ ],
+ "relations": [
+  {
+   "artist": {
+    "country": "CZ",
+    "disambiguation": "composer",
+    "id": "819eaeb2-8dd8-48a5-ad07-0bcd137985ef",
+    "name": "Antonín Dvořák",
+    "sort-name": "Dvořák, Antonín",
+    "type": "Person",
+    "type-id": "b6e035f4-3ce9-331c-97df-83397230b0df"
+   },
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": "1893-01-10",
+   "direction": "backward",
+   "end": "1893-05-24",
+   "ended": true,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "artist",
+   "type": "composer",
+   "type-id": "d59d99ea-23d4-4a80-b066-edca32ee158f"
+  },
+  {
+   "attribute-ids": {
+    "number": "a59c5830-5ec7-38fe-9a21-c7ea54f6650a"
+   },
+   "attribute-values": {
+    "number": "B. 178"
+   },
+   "attributes": [
+    "number"
+   ],
+   "begin": null,
+   "direction": "backward",
+   "end": null,
+   "ended": false,
+   "ordering-key": 150,
+   "series": {
+    "disambiguation": "Burghauser [B.]",
+    "id": "58f99ba1-56e1-481b-b5c1-4fc360522745",
+    "name": "Antonín Dvořák: Thematický katalog",
+    "type": "Catalogue",
+    "type-id": "49482ff0-fc9e-3b8c-a2d0-30e84d9df002"
+   },
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "series",
+   "type": "part of",
+   "type-id": "b0d44366-cdf0-3acb-bee6-0f65a77a6ef0"
+  },
+  {
+   "attribute-ids": {
+    "number": "a59c5830-5ec7-38fe-9a21-c7ea54f6650a"
+   },
+   "attribute-values": {
+    "number": "7"
+   },
+   "attributes": [
+    "number"
+   ],
+   "begin": null,
+   "direction": "backward",
+   "end": null,
+   "ended": false,
+   "ordering-key": 7,
+   "series": {
+    "disambiguation": "2021",
+    "id": "083834a2-f667-46fb-9669-119031be8292",
+    "name": "Classic 100: The Music You Can't Live Without",
+    "type": "Work series",
+    "type-id": "b689f694-6305-3d78-954d-df6759a1877b"
+   },
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "series",
+   "type": "part of",
+   "type-id": "b0d44366-cdf0-3acb-bee6-0f65a77a6ef0"
+  },
+  {
+   "attribute-ids": {
+    "number": "a59c5830-5ec7-38fe-9a21-c7ea54f6650a"
+   },
+   "attribute-values": {
+    "number": "op. 95"
+   },
+   "attributes": [
+    "number"
+   ],
+   "begin": null,
+   "direction": "backward",
+   "end": null,
+   "ended": false,
+   "ordering-key": 104,
+   "series": {
+    "disambiguation": "",
+    "id": "441a96b5-6201-4a44-aeb2-694bf5b6f77d",
+    "name": "Works of Antonín Dvořák by opus number",
+    "type": "Catalogue",
+    "type-id": "49482ff0-fc9e-3b8c-a2d0-30e84d9df002"
+   },
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "series",
+   "type": "part of",
+   "type-id": "b0d44366-cdf0-3acb-bee6-0f65a77a6ef0"
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "arrangement",
+   "type-id": "51975ed8-bbfa-486b-9f28-5947f4370299",
+   "work": {
+    "attributes": [],
+    "disambiguation": "catch-all for arrangements",
+    "id": "02256196-6b05-48e1-8ae0-40baf04d8a93",
+    "iswcs": [],
+    "language": null,
+    "languages": [],
+    "title": "Symfonie č. 9 e moll, op. 95 „Z Nového světa“",
+    "type": null,
+    "type-id": null
+   }
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "arrangement",
+   "type-id": "51975ed8-bbfa-486b-9f28-5947f4370299",
+   "work": {
+    "attributes": [],
+    "disambiguation": "arranged for piano by Nacar",
+    "id": "90379c91-2dce-4ba4-9900-dd32763ee0b4",
+    "iswcs": [],
+    "language": null,
+    "languages": [],
+    "title": "Symphony no. 9 in E minor, Op. 95 “From the New World”",
+    "type": null,
+    "type-id": null
+   }
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "arrangement",
+   "type-id": "51975ed8-bbfa-486b-9f28-5947f4370299",
+   "work": {
+    "attributes": [],
+    "disambiguation": "arr. Dvorak for piano 4 hands",
+    "id": "f511929a-07d0-498d-8207-406cec48fa50",
+    "iswcs": [],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "Symfonie č. 9 e moll, op. 95 „Z Nového světa“",
+    "type": "Symphony",
+    "type-id": "174314aa-0aa4-30cf-96a6-50b281d8d208"
+   }
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "based on",
+   "type-id": "6bb1df6b-57f3-434d-8a39-5dc363d2eb78",
+   "work": {
+    "attributes": [],
+    "disambiguation": "",
+    "id": "b3a778bc-2017-4aa7-ab11-ef3a8cf5d0f0",
+    "iswcs": [
+     "T-041.027.715-4"
+    ],
+    "language": "eng",
+    "languages": [
+     "eng"
+    ],
+    "title": "Canción para un nuevo mundo",
+    "type": "Song",
+    "type-id": "f061270a-2fd6-32f1-a641-f0f8676d14e6"
+   }
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "based on",
+   "type-id": "6bb1df6b-57f3-434d-8a39-5dc363d2eb78",
+   "work": {
+    "attributes": [],
+    "disambiguation": "",
+    "id": "6c1ab3ba-3db0-4140-9a5d-8550929dd369",
+    "iswcs": [
+     "T-909.701.592-4"
+    ],
+    "language": "jpn",
+    "languages": [
+     "jpn"
+    ],
+    "title": "新世界",
+    "type": "Song",
+    "type-id": "f061270a-2fd6-32f1-a641-f0f8676d14e6"
+   }
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "based on",
+   "type-id": "6bb1df6b-57f3-434d-8a39-5dc363d2eb78",
+   "work": {
+    "attributes": [],
+    "disambiguation": "second version, with orchestra, ~9min",
+    "id": "1372e632-ec2a-4825-b8e1-89ca12e62e02",
+    "iswcs": [],
+    "language": "eng",
+    "languages": [
+     "eng"
+    ],
+    "title": "Hiawatha Melodrama",
+    "type": null,
+    "type-id": null
+   }
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "based on",
+   "type-id": "6bb1df6b-57f3-434d-8a39-5dc363d2eb78",
+   "work": {
+    "attributes": [],
+    "disambiguation": "first version, tape",
+    "id": "0198e165-a934-4e74-a9f5-f6987c81f416",
+    "iswcs": [],
+    "language": "eng",
+    "languages": [
+     "eng"
+    ],
+    "title": "Hiawatha Melodrama",
+    "type": null,
+    "type-id": null
+   }
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "based on",
+   "type-id": "6bb1df6b-57f3-434d-8a39-5dc363d2eb78",
+   "work": {
+    "attributes": [],
+    "disambiguation": "third version, with orchestra, ~30min",
+    "id": "fb4ea491-0ec0-4739-8b88-85e31ea9cb15",
+    "iswcs": [],
+    "language": "eng",
+    "languages": [
+     "eng"
+    ],
+    "title": "Hiawatha Melodrama",
+    "type": null,
+    "type-id": null
+   }
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "other version",
+   "type-id": "7440b539-19ab-4243-8c03-4f5942ca2218",
+   "work": {
+    "attributes": [],
+    "disambiguation": "",
+    "id": "235ce4a1-86fa-3fa6-8532-62eba6d965ca",
+    "iswcs": [],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "America",
+    "type": "Song",
+    "type-id": "f061270a-2fd6-32f1-a641-f0f8676d14e6"
+   }
+  },
+  {
+   "attribute-ids": {
+    "movement": "1d05bc4b-9884-4c9f-9f69-616f119047f3"
+   },
+   "attribute-values": {},
+   "attributes": [
+    "movement"
+   ],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "ordering-key": 1,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "parts",
+   "type-id": "ca8d3642-ce5f-49f8-91f2-125d72524e6a",
+   "work": {
+    "attributes": [],
+    "disambiguation": "",
+    "id": "aec2489b-051c-4892-8df5-6c601877e5f6",
+    "iswcs": [],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "Symfonie č. 9 e moll, op. 95 „Z Nového světa“: I. Adagio — Allegro molto",
+    "type": null,
+    "type-id": null
+   }
+  },
+  {
+   "attribute-ids": {
+    "movement": "1d05bc4b-9884-4c9f-9f69-616f119047f3"
+   },
+   "attribute-values": {},
+   "attributes": [
+    "movement"
+   ],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "ordering-key": 2,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "parts",
+   "type-id": "ca8d3642-ce5f-49f8-91f2-125d72524e6a",
+   "work": {
+    "attributes": [],
+    "disambiguation": "",
+    "id": "8596e5aa-85e1-4f76-907f-ea02aee39ea3",
+    "iswcs": [],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "Symfonie č. 9 e moll, op. 95 „Z Nového světa“: II. Largo",
+    "type": null,
+    "type-id": null
+   }
+  },
+  {
+   "attribute-ids": {
+    "movement": "1d05bc4b-9884-4c9f-9f69-616f119047f3"
+   },
+   "attribute-values": {},
+   "attributes": [
+    "movement"
+   ],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "ordering-key": 3,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "parts",
+   "type-id": "ca8d3642-ce5f-49f8-91f2-125d72524e6a",
+   "work": {
+    "attributes": [],
+    "disambiguation": "",
+    "id": "3acb9f1c-9a4a-4421-bcce-2ebdfbf23b00",
+    "iswcs": [],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "Symfonie č. 9 e moll, op. 95 „Z Nového světa“: III. Scherzo. Molto vivace — Poco sostenuto",
+    "type": null,
+    "type-id": null
+   }
+  },
+  {
+   "attribute-ids": {
+    "movement": "1d05bc4b-9884-4c9f-9f69-616f119047f3"
+   },
+   "attribute-values": {},
+   "attributes": [
+    "movement"
+   ],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "ordering-key": 4,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "parts",
+   "type-id": "ca8d3642-ce5f-49f8-91f2-125d72524e6a",
+   "work": {
+    "attributes": [],
+    "disambiguation": "",
+    "id": "3ac97fc0-6b66-413f-8cba-7ea5803697b3",
+    "iswcs": [],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "Symfonie č. 9 e moll, op. 95 „Z Nového světa“: IV. Allegro con fuoco",
+    "type": null,
+    "type-id": null
+   }
+  }
+ ],
+ "title": "Symfonie č. 9 e moll, op. 95 „Z Nového světa“",
+ "type": "Symphony",
+ "type-id": "174314aa-0aa4-30cf-96a6-50b281d8d208"
+}

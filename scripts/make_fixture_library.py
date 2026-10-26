@@ -8,6 +8,8 @@ files with no classical tags at all. Albums:
     karajan_5_7/     FLAC, full Picard: Beethoven Symphonies 5 & 7, Karajan/BPO, recorded 1962
     kleiber_5/       MP3, ID3 TIT1/MVNM/MVIN/TPE3: Beethoven 5, Kleiber/VPO, rec. 1974, released 1995
     marriner_40/     M4A, ©wrk/©mvn/©mvi atoms: Mozart Symphony 40, Marriner/ASMF, no recording date
+    bohm_40/         MP3, Mozart Symphony 40 again (Böhm/BPO, rec. 1976): merges with marriner_40 by tags
+    kertesz_9/       FLAC, MBID-only: real MusicBrainz recording ids (Dvořák 9, Kertész/VPO), plain titles
     bare_brahms/     FLAC, bare titles only ("Symphony No. 1 in C minor, Op. 68: I. Un poco sostenuto")
     opera_2cd/       FLAC, a two-disc opera whose movement numbers continue across discs
     takes_box/       FLAC, one work with an alternate take of the finale (must split)
@@ -89,10 +91,10 @@ def tag_mp3(path: Path, t: dict[str, str | list[str]]) -> None:
         id3.add(MVNM(encoding=3, text=t["movementname"]))
     if "movement" in t:
         id3.add(MVIN(encoding=3, text=f"{t['movement']}/{t.get('movementtotal', '')}".rstrip("/")))
-    for key in ("performer", "originaldate", "musicbrainz_workid"):
+    for key in ("performer", "originaldate", "recordingdate", "musicbrainz_workid"):
         if key in t:
             desc = {"musicbrainz_workid": "MusicBrainz Work Id", "originaldate": "originaldate",
-                    "performer": "PERFORMER"}[key]
+                    "recordingdate": "RECORDINGDATE", "performer": "PERFORMER"}[key]
             id3.add(TXXX(encoding=3, desc=desc, text=t[key]))
     id3.save(path)
 
@@ -135,26 +137,25 @@ def albums() -> list[dict]:
 
     # 1. full Picard tags, two works on one album
     tracks = []
-    for wi, (work, movs, wid) in enumerate([
-        ("Symphony No. 5 in C minor, Op. 67", SYM5, "c4a3a9f7-0000-4000-8000-000000000005"),
-        ("Symphony No. 7 in A major, Op. 92", SYM7, "c4a3a9f7-0000-4000-8000-000000000007"),
-    ]):
+    for work, movs in [
+        ("Symphony No. 5 in C minor, Op. 67", SYM5),
+        ("Symphony No. 7 in A major, Op. 92", SYM7),
+    ]:
         for mi, mov in enumerate(movs):
             tracks.append({
                 "title": f"{work}: {ROMAN[mi]}. {mov}", "work": work, "movementname": mov,
                 "movement": str(mi + 1), "movementtotal": str(len(movs)),
-                "musicbrainz_workid": wid,
                 "composer": "Ludwig van Beethoven", "conductor": "Herbert von Karajan",
                 "performer": ["Berliner Philharmoniker (orchestra)"],
                 "artist": "Herbert von Karajan; Berliner Philharmoniker",
             })
     out.append({"dir": "karajan_5_7", "codec": "flac", "album": "Beethoven: Symphonies Nos. 5 & 7",
-                "albumartist": "Herbert von Karajan", "date": "2002", "originaldate": "1962",
+                "albumartist": "Herbert von Karajan", "date": "2002", "recordingdate": "1962",
                 "tracks": tracks})
 
-    # 2. ID3 movement frames; release 1995, recorded 1974 (originaldate)
+    # 2. ID3 movement frames; release 1995, recorded March 1974
     out.append({"dir": "kleiber_5", "codec": "mp3", "album": "Beethoven: Symphony No. 5",
-                "albumartist": "Carlos Kleiber", "date": "1995", "originaldate": "1974",
+                "albumartist": "Carlos Kleiber", "date": "1995", "recordingdate": "1974-03",
                 "tracks": [{
                     "title": f"Symphony No. 5 in C minor, Op. 67: {ROMAN[i]}. {m}",
                     "work": "Symphony No. 5 in C minor, Op. 67", "movementname": m,
@@ -174,6 +175,28 @@ def albums() -> list[dict]:
                     "composer": "Wolfgang Amadeus Mozart", "conductor": "Neville Marriner",
                     "artist": "Academy of St Martin in the Fields, Neville Marriner",
                 } for i, m in enumerate(SYM40)]})
+
+    # 3b. the same work by tags on another album, no MBIDs: auto-merge rule (2) with marriner_40
+    out.append({"dir": "bohm_40", "codec": "mp3", "album": "Mozart: Symphonies 40 & 41",
+                "albumartist": "Karl Böhm", "date": "1990", "recordingdate": "1976",
+                "tracks": [{
+                    "title": f"Symphony No. 40 in G minor, K. 550: {ROMAN[i]}. {m}",
+                    "work": "Symphony No. 40 in G minor, K. 550", "movementname": m,
+                    "movement": str(i + 1), "movementtotal": "4",
+                    "composer": "Wolfgang Amadeus Mozart", "conductor": "Karl Böhm",
+                    "performer": "Berliner Philharmoniker (orchestra)",
+                    "artist": "Berliner Philharmoniker, Karl Böhm",
+                } for i, m in enumerate(SYM40)]})
+
+    # 3c. MBID-only: real MusicBrainz recording ids (CC0), no work/composer tags (Tier 2)
+    kertesz = [("e26123d1-0cc0-4394-9e95-c1ea14a7e826", "I. Adagio – Allegro molto"),
+               ("d50d21e7-aefe-4ff0-87e3-f20ce9d202ec", "II. Largo"),
+               ("c8146592-e7d4-473f-936e-d2d39e045ccd", "III. Scherzo – Molto vivace"),
+               ("e531bd3c-8584-4fab-b031-ff1231324f7b", "IV. Allegro con fuoco")]
+    out.append({"dir": "kertesz_9", "codec": "flac", "album": "Dvořák: Symphony No. 9 \u201cFrom the New World\u201d",
+                "albumartist": "István Kertész", "date": "1999",
+                "tracks": [{"title": name, "musicbrainz_trackid": rid, "artist": "Wiener Philharmoniker, István Kertész"}
+                           for rid, name in kertesz]})
 
     # 4. bare titles: composer only in the artist field (Tier 3, composer authority list)
     out.append({"dir": "bare_brahms", "codec": "flac", "album": "Brahms: Symphony No. 1",
@@ -201,7 +224,7 @@ def albums() -> list[dict]:
     movs = ["Allegro", "Adagio", "Rondo. Allegro", "Rondo. Allegro (alternate take)"]
     nums = [1, 2, 3, 3]
     out.append({"dir": "takes_box", "codec": "flac", "album": "Haydn: Trumpet Concerto (session takes)",
-                "albumartist": "Wynton Marsalis", "date": "2004", "originaldate": "1982",
+                "albumartist": "Wynton Marsalis", "date": "2004", "recordingdate": "1982",
                 "tracks": [{
                     "title": f"Trumpet Concerto in E-flat major, Hob. VIIe:1: {ROMAN[n - 1]}. {m}",
                     "work": "Trumpet Concerto in E-flat major, Hob. VIIe:1", "movementname": m,
@@ -245,8 +268,9 @@ def build(out_dir: Path, seconds: float) -> int:
             tags.setdefault("album", album["album"])
             tags.setdefault("albumartist", album["albumartist"])
             tags.setdefault("date", album["date"])
-            if "originaldate" in album:
-                tags.setdefault("originaldate", album["originaldate"])
+            for k in ("originaldate", "recordingdate"):
+                if k in album:
+                    tags.setdefault(k, album[k])
             tags.setdefault("tracknumber", str(per_disc[disc]))
             ext = codec
             path = out_dir / album["dir"] / f"{i + 1:02d}.{ext}"

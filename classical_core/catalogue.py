@@ -32,7 +32,7 @@ _CAT = re.compile(
     rf"(?<![a-z0-9'’])(?P<ns>{_NS_ALT})\.?\s*"
     r"(?P<num>(?:[ivxlc]+[a-z]?\s*:\s*)?\d+[a-z]?(?:\s*[/.]\s*\d+[a-z]?)*)"
     r"(?P<nos>(?:\s*,?\s*(?:no|nr|n°|num)\.?\s*\d+[a-z]?)*)",
-    re.I,
+    re.IGNORECASE,
 )
 
 
@@ -66,7 +66,7 @@ def parse_catalogues(text: str | None) -> list[Catalogue]:
         ns = _NAMESPACES[raw_ns]
         before = s[: m.start()].rstrip()
         # "in D 960" is a catalogue, "in D, Op." is not reached (no digits); "No. 5 in B 1" is a key
-        if len(raw_ns) == 1 and re.search(r"\bin$", before) and not m.group(0)[1:2] == ".":
+        if len(raw_ns) == 1 and re.search(r"\bin$", before) and m.group(0)[1:2] != ".":
             continue
         num = re.sub(r"\s+", "", m.group("num"))
         head_parts = [num]
@@ -102,8 +102,8 @@ def catalogues_conflict(a: list[Catalogue], b: list[Catalogue]) -> bool:
 
 # ---- keys ----------------------------------------------------------------------------------------------
 
-_KEY_EN = re.compile(r"\bin\s+([a-g])(?:[\s-]*(flat|sharp|♭|♯))?(?:\s+(major|minor))?\b", re.I)
-_KEY_DE = re.compile(r"\b([a-h])(is|es|s)?[\s-](dur|moll)\b", re.I)
+_KEY_EN = re.compile(r"\bin\s+([a-g])(?:[\s-]*(flat|sharp|♭|♯))?(?:\s+(major|minor))?\b", re.IGNORECASE)
+_KEY_DE = re.compile(r"\b([a-h])(is|es|s)?[\s-](dur|moll)\b", re.IGNORECASE)
 
 
 def parse_key(text: str | None) -> str | None:

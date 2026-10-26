@@ -8,6 +8,7 @@ numbers (the method of MA discussion #6151), which also covers localized titles 
 
 from __future__ import annotations
 
+import itertools
 import re
 from dataclasses import dataclass
 
@@ -21,7 +22,7 @@ _ROMAN = {"i": 1, "ii": 2, "iii": 3, "iv": 4, "v": 5, "vi": 6, "vii": 7, "viii":
 # not a movement, in a work title like "Symphony No. 2")
 _MOVEMENT = re.compile(
     r"^\s*(?:(?:mvt\.?|movement|satz)\s*)?(?P<num>[ivxlc]{1,6}|\d{1,2})\s*(?:[.)]|\s-\s|:)\s*(?P<name>\S.*)$",
-    re.I,
+    re.IGNORECASE,
 )
 # separators between work and movement, strongest first. ": " needs the space so "Hob. I:104" survives.
 _SEPARATORS = (re.compile(r":\s+"), re.compile(r"\s+[-–—]\s+"), re.compile(r"\s+/\s+"))
@@ -107,7 +108,7 @@ def shared_prefix_runs(titles: list[str], min_len: int = 8) -> list[tuple[int, i
         while j + 1 < len(titles) and titles[j + 1].startswith(cut):
             nums.append(_after_number(titles[j + 1], cut))
             j += 1
-        if all(n is not None for n in nums) and all(b > a for a, b in zip(nums, nums[1:], strict=False)):
+        if all(n is not None for n in nums) and all(b > a for a, b in itertools.pairwise(nums)):
             runs.append((i, j + 1, cut.rstrip(" :,-–—/")))
             i = j + 1
         else:

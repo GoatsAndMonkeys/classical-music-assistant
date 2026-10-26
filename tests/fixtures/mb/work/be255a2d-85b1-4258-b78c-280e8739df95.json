@@ -1,0 +1,386 @@
+{
+ "aliases": [
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "fr",
+   "name": "Ma patrie",
+   "primary": false,
+   "sort-name": "Ma patrie",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "de",
+   "name": "Mein Vaterland",
+   "primary": true,
+   "sort-name": "Mein Vaterland",
+   "type": "Work name",
+   "type-id": "a18cab3f-0ae2-3978-8f75-dd9c09702b25"
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "en",
+   "name": "My Country",
+   "primary": false,
+   "sort-name": "My Country",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "en",
+   "name": "My Fatherland",
+   "primary": false,
+   "sort-name": "My Fatherland",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "en",
+   "name": "My Homeland",
+   "primary": false,
+   "sort-name": "My Homeland",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "en",
+   "name": "My Land",
+   "primary": false,
+   "sort-name": "My Land",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": null,
+   "name": "Má Vlast",
+   "primary": null,
+   "sort-name": "Má Vlast",
+   "type": null,
+   "type-id": null
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "cs",
+   "name": "Má vlast",
+   "primary": false,
+   "sort-name": "Má vlast",
+   "type": "Work name",
+   "type-id": "a18cab3f-0ae2-3978-8f75-dd9c09702b25"
+  },
+  {
+   "begin": null,
+   "end": null,
+   "ended": false,
+   "locale": "ru",
+   "name": "Моя Родина",
+   "primary": false,
+   "sort-name": "Моя Родина",
+   "type": null,
+   "type-id": null
+  }
+ ],
+ "attributes": [],
+ "disambiguation": "My Country / My Fatherland",
+ "id": "be255a2d-85b1-4258-b78c-280e8739df95",
+ "iswcs": [],
+ "language": "zxx",
+ "languages": [
+  "zxx"
+ ],
+ "relations": [
+  {
+   "artist": {
+    "country": "CZ",
+    "disambiguation": "composer",
+    "id": "6eb5695e-cf7b-4b94-b441-a09901127ef9",
+    "name": "Bedřich Smetana",
+    "sort-name": "Smetana, Bedřich",
+    "type": "Person",
+    "type-id": "b6e035f4-3ce9-331c-97df-83397230b0df"
+   },
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": "1874",
+   "direction": "backward",
+   "end": "1879",
+   "ended": true,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "artist",
+   "type": "composer",
+   "type-id": "d59d99ea-23d4-4a80-b066-edca32ee158f"
+  },
+  {
+   "attribute-ids": {
+    "number": "a59c5830-5ec7-38fe-9a21-c7ea54f6650a"
+   },
+   "attribute-values": {
+    "number": "JB 1:112"
+   },
+   "attributes": [
+    "number"
+   ],
+   "begin": null,
+   "direction": "backward",
+   "end": null,
+   "ended": false,
+   "ordering-key": 47,
+   "series": {
+    "disambiguation": "",
+    "id": "a704107c-72fb-4d8f-8b1d-7b593d8aa880",
+    "name": "Tematický katalog skladeb Bedřicha Smetany",
+    "type": "Catalogue",
+    "type-id": "49482ff0-fc9e-3b8c-a2d0-30e84d9df002"
+   },
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "series",
+   "type": "part of",
+   "type-id": "b0d44366-cdf0-3acb-bee6-0f65a77a6ef0"
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "arrangement",
+   "type-id": "51975ed8-bbfa-486b-9f28-5947f4370299",
+   "work": {
+    "attributes": [],
+    "disambiguation": "arr. Smetana for piano 4 hands",
+    "id": "a4012d70-ad7d-4318-b554-82a998cc4c81",
+    "iswcs": [],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "Má vlast, JB 1:112",
+    "type": "Symphonic poem",
+    "type-id": "01ef2ab4-d58d-3ef9-b309-eef98b58435f"
+   }
+  },
+  {
+   "attribute-ids": {
+    "part of collection": "5821a77f-f805-4c4f-beae-2fedb6ca5278"
+   },
+   "attribute-values": {},
+   "attributes": [
+    "part of collection"
+   ],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "ordering-key": 6,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "parts",
+   "type-id": "ca8d3642-ce5f-49f8-91f2-125d72524e6a",
+   "work": {
+    "attributes": [],
+    "disambiguation": "",
+    "id": "4bf2dbd1-d985-38bc-b51a-8fa64ae47f26",
+    "iswcs": [],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "Má vlast: VI. Blaník, JB 1:112/6",
+    "type": "Symphonic poem",
+    "type-id": "01ef2ab4-d58d-3ef9-b309-eef98b58435f"
+   }
+  },
+  {
+   "attribute-ids": {
+    "part of collection": "5821a77f-f805-4c4f-beae-2fedb6ca5278"
+   },
+   "attribute-values": {},
+   "attributes": [
+    "part of collection"
+   ],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "ordering-key": 5,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "parts",
+   "type-id": "ca8d3642-ce5f-49f8-91f2-125d72524e6a",
+   "work": {
+    "attributes": [],
+    "disambiguation": "",
+    "id": "ded037f8-7c60-3224-8817-0d72d36032c3",
+    "iswcs": [],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "Má vlast: V. Tábor, JB 1:112/5",
+    "type": "Symphonic poem",
+    "type-id": "01ef2ab4-d58d-3ef9-b309-eef98b58435f"
+   }
+  },
+  {
+   "attribute-ids": {
+    "part of collection": "5821a77f-f805-4c4f-beae-2fedb6ca5278"
+   },
+   "attribute-values": {},
+   "attributes": [
+    "part of collection"
+   ],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "ordering-key": 4,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "parts",
+   "type-id": "ca8d3642-ce5f-49f8-91f2-125d72524e6a",
+   "work": {
+    "attributes": [],
+    "disambiguation": "From Bohemia's Woods and Fields",
+    "id": "8136e383-c7f9-350f-8fce-8043450b4e5b",
+    "iswcs": [],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "Má vlast: IV. Z českých luhů a hájů, JB 1:112/4",
+    "type": "Symphonic poem",
+    "type-id": "01ef2ab4-d58d-3ef9-b309-eef98b58435f"
+   }
+  },
+  {
+   "attribute-ids": {
+    "part of collection": "5821a77f-f805-4c4f-beae-2fedb6ca5278"
+   },
+   "attribute-values": {},
+   "attributes": [
+    "part of collection"
+   ],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "ordering-key": 3,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "parts",
+   "type-id": "ca8d3642-ce5f-49f8-91f2-125d72524e6a",
+   "work": {
+    "attributes": [],
+    "disambiguation": "",
+    "id": "7d54882d-fa67-3c2b-9a77-0008408a30ad",
+    "iswcs": [],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "Má vlast: III. Šárka, JB 1:112/3",
+    "type": "Symphonic poem",
+    "type-id": "01ef2ab4-d58d-3ef9-b309-eef98b58435f"
+   }
+  },
+  {
+   "attribute-ids": {
+    "part of collection": "5821a77f-f805-4c4f-beae-2fedb6ca5278"
+   },
+   "attribute-values": {},
+   "attributes": [
+    "part of collection"
+   ],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "ordering-key": 2,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "parts",
+   "type-id": "ca8d3642-ce5f-49f8-91f2-125d72524e6a",
+   "work": {
+    "attributes": [],
+    "disambiguation": "Die Moldau",
+    "id": "009b2276-f259-3f13-9112-7f1df8e6962a",
+    "iswcs": [],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "Má vlast: II. Vltava, JB 1:112/2",
+    "type": "Symphonic poem",
+    "type-id": "01ef2ab4-d58d-3ef9-b309-eef98b58435f"
+   }
+  },
+  {
+   "attribute-ids": {
+    "part of collection": "5821a77f-f805-4c4f-beae-2fedb6ca5278"
+   },
+   "attribute-values": {},
+   "attributes": [
+    "part of collection"
+   ],
+   "begin": null,
+   "direction": "forward",
+   "end": null,
+   "ended": false,
+   "ordering-key": 1,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "parts",
+   "type-id": "ca8d3642-ce5f-49f8-91f2-125d72524e6a",
+   "work": {
+    "attributes": [],
+    "disambiguation": "",
+    "id": "013b1dc2-6f9d-32a3-a6de-943f76cfba60",
+    "iswcs": [],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "Má vlast: I. Vyšehrad, JB 1:112/1",
+    "type": "Symphonic poem",
+    "type-id": "01ef2ab4-d58d-3ef9-b309-eef98b58435f"
+   }
+  }
+ ],
+ "title": "Má vlast, JB 1:112",
+ "type": "Symphonic poem",
+ "type-id": "01ef2ab4-d58d-3ef9-b309-eef98b58435f"
+}

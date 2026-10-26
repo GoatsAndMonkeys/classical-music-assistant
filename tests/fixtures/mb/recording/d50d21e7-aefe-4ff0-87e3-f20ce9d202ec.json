@@ -1,0 +1,129 @@
+{
+ "disambiguation": "",
+ "first-release-date": "1969",
+ "id": "d50d21e7-aefe-4ff0-87e3-f20ce9d202ec",
+ "length": 710000,
+ "relations": [
+  {
+   "artist": {
+    "country": null,
+    "disambiguation": "Decca engineer, 1960s",
+    "id": "1a04c478-a260-401d-acdf-ecd5951d3bc9",
+    "name": "James Brown",
+    "sort-name": "Brown, James",
+    "type": "Person",
+    "type-id": "b6e035f4-3ce9-331c-97df-83397230b0df"
+   },
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": "1961-03-22",
+   "direction": "backward",
+   "end": "1961-03-24",
+   "ended": true,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "artist",
+   "type": "balance",
+   "type-id": "0748fa55-56b5-4ad5-8ce8-15b97f82a0c2"
+  },
+  {
+   "artist": {
+    "country": "HU",
+    "disambiguation": "conductor",
+    "id": "6a42216a-f3cd-4710-9e6e-c00d6cd2fbb1",
+    "name": "István Kertész",
+    "sort-name": "Kertész, István",
+    "type": "Person",
+    "type-id": "b6e035f4-3ce9-331c-97df-83397230b0df"
+   },
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": "1961-03-22",
+   "direction": "backward",
+   "end": "1961-03-24",
+   "ended": true,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "artist",
+   "type": "conductor",
+   "type-id": "234670ce-5f22-4fd0-921b-ef1662695c5d"
+  },
+  {
+   "artist": {
+    "country": "AT",
+    "disambiguation": "",
+    "id": "d770374d-05e9-4ed3-a068-3fbd4e6e4dd6",
+    "name": "Wiener Philharmoniker",
+    "sort-name": "Wiener Philharmoniker",
+    "type": "Orchestra",
+    "type-id": "a0b36c92-3eb1-3839-a4f9-4799823f54a5"
+   },
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": "1961-03-22",
+   "direction": "backward",
+   "end": "1961-03-24",
+   "ended": true,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "artist",
+   "type": "performing orchestra",
+   "type-id": "3b6616c5-88ba-4341-b4ee-81ce1e6d7ebb"
+  },
+  {
+   "artist": {
+    "country": "GB",
+    "disambiguation": "record producer",
+    "id": "b05e5740-0b2f-4353-8ecc-a6101b9763cb",
+    "name": "Ray Minshull",
+    "sort-name": "Minshull, Ray",
+    "type": "Person",
+    "type-id": "b6e035f4-3ce9-331c-97df-83397230b0df"
+   },
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": null,
+   "direction": "backward",
+   "end": null,
+   "ended": false,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "artist",
+   "type": "producer",
+   "type-id": "5c0ceac3-feb4-41f0-868d-dc06f6e27fc0"
+  },
+  {
+   "attribute-ids": {},
+   "attribute-values": {},
+   "attributes": [],
+   "begin": "1961-03-22",
+   "direction": "forward",
+   "end": "1961-03-24",
+   "ended": true,
+   "source-credit": "",
+   "target-credit": "",
+   "target-type": "work",
+   "type": "performance",
+   "type-id": "a3005666-a872-32c3-ad06-98af558e99b0",
+   "work": {
+    "attributes": [],
+    "disambiguation": "",
+    "id": "8596e5aa-85e1-4f76-907f-ea02aee39ea3",
+    "iswcs": [],
+    "language": "zxx",
+    "languages": [
+     "zxx"
+    ],
+    "title": "Symfonie č. 9 e moll, op. 95 „Z Nového světa“: II. Largo",
+    "type": null,
+    "type-id": null
+   }
+  }
+ ],
+ "title": "Symphony no. 9 in E minor, op. 95 “New World”: II. Largo",
+ "video": false
+}

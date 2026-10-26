@@ -67,17 +67,17 @@ def surname(name: str, particles: bool = True) -> str:
 
 def sort_name(name: str, kind: str = "person") -> str:
     if kind != "person":
-        return fold(re.sub(r"^(the|der|die|das|le|la|les|il|l')\s+", "", name, flags=re.I))
+        return fold(re.sub(r"^(the|der|die|das|le|la|les|il|l')\s+", "", name, flags=re.IGNORECASE))
     sn = surname(name, particles=False)
     return fold(f"{sn} {name}")
 
 
-ENSEMBLE_ROLE = re.compile(r"\b(orchestra|chorus|choir|ensemble|band|quartet|trio|quintet|consort)\b", re.I)
+ENSEMBLE_ROLE = re.compile(r"\b(orchestra|chorus|choir|ensemble|band|quartet|trio|quintet|consort)\b", re.IGNORECASE)
 ENSEMBLE_NAME = re.compile(
     r"\b(orchestra|orchestre|orchester|orquesta|orchestr\w*|philharmoni\w*|symphony|sinfonia|sinfonietta|"
     r"chorus|choir|chor|coro|choeur|chœur|singers|ensemble|quartet|quartett|quatuor|trio|quintet|consort|"
     r"band|staatskapelle|kapelle|camerata|players|academy of|filarmonica|capella)\b",
-    re.I,
+    re.IGNORECASE,
 )
 
 
