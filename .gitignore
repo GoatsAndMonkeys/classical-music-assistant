@@ -1,0 +1,24 @@
+# reference clones and planning material stay local (they contain machine-specific paths)
+ref/
+research/
+review-astra-*
+PLAN.md
+err.txt
+# local config / secrets
+local.env
+*.env
+!*.env.example
+# build and runtime
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+docker/data/
+docker/data-*/
+docker/library/
+artifacts/
+*.err
