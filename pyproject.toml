@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "classical-music-assistant"
+version = "0.1.0"
+description = "Classical-music index (composer / work / recording) for Music Assistant: the provider's core package"
+requires-python = ">=3.12"
+# No install dependencies on purpose (PLAN.md §7): MA installs this wheel into its own venv, and the code
+# uses only the stdlib plus aiohttp and mutagen, which MA already ships.
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8", "mutagen>=1.47", "aiohttp>=3.9"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["classical_core"]
+
+[tool.hatch.build.targets.sdist]
+include = ["classical_core"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"

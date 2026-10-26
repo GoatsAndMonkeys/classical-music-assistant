@@ -399,7 +399,25 @@ class Index:
 
     # -- album indexing --
 
-    async def index_album(self, album: AlbumIn, force: bool = False) -> AlbumStats:
+    def album_signature(self, album_id: str) -> str | None:
+        r = self._one("SELECT signature FROM album_info WHERE album_library_id=?", (album_id,))
+        return r[0] if r else None
+
+    def _retry_due(self, album: AlbumIn) -> bool:
+        keys = [(m.provider_instance, m.item_id) for t in album.tracks for m in t.mappings]
+        now = time.time()
+        for pi, item in keys:
+            r = self._one("SELECT status, retry_after FROM mapping_state WHERE provider_instance=? AND item_id=?",
+                          (pi, item))
+            if r and r["status"] == "read_error" and (r["retry_after"] or 0) <= now:
+                return True
+        return False
+
+    async def index_album(self, album: AlbumIn, force: bool = False) -> AlbumStats | None:
+        """Index one album. Returns None when nothing changed since the last run (and not forced)."""
+        sig = album_signature(album)
+        if not force and self.album_signature(album.library_album_id) == sig and not self._retry_due(album):
+            return None
         stats = AlbumStats()
         self.con.execute(
             "INSERT INTO album_info(album_library_id, name, artist, year, image_json, indexed_at) VALUES (?,?,?,?,?,?) "
@@ -433,6 +451,8 @@ class Index:
         try:
             self._sync_occurrences(album.library_album_id, tracks)
             self._derive_album(album, tracks, stats)
+            self.con.execute("UPDATE album_info SET signature=? WHERE album_library_id=?",
+                             (sig, album.library_album_id))
             self.con.execute("COMMIT")
         except BaseException:
             self.con.execute("ROLLBACK")
@@ -1017,6 +1037,17 @@ class Index:
             "mappings": {r[0]: r[1] for r in self._q("SELECT status, COUNT(*) FROM mapping_state GROUP BY status")},
             "evidence_live": n("SELECT COUNT(*) FROM evidence WHERE retracted_at IS NULL"),
         }
+
+
+def album_signature(album: AlbumIn) -> str:
+    """What an album's indexing depends on from MA's side; unchanged signature = nothing to do."""
+    import hashlib
+
+    data = [album.name, album.artist, album.year, album.image,
+            sorted([t.library_track_id, t.disc, t.position, t.title, t.artist, t.duration, t.mbid,
+                    sorted([m.provider_instance, m.item_id, m.fingerprint, m.path is not None, m.available]
+                           for m in t.mappings)] for t in album.tracks)]
+    return hashlib.sha1(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()
 
 
 def _fmt_duration(sec: int) -> str:

@@ -53,7 +53,7 @@ CREATE TABLE mapping_state (
 );
 CREATE INDEX mapping_state_track ON mapping_state(library_track_id);
 CREATE TABLE provider_seen (provider_instance TEXT PRIMARY KEY,
-                            state TEXT NOT NULL CHECK (state IN ('configured', 'removal_pending', 'removed')),
+                            state TEXT NOT NULL CHECK (state IN ('configured', 'unavailable', 'removal_pending', 'removed')),
                             last_change REAL);
 CREATE TABLE job (id TEXT PRIMARY KEY, kind TEXT NOT NULL, scope TEXT NOT NULL, cursor TEXT,
                   state TEXT NOT NULL, started_at REAL, error TEXT);
@@ -93,5 +93,6 @@ CREATE TABLE review_item (id TEXT PRIMARY KEY, reason TEXT NOT NULL, album_libra
                           entity TEXT, entity_id TEXT, detail_json TEXT NOT NULL);
 CREATE INDEX review_item_album ON review_item(album_library_id);
 CREATE TABLE album_info (album_library_id TEXT PRIMARY KEY, name TEXT, artist TEXT, year INTEGER, image_json TEXT,
-                         ambiguous INTEGER NOT NULL DEFAULT 0, indexed_at REAL);
+                         ambiguous INTEGER NOT NULL DEFAULT 0, indexed_at REAL,
+                         signature TEXT);
 CREATE TABLE track_info (library_track_id TEXT PRIMARY KEY, title TEXT, artist TEXT, duration INTEGER);
