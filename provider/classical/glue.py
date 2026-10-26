@@ -15,6 +15,8 @@ import time
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
+from music_assistant.controllers.webserver.helpers.auth_middleware import get_current_user
+from music_assistant.models.plugin import PluginProvider
 from music_assistant_models.auth import Scope
 from music_assistant_models.config_entries import ConfigEntry
 from music_assistant_models.enums import ConfigEntryType, EventType, MediaType, ProviderFeature
@@ -28,9 +30,6 @@ from music_assistant_models.media_items import (
     Track,
     UniqueList,
 )
-
-from music_assistant.controllers.webserver.helpers.auth_middleware import get_current_user
-from music_assistant.models.plugin import PluginProvider
 
 from classical_core import __version__ as CORE_VERSION
 from classical_core import browse as tree
@@ -356,7 +355,7 @@ class ClassicalProvider(PluginProvider):
         if user is None:
             return None
         try:
-            from music_assistant.helpers.provider_access import visible_music_sources  # noqa: PLC0415
+            from music_assistant.helpers.provider_access import visible_music_sources
         except ImportError:  # 2.10.x: the per-user provider filter, empty = all
             return list(user.provider_filter) or None
         return visible_music_sources(self.mass, user)
@@ -468,7 +467,7 @@ class ClassicalProvider(PluginProvider):
                  "browse_path": f"{tree.SCHEME}works/{r['work_id']}/{r['id']}",
                  "play_uri": tree.play_uri(r["work_id"], r["id"])} for r in hits]
 
-    async def cmd_composer(self, id: str | None = None, name: str | None = None) -> dict[str, Any]:  # noqa: A002
+    async def cmd_composer(self, id: str | None = None, name: str | None = None) -> dict[str, Any]:
         """One composer (by id or name) with their works by type."""
         vis = self._vis()
         comp = None

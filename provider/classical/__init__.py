@@ -13,11 +13,10 @@ from typing import TYPE_CHECKING
 from music_assistant_models.errors import SetupFailedError
 
 if TYPE_CHECKING:
-    from music_assistant_models.config_entries import ProviderConfig
-    from music_assistant_models.provider import ProviderManifest
-
     from music_assistant.mass import MusicAssistant
     from music_assistant.models import ProviderInstanceType
+    from music_assistant_models.config_entries import ProviderConfig
+    from music_assistant_models.provider import ProviderManifest
 
 # MA versions whose image digests passed the provider tests (docker/compose.dev.yml pins them)
 TESTED_VERSIONS = frozenset({"2.10.8", "2.11.0.dev2026102604"})
@@ -35,6 +34,6 @@ async def setup(
             f"{', '.join(sorted(TESTED_VERSIONS))}. Set {ENV_ALLOW_UNTESTED}=1 to load it anyway."
         )
         raise SetupFailedError(msg)
-    from .glue import SUPPORTED_FEATURES, ClassicalProvider  # noqa: PLC0415 - version-specific glue
+    from .glue import SUPPORTED_FEATURES, ClassicalProvider
 
     return ClassicalProvider(mass, manifest, config, SUPPORTED_FEATURES)
