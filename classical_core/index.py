@@ -991,6 +991,60 @@ class Index:
             f"AND {self._VIS_OCC}", {"wid": self.resolve("work", wid), **self._vis(vis)})
         return [dict(r) for r in rows]
 
+    def occurrence_track(self, oid: str) -> str | None:
+        r = self._one("SELECT library_track_id FROM occurrence WHERE id=? AND present=1", (oid,))
+        return r[0] if r else None
+
+    def album_ids(self) -> list[str]:
+        return [r[0] for r in self._q("SELECT album_library_id FROM album_info ORDER BY album_library_id")]
+
+    def albums_of_track(self, library_track_id: str) -> list[str]:
+        return [r[0] for r in self._q("SELECT DISTINCT album_library_id FROM occurrence WHERE library_track_id=?",
+                                      (library_track_id,))]
+
+    def recently_added_works(self, vis=None, limit: int = 20) -> list[dict]:
+        works = self.works(vis=vis)
+        works.sort(key=lambda w: self._one("SELECT created_at FROM work WHERE id=?", (w["id"],))[0], reverse=True)
+        return works[:limit]
+
+    # -- provider presence (§5.6) --
+
+    def provider_instances(self) -> list[str]:
+        return [r[0] for r in self._q("SELECT provider_instance FROM mapping_state UNION "
+                                      "SELECT provider_instance FROM provider_seen")]
+
+    def provider_state(self, pi: str) -> str | None:
+        r = self._one("SELECT state FROM provider_seen WHERE provider_instance=?", (pi,))
+        return r[0] if r else None
+
+    def set_provider_state(self, pi: str, state: str) -> bool:
+        """Record a provider instance's presence; returns True when it changed."""
+        if self.provider_state(pi) == state:
+            return False
+        self.con.execute("INSERT INTO provider_seen(provider_instance, state, last_change) VALUES (?,?,?) "
+                         "ON CONFLICT(provider_instance) DO UPDATE SET state=excluded.state, "
+                         "last_change=excluded.last_change", (pi, state, time.time()))
+        return True
+
+    def retract_provider(self, pi: str) -> list[str]:
+        """Final removal of a provider instance: every mapping of it is gone and its evidence retracted.
+        Returns the albums to re-derive (their signature is cleared so the next index pass runs)."""
+        albums = [r[0] for r in self._q(
+            "SELECT DISTINCT o.album_library_id FROM mapping_state m JOIN occurrence o "
+            "ON o.library_track_id=m.library_track_id WHERE m.provider_instance=? AND m.status<>'gone'", (pi,))]
+        self.con.execute("BEGIN IMMEDIATE")
+        try:
+            for r in self._q("SELECT item_id FROM mapping_state WHERE provider_instance=? AND status<>'gone'", (pi,)):
+                self.mark_gone(pi, r[0])
+            self.con.execute("UPDATE album_info SET signature=NULL WHERE album_library_id IN "
+                             "(SELECT value FROM json_each(?))", (json.dumps(albums),))
+            self.set_provider_state(pi, "removed")
+            self.con.execute("COMMIT")
+        except BaseException:
+            self.con.execute("ROLLBACK")
+            raise
+        return albums
+
     def review(self, vis=None) -> list[dict]:
         rows = self._q(
             "SELECT v.* FROM review_item v WHERE v.album_library_id IS NULL OR EXISTS (SELECT 1 FROM occurrence o "

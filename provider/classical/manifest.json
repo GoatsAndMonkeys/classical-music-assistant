@@ -1,0 +1,13 @@
+{
+  "type": "plugin",
+  "domain": "classical",
+  "stage": "experimental",
+  "name": "Classical",
+  "description": "Browse your library the classical way: composers, works and recordings, built from file tags, MusicBrainz and titles.",
+  "codeowners": [],
+  "requirements": ["classical-music-assistant==0.1.0"],
+  "documentation": "",
+  "multi_instance": false,
+  "builtin": false,
+  "icon": "music-clef-treble"
+}
