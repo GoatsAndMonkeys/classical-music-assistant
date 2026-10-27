@@ -125,7 +125,7 @@ def test_albums_view_sorts(lib):
 
 
 def test_browse_albums_under_each_composer(lib):
-    assert [n.name for n in tree.browse(lib.ix, "")] == ["Composers", "Works", "Albums", "Review"]
+    assert [n.name for n in tree.browse(lib.ix, "")] == ["Composers", "Works", "Albums", "Review queue (for curators)"]
     for name in (BACH, MOZART, RIMSKY):
         cpath = f"composers/{lib.cid(name)}"
         folders = tree.browse(lib.ix, cpath)

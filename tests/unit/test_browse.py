@@ -20,7 +20,8 @@ def names(nodes):
 
 def test_root_and_composer_walk(idx):
     root = tree.browse(idx, "")
-    assert names(root) == ["Composers", "Works", "Albums", "Review"]
+    assert names(root) == ["Composers", "Works", "Albums", "Review queue (for curators)"]
+    assert [n.sort_name for n in root] == sorted(n.sort_name for n in root), "review stays last when sorted"
     comps = tree.browse(idx, "composers")
     beet = next(n for n in comps if n.name == "Ludwig van Beethoven")
     assert beet.path.startswith("composers/c_") and "2 works" in beet.version
