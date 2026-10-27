@@ -1,0 +1,11 @@
+{
+  "name": "Classical",
+  "short_name": "Classical",
+  "description": "Browse a classical library in Music Assistant by composer, work and performer.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f4ef",
+  "theme_color": "#7a2e2a",
+  "icons": [{"src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}]
+}

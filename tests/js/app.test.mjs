@@ -1,0 +1,131 @@
+// Pure helpers of the companion UI (provider/classical/web/app.js): node --test tests/js/
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
+
+const require = createRequire(import.meta.url);
+const APP = new URL("../../provider/classical/web/app.js", import.meta.url);
+const app = require(APP.pathname);
+
+const rec = (id, o = {}) => ({ id, label: id, who: o.who || id, year: o.year ?? null, year_kind: o.kind ?? null,
+  decade: o.year ? Math.floor(o.year / 10) * 10 : null, release_year: o.rel ?? null, duration: o.dur || 0,
+  album: o.album || "", credits: o.credits || [],
+  play_uri: `classical://folder/works/w/${id}`, movements: o.movements });
+
+test("hash routes parse and format round-trip", () => {
+  assert.deepEqual(app.parseHash("#/work/w_1?scope=p_1%2Cp_2&q=a+b"),
+    { path: ["work", "w_1"], query: { scope: "p_1,p_2", q: "a b" } });
+  assert.deepEqual(app.parseHash(""), { path: [], query: {} });
+  assert.equal(app.formatHash(["work", "w 1"], { scope: "p_1", q: "", x: null }), "#/work/w%201?scope=p_1");
+  const h = app.formatHash(["performers", "soloists"], { with: "p_9", q: "Bö" });
+  assert.deepEqual(app.parseHash(h), { path: ["performers", "soloists"], query: { with: "p_9", q: "Bö" } });
+  assert.deepEqual(app.parseHash("#/x/%E0%A4%A"), { path: ["x", "%E0%A4%A"], query: {} });
+});
+
+test("the login code is taken and stripped from the URL", () => {
+  const t = app.takeCode("http://ma:8095/classical/?code=abc.def&x=1#/work/w_1");
+  assert.equal(t.code, "abc.def");
+  assert.equal(t.url, "http://ma:8095/classical/?x=1#/work/w_1");
+  const u = app.takeCode("http://ma:8095/classical/?code=jwt");
+  assert.equal(u.url, "http://ma:8095/classical/");
+  assert.equal(app.takeCode("http://ma:8095/classical/#/").code, null);
+});
+
+test("durations, life dates and year labels", () => {
+  assert.equal(app.fmtDuration(0), "0:00");
+  assert.equal(app.fmtDuration(65), "1:05");
+  assert.equal(app.fmtDuration(3725), "1:02:05");
+  assert.equal(app.lifeDates("1770-12-17", "1827"), "1770–1827");
+  assert.equal(app.lifeDates("1950", null), "b. 1950");
+  assert.equal(app.lifeDates(null, null), "");
+  assert.equal(app.yearText({ year: 1963, year_kind: "recorded" }), "1963");
+  assert.equal(app.yearText({ year: 2010, year_kind: "released" }), "rel. 2010");
+  assert.equal(app.yearText({ year: null }), "");
+});
+
+test("focus filters: people, decade, text, performer scope with SHOW ALL", () => {
+  const kar = { id: "p_kar", name: "Herbert von Karajan", role: "conductor", group: "conductors" };
+  const bph = { id: "p_bph", name: "Berliner Philharmoniker", role: "orchestra", group: "orchestras" };
+  const bohm = { id: "p_bohm", name: "Karl Böhm", role: "conductor", group: "conductors" };
+  const recs = [
+    rec("r1", { year: 1963, kind: "recorded", credits: [kar, bph] }),
+    rec("r2", { year: 1977, kind: "recorded", credits: [kar, bph] }),
+    rec("r3", { year: 2010, kind: "released", rel: 2010, credits: [bohm, bph], album: "Live in Wien" }),
+  ];
+  const ids = (f) => app.filterRecordings(recs, f).map((r) => r.id);
+  assert.deepEqual(ids({}), ["r1", "r2", "r3"]);
+  assert.deepEqual(ids({ people: { conductors: "p_kar" } }), ["r1", "r2"]);
+  assert.deepEqual(ids({ people: { conductors: "p_bohm", orchestras: "p_bph" } }), ["r3"]);
+  assert.deepEqual(ids({ decade: 1960 }), ["r1"]);
+  assert.deepEqual(ids({ decade: 2010 }), [], "a release year is not a recording decade");
+  assert.deepEqual(ids({ rel_decade: 2010 }), ["r3"]);
+  assert.deepEqual(ids({ q: "bohm wien" }), ["r3"], "accent-insensitive, every word");
+  assert.deepEqual(ids({ scope: ["p_kar"] }), ["r1", "r2"]);
+  assert.deepEqual(ids({ scope: ["p_kar"], all: true }), ["r1", "r2", "r3"]);
+  assert.deepEqual(ids({ scope: ["p_kar", "p_bph"] }), ["r1", "r2"]);
+});
+
+test("sorting is stable and puts unknowns last", () => {
+  const recs = [rec("a", { year: 1990, dur: 100, who: "Zed" }), rec("b", { dur: 300, who: "Abbado" }),
+    rec("c", { year: 1960, dur: 200, who: "Muti" })];
+  const ids = (k) => app.sortRecordings(recs, k).map((r) => r.id);
+  assert.deepEqual(ids(""), ["a", "b", "c"]);
+  assert.deepEqual(ids("year"), ["c", "a", "b"]);
+  assert.deepEqual(ids("year_desc"), ["a", "c", "b"]);
+  assert.deepEqual(ids("performer"), ["b", "c", "a"]);
+  assert.deepEqual(ids("duration"), ["b", "c", "a"]);
+});
+
+test("credits group by bucket, soloists show their instrument", () => {
+  const g = app.creditGroups([
+    { id: "s", name: "Anne-Sophie Mutter", role: "violin", instrument: "violin", group: "soloists" },
+    { id: "k", name: "Karajan", role: "conductor", group: "conductors" },
+    { id: "k", name: "Karajan", role: "conductor", group: "conductors" },
+    { id: "x", name: "Someone", role: "performer", group: "other" },
+  ]);
+  assert.deepEqual(g.map((x) => x.group), ["conductors", "soloists", "other"]);
+  assert.deepEqual(g[0].people, [{ id: "k", name: "Karajan", role: "" }]);
+  assert.equal(g[1].people[0].role, "violin");
+  assert.equal(g[2].people[0].role, "");
+});
+
+test("A-Z groups follow the server's letters", () => {
+  const g = app.byLetter([{ letter: "B", name: "Bach" }, { letter: "B", name: "Barber" }, { letter: "M" }]);
+  assert.deepEqual(g.map((x) => [x.letter, x.items.length]), [["B", 2], ["M", 1]]);
+});
+
+test("Play whole work sends the folder with shuffle off; play-from and queue options send track URIs", () => {
+  const movements = [1, 2, 3].map((n) => ({ track_uri: `library://track/${n}` }));
+  const r = rec("r1", { movements });
+  assert.deepEqual(app.playArgs("q1", r), { queue_id: "q1", media: r.play_uri, option: "replace", shuffle: false });
+  assert.deepEqual(app.playArgs("q1", r, 1),
+    { queue_id: "q1", media: ["library://track/2", "library://track/3"], option: "replace", shuffle: false });
+  const add = app.playArgs("q1", r, 0, "add");
+  assert.deepEqual(add.media, movements.map((m) => m.track_uri));
+  assert.equal("shuffle" in add, false, "MA ignores shuffle for add/next");
+  assert.equal(app.playArgs("q1", rec("r2"), 0, "next").media, "classical://folder/works/w/r2");
+});
+
+test("player preselection", () => {
+  const ps = [{ player_id: "a" }, { player_id: "b", available: false }];
+  assert.equal(app.choosePlayer(ps, null), "a", "the only available player");
+  assert.equal(app.choosePlayer(ps, "b"), "a", "a saved player that went away is not kept");
+  assert.equal(app.choosePlayer([{ player_id: "a" }, { player_id: "c" }], "c"), "c");
+  assert.equal(app.choosePlayer([{ player_id: "a" }, { player_id: "c" }], null), null);
+});
+
+test("errors and image URLs", () => {
+  assert.match(app.errorText(403, "This command requires the library_manage scope"), /can't do this/);
+  assert.match(app.errorText(404, ""), /Not found/);
+  assert.equal(app.errorText(500, "boom"), "boom");
+  assert.equal(app.imageSrc("imageproxy/abc123?size=256"), "../imageproxy/abc123?size=256");
+  assert.equal(app.imageSrc("javascript:alert(1)"), null);
+  assert.equal(app.imageSrc("https://evil/x.png"), null);
+  assert.equal(app.imageSrc(null), null);
+});
+
+test("the script never parses data as HTML", () => {
+  const src = readFileSync(APP, "utf8");
+  assert.doesNotMatch(src, /innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function/);
+});
