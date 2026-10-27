@@ -21,14 +21,14 @@ Not used: any scraping of review sites, the Penguin Guide (no public list), and 
 
 ## The bundled dataset
 
-There are 2086 entries in 73 categories (312 KB):
+There are 2110 entries in 73 categories (308 KB):
 
 | Award | Entries |
 |---|---|
 | Grammy winners (7 classical categories, 1959 onwards; years are ceremony years) | 272 |
-| Grammy nominees (same categories) | 1211 |
-| Gramophone Award winners (recording categories only; artist/label/lifetime awards dropped) | 500 |
-| Diapason d'Or de l'Année winners | 103 |
+| Grammy nominees (same categories; a nominee row that repeats the winner is dropped) | 1244 |
+| Gramophone Award winners (recording categories only; artist/label/lifetime awards dropped) | 501 |
+| Diapason d'Or de l'Année winners (from 2014 a line can hold several awards; one the parser cannot split is dropped) | 93 |
 
 The rows are `[id, category, year, result, composer, work, performers, label?]`. `categories[i]` gives the
 award, the category, its source (an index into `sources`), its Wikipedia URL, and `historical` for
@@ -58,17 +58,20 @@ each indexed recording of the same composer (by surname), using these facts:
   Each entry performer is matched by surname, and the given name must not conflict ("C. Kleiber" fits
   "Carlos Kleiber" but not "Erich Kleiber"). Ensembles are matched by their distinctive words, and choruses
   only to choruses. A **contradiction** rejects the match outright: a different conductor, or a different
-  orchestra, named where the entry names one.
+  orchestra, credited where the entry names one. A different name in an artist string only (no credit role),
+  while an entry performer is missing, makes the match `uncertain` at best.
 - **Years.** Each award has a window for the album's year: Grammy `[year-3, year]`, Gramophone
   `[year-2, year]`, Diapason `[year-1, year]`. A recording made after the award year is never a match. Neither
-  is one made more than 10 years before it, except in historical categories.
+  is one made more than 10 years before it, except in historical categories. A known session more than two
+  years before the window (a reissue of an older recording, or the artists' earlier version) is `uncertain` at
+  best, again except in historical categories.
 
 The result is one of four grades:
 
 | Grade | When | Shown as |
 |---|---|---|
 | `this_release` | exact work, ≥ 2 performers (or the single named performer in full), the principal performer present, album year in the window | the badge, e.g. "Grammy winner 1963" |
-| `other_release` | the same, but the album is a later reissue: recorded in or just before the window, released after it, and ≥ 3 performers, the label or the recording year confirm it | the badge, marked and noted "awarded to another release of this recording (1962)" |
+| `other_release` | the same, but the album is a later reissue: recorded in or just before the window, released after it. The session year must fit; a matching label or a long cast list is not enough, since the same artists often re-recorded a work for the same label | the badge, marked and noted "awarded to another release of this recording (1962)" |
 | `confirmed` | a user chose "Same recording" in the review queue | the badge, noted "match confirmed by a user" |
 | `uncertain` | some evidence (principal performer or ≥ 2 performers), not enough | **nothing**; a review item "Possible award: is this the awarded recording?" with the reasons |
 
@@ -76,7 +79,9 @@ User decisions ("Same recording" / "Not this recording") are stored per entry, a
 reindexing. Rejected matches are never proposed again.
 
 Entries that cover several works ("Symphonies 5 & 7") attach to the album, not a recording. That happens only
-on `this_release` with ≥ 2 performers, and the badge is noted "for the album". Network rows are album-level
+on `this_release` with ≥ 2 performers, when every work the entry names by this composer is on the album (each
+number of a numbered plural; at least two works for an unnumbered one such as "Symphonies"). The badge is
+noted "for the album" and shows only on the album's recordings that matched one of those works. Network rows are album-level
 as well. They count toward a recording's acclaim only when the album holds exactly one recording.
 
 ## Weighting and the Play pick

@@ -101,12 +101,19 @@ def split_work(t: str) -> tuple[str | None, str]:
 
 
 def grammy_people(s: str) -> list[str]:
+    # a role in brackets ends a name ('Karajan (conductor) Franco Corelli' lacks the comma in the source)
+    s = re.sub(r"\((?:conductors?|cd) of (?:the )?([^()]*)\)", r", \1", s)
+    s = re.sub(r"\((?:conductors?|cd|soloists?|main artist|ensembles?|orchestra|accompanists?|pianist|"
+               r"chorus masters?|choirs?|chorus(?:es)?|choir directors?|chorus director|musician|mixer)\)", ",", s)
+    s = re.sub(r"\(\s*with\s+(?:the\s+)?([^()]*)\)", r", \1", s)
     s = re.sub(r"[;,]?\s*[^;,]*?,\s*producers?\b", "", s)
     s = re.sub(r"[;,]?\s*[^;,()]*\((?:[^)]*producer[^)]*|[^)]*engineer[^)]*)\)", "", s)
     s = re.sub(r"\((?:producers?|conductor|engineer[^)]*|soloists?|[^)]*producer[^)]*)\)", "", s)
     out = []
     for p in re.split(r",|;|&| and | conducting (?:the )?", s):
         p = re.sub(r"\b(conductor|producers?|choir director|chorus master)\b", "", p).strip(" .-–")
+        if p.count("(") != p.count(")"):  # a bracket split across names is noise, not part of a name
+            p = re.sub(r"\(\s*(?:conductors?|cd)?\s*|\)", "", p).strip()
         if p and len(p) < 80:
             out.append(p)
     return out
@@ -121,14 +128,24 @@ def parse_grammy(wiki: pathlib.Path) -> list[dict]:
             if not m:
                 continue
             year, body = int(m.group(1)), row[m.end():]
+            end = body.find("\n|}")                      # the last row runs into the table's end
+            body = body[:end] if end >= 0 else body
             sd = body.find("{{smalldiv")
+            if sd < 0:                                    # newer rows: the nominees are a plain bullet list
+                bm = re.search(r"\n\s*\*", body)
+                sd = bm.start() if bm else -1
             head, noms = (body[:sd], body[sd:]) if sd >= 0 else (body, "")
             cells = [c.strip() for c in re.split(r"\n\|", head) if c.strip() and not c.strip().startswith("style")]
             work_i = next((i for i, c in enumerate(cells) if re.match(r"^\s*(''|\")", c)), None)
             if work_i is None:
                 continue
-            comp, work = split_work(grammy_unlink(cells[work_i]))
-            perf = [p for i, c in enumerate(cells) if i != work_i for p in grammy_people(grammy_unlink(c))]
+            wc = grammy_unlink(cells[work_i])
+            extra: list[str] = []
+            pm = re.match(r"^(.*'')\s*\(([^()]*)\)\s*$", wc)   # ''Smyth: The Prison'' (Experiential Chorus ...)
+            if pm:
+                wc, extra = pm.group(1), grammy_people(pm.group(2))
+            comp, work = split_work(wc)
+            perf = [p for i, c in enumerate(cells) if i != work_i for p in grammy_people(grammy_unlink(c))] + extra
             res.append({"award": "Grammy", "category": cat, "year": year, "result": "winner", "composer": comp, "work": work,
                             "performers": perf})
             for line in re.findall(r"\n\s*\*(.*)", noms):
@@ -147,6 +164,7 @@ def parse_grammy(wiki: pathlib.Path) -> list[dict]:
 def parse_gramophone(wiki: pathlib.Path) -> list[dict]:
     txt = (wiki / file_name(GRAMOPHONE)).read_text()
     res = []
+    txt = re.sub(r"\n(?=\|\|)", " ", txt)          # a row continued on the next line ('|| ...')
     for sec in re.split(r"\n==[^=]", txt)[1:]:
         hm = re.search(r"\n! Category(.*)", sec)
         if not hm:
@@ -170,6 +188,40 @@ def parse_gramophone(wiki: pathlib.Path) -> list[dict]:
     return res
 
 
+MEDIA = r"\((?:\d+\s+)?(?i:CD|SACD|DVD|Blu-ray)[^)]*\)\.?"
+
+
+def diapason_new(line: str, year: int) -> list[dict]:
+    """From 2014 a line is a category, then one or more 'Composer: Work, performers. Label (CD).' awards.
+    Performers are the comma parts from the first one with a link or a '(role)'; a part before them is the work."""
+    m = re.match(r"[^:\[]{2,60}:\s*(.*)$", line)
+    if not m:
+        return []
+    out = []
+    body = re.sub(MEDIA, lambda x: x.group(0).rstrip(".") + "\x00", m.group(1))
+    # a new award also starts at 'Composer:' after a full stop (the later years give no label)
+    body = re.sub(r"\.\s+(?=(?:\[\[)?[A-ZÀ-Ž][^,:.()\[\]\x00]{1,40}(?:\]\])?\s?:)", ".\x00", body)
+    for seg in body.split("\x00"):
+        seg = seg.strip()
+        label = None
+        lm = re.search(r"\.\s+([^.,\[\]]{2,40}?)\s*" + MEDIA + r"\s*$", seg)
+        if lm:
+            label, seg = lm.group(1), seg[:lm.start()]
+        seg = re.sub(MEDIA + r"\s*$", "", seg).strip(" .")
+        cm = re.match(r"([A-ZÀ-Ž][^,:\[\]\"]{1,40}?)\s*(?::|\s[–-]\s)\s*(.*)$", seg)
+        if not cm:
+            continue
+        parts = [p.strip() for p in re.split(r",\s+|;\s+|\.\s+(?=\[\[)", cm.group(2)) if p.strip()]
+        first = next((i for i, p in enumerate(parts) if "[[" in p or re.search(r"\([a-z]", p)), None)
+        if not first or any(":" in p for p in parts[first:]):  # no performer, or a second award run in: unsure
+            continue
+        parts[first] = re.sub(r"^Artists include\s+", "", parts[first])
+        out.append({"award": "Diapason d'Or de l'Année", "category": None, "year": year, "result": "winner",
+                    "composer": cm.group(1).strip(), "work": unlink(", ".join(parts[:first])),
+                    "performers": [unlink(re.sub(r"^Sir\s+", "", p)) for p in parts[first:]], "label": label})
+    return out
+
+
 def parse_diapason(wiki: pathlib.Path) -> list[dict]:
     res, year = [], None
     for line in (wiki / file_name(DIAPASON)).read_text().splitlines():
@@ -181,6 +233,9 @@ def parse_diapason(wiki: pathlib.Path) -> list[dict]:
             year = None
             continue
         if not (year and line.startswith("*")):
+            continue
+        if year >= 2014:  # 'Category: Composer: Work, performers. Label (CD). Next award ...'
+            res += diapason_new(line.lstrip("* "), year)
             continue
         s = re.sub(r"^(DVD|Historical|Concerto Award)\s*[–-]?\s*", "", unlink(line[1:]).strip())
         m = re.match(r"(.{3,120}?)\s*[:;]\s*(.*)$", s)
@@ -211,7 +266,10 @@ def entry(r: dict) -> dict | None:
     perf = [p for p in dict.fromkeys(clean(p) for p in r["performers"]) if p and len(p) > 2 and not re.search(r"\d", p)]
     if not r.get("composer") or not r.get("work") or not perf:
         return None
-    comp, work = clean(r["composer"]), clean(r["work"])
+    comp, work = clean(r["composer"]), clean(r["work"].replace("''", ""))
+    # wikitext the parsers could not take apart (a nominee list run into a row, a template's end): drop the row
+    if any(re.search(r"''|[{}*|]|==", x) for x in [r["composer"], *perf]):
+        return None
     if len(comp.split()) > 4 or re.search(r"\d|complete|works|vol\b", comp, re.IGNORECASE) or len(work) < 3:
         return None
     e = {"aw": r["award"], "cat": r.get("category"), "y": r["year"], "res": r["result"], "comp": comp, "work": work,
@@ -234,6 +292,13 @@ def category_url(award: str, category: str, source: int) -> str:
 def build(wiki: pathlib.Path) -> tuple[str, list[dict]]:
     raw = parse_grammy(wiki) + [r for r in parse_gramophone(wiki) if not SKIP.search(r["category"] or "")]
     out = [e for e in map(entry, raw + parse_diapason(wiki)) if e]
+    # newer Grammy lists name the winner among the nominees too: keep it once, as the winner
+    wp = {(e["cat"], e["y"], e["comp"], e["work"]): set(e["perf"]) for e in out
+          if e["aw"] == "Grammy" and e["res"] == "winner"}
+    out = [e for e in out if not (e["aw"] == "Grammy" and e["res"] == "nominee"
+                                  and (e["cat"], e["y"], e["comp"], e["work"]) in wp
+                                  and (set(e["perf"]) & wp[(e["cat"], e["y"], e["comp"], e["work"])]
+                                       or not e["perf"]))]
     ids = [e["id"] for e in out]
     assert len(ids) == len(set(ids)), "duplicate entry ids"
     cats = sorted({(e["aw"], e["cat"] or "", e["src"], e["hist"]) for e in out})
