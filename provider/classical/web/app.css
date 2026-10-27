@@ -390,3 +390,29 @@ select.input {
 .box-rec { gap: 8px; padding-right: 6px; }
 .box-rec .row-main { color: inherit; text-decoration: none; }
 .section h2 a { color: inherit; }
+
+/* ---- liner notes (work and performer pages) ---- */
+
+.notes-about p { margin: 0 0 10px; font-family: var(--serif); font-size: 17px; line-height: 1.55; }
+.notes-about.clamp { max-height: calc(17px * 1.55 * 6); overflow: hidden; }
+.notes > .link-btn { margin: 2px 0 0; font-size: 13px; }
+.notes-facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; margin: 12px 0; font-size: 14px; }
+.notes-facts dt { color: var(--muted); }
+.notes-facts dd { margin: 0; overflow-wrap: anywhere; }
+.notes-moves > summary, .guide > summary { cursor: pointer; font-weight: 600; font-size: 14px; padding: 6px 0; }
+.notes-moves ol { margin: 4px 0 8px; padding-left: 26px; font-size: 15px; }
+.notes-moves li { margin: 2px 0; overflow-wrap: anywhere; }
+.notes-src a, .bio-body a { color: var(--accent); }
+.bios { display: grid; gap: 8px; }
+@media (min-width: 760px) { .bios { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; } }
+.bio { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.bio-head { display: flex; align-items: center; gap: 12px; padding: 10px 12px; cursor: pointer; list-style: none; }
+.bio-head::-webkit-details-marker { display: none; }
+.bio-thumb, .art-empty.bio-thumb {
+  flex: none; width: 48px; height: 48px; border-radius: 50%; object-fit: cover; background: var(--surface-2);
+}
+.bio-body { padding: 0 12px 10px; font-size: 15px; }
+.bio-body p { margin: 0 0 8px; }
+.performer-bio .bio { margin-top: 12px; }
+.guide { margin-top: 14px; padding: 4px 12px; border: 1px dashed var(--line); border-radius: var(--radius); }
+.guide-body p { margin: 0 0 10px; font-size: 15px; }

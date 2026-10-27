@@ -481,6 +481,47 @@
     return [a.year, a.works ? plural(a.works, "work") : null, who].filter(Boolean).join(" · ");
   }
 
+  // ---- liner notes (classical/liner_notes) -----------------------------------------------------------------
+
+  var NOTE_ROLES = { composers: "Composer", conductors: "Conductor", orchestras: "Orchestra" };
+
+  /** A bio card's subtitle: "Conductor · 1908–1989 · Austrian conductor" (role, MusicBrainz life span,
+   *  Wikipedia's one-line description). */
+  function bioLine(card) {
+    var bio = card.bio || {};
+    var role = NOTE_ROLES[card.group] || (card.role ? card.role.charAt(0).toUpperCase() + card.role.slice(1) : "");
+    var desc = bio.description || "";
+    return [role, lifeDates(bio.born, bio.died), desc && desc.toLowerCase() !== role.toLowerCase() ? desc : ""]
+      .filter(Boolean).join(" · ");
+  }
+
+  /** The work notes' fact rows, [label, value], only those known: key, catalogue, composed, premiered. */
+  function noteFacts(notes) {
+    var d = (notes && notes.dates) || {};
+    var prem = d.premiered;
+    return [
+      ["Key", notes && notes.key],
+      ["Catalogue", notes && notes.catalogue],
+      ["Composed", d.composed && d.composed.text],
+      ["Premiered", prem && prem.text ? prem.text + (prem.place ? ", " + prem.place : "") : null],
+    ].filter(function (r) { return r[1]; });
+  }
+
+  /** The guide's heading: it always says it is AI-written and by which model. */
+  function guideTitle(guide) {
+    return "AI-written listening guide" + (guide && guide.model ? " (" + guide.model + ")" : "");
+  }
+
+  /** Text split into its paragraphs (blank-line separated), empty ones dropped. */
+  function paragraphs(text) {
+    return String(text || "").split(/\n\s*\n/).map(function (p) { return p.trim(); }).filter(Boolean);
+  }
+
+  /** A Wikipedia thumbnail's src, or null: only Wikimedia's upload host (the page's CSP allows no other). */
+  function thumbSrc(url) {
+    return typeof url === "string" && /^https:\/\/upload\.wikimedia\.org\/[^\s"'<>\\]+$/.test(url) ? url : null;
+  }
+
   var pure = {
     BUCKETS: BUCKETS, parseHash: parseHash, formatHash: formatHash, takeCode: takeCode, fmtDuration: fmtDuration,
     lifeDates: lifeDates, yearText: yearText, sourceLabels: sourceLabels, anyStreaming: anyStreaming,
@@ -491,6 +532,7 @@
     actionCount: actionCount, tapGate: tapGate, historyLine: historyLine, mbWorkCandidates: mbWorkCandidates, mbLinkLine: mbLinkLine, badgeText: badgeText, anyAcclaim: anyAcclaim, safeHref: safeHref,
     byLetter: byLetter, playArgs: playArgs, loginReturnUrl: loginReturnUrl, choosePlayer: choosePlayer, errorText: errorText, imageSrc: imageSrc,
     plural: plural, pickLines: pickLines, boxLine: boxLine, boxSummary: boxSummary, albumSubtitle: albumSubtitle, discTitle: discTitle, daySubtitle: daySubtitle, localDate: localDate, probeOrder: probeOrder,
+    bioLine: bioLine, noteFacts: noteFacts, guideTitle: guideTitle, paragraphs: paragraphs, thumbSrc: thumbSrc,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = pure;
   if (typeof document === "undefined") return;
@@ -1260,6 +1302,7 @@
         " ", unlink));
     }
     wrap.appendChild(actions);
+    wrap.appendChild(linerNotes(w.id, best ? best.id : null));
 
     var count = h("p", { class: "count" });
     var scopeBar = h("div", { class: "scope" });
@@ -1405,6 +1448,98 @@
         h("span", { class: "row-sub", text: [a.performers.slice(0, 3).join(", ") || a.artist, a.year,
           plural(a.tracks, "track")].filter(Boolean).join(" · ") })),
       add);
+  }
+
+  /** The work page's liner notes, filled in once they arrive (Wikipedia can take a moment); the page never
+   *  waits for them, and stays as it is when there are none. */
+  function linerNotes(workId, recordingId) {
+    var sec = h("section", { class: "section notes", hidden: true });
+    load();
+    return sec;
+
+    async function load() {
+      var res;
+      try {
+        res = await call("classical/liner_notes", { id: workId, recording_id: recordingId || null });
+      } catch (e) { return; }     // extra reading: the page stands without it
+      var n = res.notes || {};
+      var moves = n.movements || [];
+      var bios = res.bios || [];
+      if (!n.summary && !bios.length && !res.guide && !res.guide_due) return;
+      sec.appendChild(h("h2", { text: "Liner notes" }));
+      if (n.summary) {
+        var long = n.summary.text.length > 420;    // about six lines on a phone
+        var about = h("div", { class: "notes-about" + (long ? " clamp" : "") },
+          paragraphs(n.summary.text).map(function (t) { return h("p", { text: t }); }));
+        var more = long ? h("button", { type: "button", class: "link-btn", text: "More", onclick: function () {
+          about.classList.remove("clamp"); more.remove();
+        } }) : null;
+        sec.appendChild(about);
+        if (more) sec.appendChild(more);
+      }
+      var facts = noteFacts(n);
+      if (facts.length) {
+        sec.appendChild(h("dl", { class: "notes-facts" }, facts.map(function (f) {
+          return [h("dt", { text: f[0] }), h("dd", { text: f[1] })];
+        })));
+      }
+      if (moves.length > 1) {
+        sec.appendChild(h("details", { class: "notes-moves" },
+          h("summary", { text: plural(moves.length, "movement") }),
+          h("ol", null, moves.map(function (m) { return h("li", { text: m }); }))));
+      }
+      if (n.summary) sec.appendChild(sourceLine(n.summary, n.musicbrainz));
+      if (bios.length) {
+        sec.appendChild(h("h3", { class: "mini", text: "Composer and performers" }));
+        sec.appendChild(h("div", { class: "bios" }, bios.map(function (c) { return bioCard(c, false); })));
+      }
+      if (res.guide) sec.appendChild(guideBox(res.guide));
+      else if (res.guide_due) writeGuide();
+      sec.hidden = false;
+    }
+
+    async function writeGuide() {
+      var wait = h("p", { class: "fine guide-wait", text: "Writing a listening guide…" });
+      sec.appendChild(wait);
+      var res = null;
+      try { res = await call("classical/listening_guide", { id: workId }); } catch (e) { /* none, then */ }
+      wait.remove();
+      if (res && res.guide) sec.appendChild(guideBox(res.guide));
+    }
+  }
+
+  /** "From Wikipedia (CC BY-SA 4.0) · Wikidata · MusicBrainz": the source, its licence and the curated links. */
+  function sourceLine(x, mb) {
+    var out = h("p", { class: "fine notes-src" });
+    var wp = safeHref(x.url), lic = safeHref(x.license_url), wd = safeHref(x.wikidata), mbz = safeHref(mb || x.musicbrainz);
+    function a(href, text) { return h("a", { href: href, target: "_blank", rel: "noopener noreferrer", text: text }); }
+    add(out, ["From ", wp ? a(wp, "Wikipedia") : "Wikipedia",
+      x.license ? [" (", lic ? a(lic, x.license) : x.license, ")"] : null,
+      wd ? [" · ", a(wd, "Wikidata")] : null, mbz ? [" · ", a(mbz, "MusicBrainz")] : null]);
+    return out;
+  }
+
+  /** A composer's or performer's Wikipedia bio: a small card that opens to the text. */
+  function bioCard(card, open) {
+    var bio = card.bio || {};
+    var src = thumbSrc(bio.thumbnail);
+    return h("details", { class: "bio", open: open || null },
+      h("summary", { class: "bio-head" },
+        src ? h("img", { class: "bio-thumb", src: src, alt: "", loading: "lazy", decoding: "async",
+          referrerpolicy: "no-referrer" }) : h("div", { class: "bio-thumb art-empty", "aria-hidden": "true" }),
+        h("span", { class: "row-main" },
+          h("span", { class: "row-title", text: card.name }),
+          h("span", { class: "row-sub", text: bioLine(card) }))),
+      h("div", { class: "bio-body" }, paragraphs(bio.text).map(function (t) { return h("p", { text: t }); }),
+        sourceLine(bio)));
+  }
+
+  function guideBox(guide) {
+    return h("details", { class: "guide" },
+      h("summary", { text: guideTitle(guide) }),
+      h("div", { class: "guide-body" }, paragraphs(guide.text).map(function (t) { return h("p", { text: t }); }),
+        h("p", { class: "fine", text: "Written by a language model from the Wikipedia summary, dates and " +
+          "movement titles above, and nothing else. It can still be wrong." })));
   }
 
   function sourceBadges(r, withLocal) {
@@ -1816,6 +1951,11 @@
     })).join(", ");
     var wrap = h("div", { class: "page" }, header(p.name, [what, plural(p.recordings, "recording")]
       .filter(Boolean).join(" · "), { href: "#/performers", label: "Performers" }));
+    var bioBox = h("div", { class: "performer-bio" });
+    wrap.appendChild(bioBox);
+    call("classical/performer_bio", { id: pid }).then(function (b) {
+      if (b && b.bio) bioBox.appendChild(bioCard({ name: p.name, bio: b.bio }, false));
+    }, function () { /* no bio: nothing to show */ });
     if (res.with) {
       wrap.appendChild(h("div", { class: "scope" },
         h("span", { text: "With " + res.with.name }),

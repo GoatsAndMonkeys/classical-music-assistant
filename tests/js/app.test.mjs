@@ -332,3 +332,25 @@ test("an album's subtitle names the other composers on a compilation", () => {
   // no composer of its own (the title and year lists): every composer counts
   assert.equal(app.albumSubtitle({ works: 4, composers: cs.concat([{ id: "c_h", name: "Haydn" }]) }, null), "4 works · 4 composers");
 });
+
+test("liner notes: bio lines, fact rows, the guide's heading, paragraphs and thumbnails", () => {
+  assert.equal(app.bioLine({ group: "conductors", role: "conductor",
+    bio: { born: 1908, died: 1989, description: "Austrian conductor" } }), "Conductor · 1908–1989 · Austrian conductor");
+  assert.equal(app.bioLine({ group: "soloists", role: "violin", bio: { born: 1963 } }), "Violin · b. 1963");
+  assert.equal(app.bioLine({ group: "orchestras", role: "orchestra", bio: { description: "orchestra" } }), "Orchestra",
+    "a description that only repeats the role is dropped");
+  assert.equal(app.bioLine({ bio: { born: 1908, died: 1989 } }), "1908–1989", "the performer page: no role");
+  assert.deepEqual(app.noteFacts({ key: "C minor", catalogue: "Op. 67",
+    dates: { composed: { text: "1804–08" }, premiered: { text: "22 December 1808", place: "Vienna" } } }),
+  [["Key", "C minor"], ["Catalogue", "Op. 67"], ["Composed", "1804–08"], ["Premiered", "22 December 1808, Vienna"]]);
+  assert.deepEqual(app.noteFacts({ key: null, dates: { composed: null, premiered: null } }), []);
+  assert.deepEqual(app.noteFacts(null), []);
+  assert.equal(app.guideTitle({ model: "claude-opus-5-5" }), "AI-written listening guide (claude-opus-5-5)");
+  assert.equal(app.guideTitle({}), "AI-written listening guide");
+  assert.deepEqual(app.paragraphs("One.\n\n  Two.\n \nThree.\n"), ["One.", "Two.", "Three."]);
+  assert.deepEqual(app.paragraphs(null), []);
+  assert.equal(app.thumbSrc("https://upload.wikimedia.org/wikipedia/commons/a.jpg"),
+    "https://upload.wikimedia.org/wikipedia/commons/a.jpg");
+  for (const bad of ["http://upload.wikimedia.org/a.jpg", "https://upload.wikimedia.org.evil.example/a.jpg",
+    "https://example.org/a.jpg", "javascript:alert(1)", null, 7]) assert.equal(app.thumbSrc(bad), null);
+});

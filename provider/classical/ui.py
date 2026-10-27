@@ -13,7 +13,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import datetime as dt
-from collections.abc import Callable
+import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from music_assistant.controllers.webserver.helpers.auth_middleware import get_current_user
@@ -23,8 +24,10 @@ from music_assistant_models.enums import ConfigEntryType, MediaType, ProviderFea
 from music_assistant_models.errors import InvalidDataError, MediaNotFoundError
 
 from classical_core import __version__ as CORE_VERSION
-from classical_core import curation, streaming, triage, views
+from classical_core import curation, liner_notes, streaming, triage, views
 from classical_core.index import Index
+from classical_core.mb import MBError, MBTransientError
+from classical_core.names import LLMRefused
 
 from . import ma_links
 from .web import ROUTE, ClassicalWeb, image_urls
@@ -53,6 +56,8 @@ class CompanionUI:
     _artists: ma_links.ArtistLinks | None = None
     _wiki: dict[str, Any] | None = None
     _mb: Any = None
+    _guide_llm: Any = None
+    _guiding: set[str] | None = None       # works whose listening guide is being written right now
 
     def _ui_url(self) -> str:
         try:
@@ -99,6 +104,9 @@ class CompanionUI:
             ("classical/streaming", self.cmd_streaming),
             ("classical/work_description", self.cmd_work_description),
             ("classical/performer_tracks", self.cmd_performer_tracks),
+            ("classical/liner_notes", self.cmd_liner_notes),
+            ("classical/listening_guide", self.cmd_listening_guide),
+            ("classical/performer_bio", self.cmd_performer_bio),
         ):
             handles.append(reg(command, handler, required_scope=Scope.LIBRARY_READ))
         # MA's own music/library/add_item scope: adding an album changes the shared library
@@ -227,6 +235,134 @@ class CompanionUI:
             self.logger.debug("Classical: no description for %s: %r", id, err)
             desc = None
         return {"work_id": id, "description": desc}
+
+    # ---- liner notes (classical_core/liner_notes.py) ------------------------------------------------------
+
+    def _wiki_ready(self) -> bool:
+        return self._mb is not None and {"wikidata", "wikipedia"} <= (self._wiki or {}).keys()
+
+    async def _liner_note(self, key: str, fetch: Callable[[], Awaitable[Any]]) -> Any:
+        """A cached liner note, fetched again once older than NOTES_TTL. A definitive "none" (no link, or a
+        404) is cached too; a transient failure keeps the stale value and caches nothing."""
+        now = time.time()
+        fresh, value = await self._read(lambda ix: liner_notes.cached(ix.con, key, now))
+        if fresh or not self._wiki_ready():
+            return value
+        try:
+            value = await fetch()
+        except MBTransientError as err:
+            self.logger.debug("Classical: liner note %s not refreshed: %r", key, err)
+            return value
+        except MBError as err:
+            self.logger.debug("Classical: no liner note for %s: %r", key, err)
+            value = None
+        except Exception as err:  # noqa: BLE001 - a missing note never breaks the page
+            self.logger.debug("Classical: liner note %s not refreshed: %r", key, err)
+            return value
+        await self._write(lambda ix: liner_notes.store(ix.con, key, value, now), self.index)
+        return value
+
+    async def _work_summary(self, mbid: str | None) -> dict[str, Any] | None:
+        if not mbid:
+            return None
+        wiki = self._wiki or {}
+        return await self._liner_note(f"work:{mbid}", lambda: ma_links.work_description(
+            mbid, self._mb, wiki["wikidata"], wiki["wikipedia"]))
+
+    async def _artist_bio(self, mbid: str | None) -> dict[str, Any] | None:
+        if not mbid:
+            return None
+        wiki = self._wiki or {}
+        return await self._liner_note(f"artist:{mbid}", lambda: ma_links.artist_bio(
+            mbid, self._mb, wiki["wikidata"], wiki["wikipedia"]))
+
+    @staticmethod
+    def _guide_out(row: dict[str, Any] | None) -> dict[str, Any] | None:
+        return {"text": row["text"], "model": row["model"]} if row and row["status"] == "ok" else None
+
+    async def cmd_liner_notes(self, id: str, recording_id: str | None = None) -> dict[str, Any]:
+        """The work page's liner notes: the work's facts and English Wikipedia summary, the movements of
+        `recording_id` (else the work page's pick) as titled in the library, and Wikipedia bios of its
+        composers and that recording's conductor, orchestra and first soloists. Everything comes through
+        curated MusicBrainz → Wikidata links and is cached for 90 days; nothing is fetched without the
+        MusicBrainz contact. `guide` is a listening guide already written; `guide_due` says the page may
+        ask `classical/listening_guide` for one."""
+        vis = self._vis()
+        try:
+            ref = await self._read(lambda ix: liner_notes.refs(ix, id, recording_id, vis))
+        except views.NotFound:
+            raise InvalidDataError(NOT_FOUND) from None
+        people = ref["composers"] + ref["performers"]
+        summary, *bios = await asyncio.gather(self._work_summary(ref["work_mbid"]),
+                                              *(self._artist_bio(p["mbid"]) for p in people))
+        seen: set[str] = set()
+        cards = []
+        for p, bio in zip(people, bios, strict=True):
+            if bio and p["mbid"] not in seen:
+                seen.add(p["mbid"])
+                cards.append({"id": p["id"], "name": p["name"], "role": p["role"], "group": p["group"], "bio": bio})
+        row = None
+        if ref["work_mbid"]:
+            row = await self._read(lambda ix: liner_notes.guide_get(ix.con, ref["work_mbid"]))
+        w = ref["work"]
+        return {
+            "work_id": w["id"], "recording_id": ref["recording_id"],
+            "notes": {"title": w["title"], "composers": w["composers"], "key": w["key"],
+                      "catalogue": w["catalogue"], "dates": w["dates"], "movements": ref["movements"],
+                      "summary": summary,
+                      "musicbrainz": f"https://musicbrainz.org/work/{ref['work_mbid']}" if ref["work_mbid"] else None},
+            "bios": cards,
+            "guide": self._guide_out(row),
+            "guide_due": bool(self._guide_llm is not None and summary
+                              and liner_notes.guide_due(row, time.time())),
+        }
+
+    async def cmd_listening_guide(self, id: str) -> dict[str, Any]:
+        """The work's AI-written listening guide, written now when the option is on and none was asked for
+        yet: one model call per work, from the facts `classical/liner_notes` shows and nothing else (see
+        liner_notes.py for what is retried). `guide` is None when there is none."""
+        vis = self._vis()
+        try:
+            ref = await self._read(lambda ix: liner_notes.refs(ix, id, None, vis))
+        except views.NotFound:
+            raise InvalidDataError(NOT_FOUND) from None
+        llm, mbid = self._guide_llm, ref["work_mbid"]
+        if llm is None or not mbid:
+            return {"work_id": ref["work"]["id"], "guide": None}
+        row = await self._read(lambda ix: liner_notes.guide_get(ix.con, mbid))
+        now = time.time()
+        if self._guiding is None:
+            self._guiding = set()
+        if not liner_notes.guide_due(row, now) or mbid in self._guiding:
+            return {"work_id": ref["work"]["id"], "guide": self._guide_out(row)}
+        summary = await self._work_summary(mbid)
+        if not summary:
+            return {"work_id": ref["work"]["id"], "guide": None}     # too few facts to ground a guide on
+        self._guiding.add(mbid)
+        try:
+            text = await liner_notes.write_guide(llm, liner_notes.guide_facts(ref, summary))
+            row = {"text": text, "model": llm.model, "status": "ok", "error": None}
+        except LLMRefused as err:
+            self.logger.warning("Classical: no listening guide for %s (not asked again): %s", id, err)
+            row = {"text": None, "model": llm.model, "status": "failed", "error": str(err)}
+        except Exception as err:  # noqa: BLE001 - asked again a day later at the earliest
+            self.logger.warning("Classical: listening guide for %s failed: %r", id, err)
+            row = {"text": None, "model": llm.model, "status": "error", "error": repr(err)[:200]}
+        finally:
+            self._guiding.discard(mbid)
+        await self._write(lambda ix: liner_notes.guide_put(ix.con, mbid, row["model"], now, row["text"],
+                                                           row["status"], row["error"]), self.index)
+        return {"work_id": ref["work"]["id"], "guide": self._guide_out(row)}
+
+    async def cmd_performer_bio(self, id: str) -> dict[str, Any]:
+        """A performer's Wikipedia bio for the performer page, through the MusicBrainz artist named in their
+        recordings' MusicBrainz credits (liner_notes.py); `bio` is None when there is none."""
+        vis = self._vis()
+        try:
+            _, mbid = await self._read(lambda ix: liner_notes.performer_mbid(ix, id, vis))
+        except views.NotFound:
+            raise InvalidDataError(NOT_FOUND) from None
+        return {"performer_id": id, "bio": await self._artist_bio(mbid)}
 
     async def cmd_performer_tracks(self, id: str) -> dict[str, Any]:
         """The performer's MA library artist and its tracks that are in no classical recording ("Other

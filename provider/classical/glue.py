@@ -55,6 +55,7 @@ CONF_LLM = "llm_names"
 CONF_LLM_BASE_URL = "llm_base_url"
 CONF_LLM_MODEL = "llm_model"
 CONF_LLM_API_KEY = "llm_api_key"
+CONF_LLM_GUIDE = "llm_guide"
 CONF_ACC_DATASET = "accolades_dataset"
 CONF_ACC_WIKIDATA = "accolades_wikidata"
 CONF_ACC_CRITIQUEBRAINZ = "accolades_critiquebrainz"
@@ -120,12 +121,22 @@ class ClassicalProvider(CompanionUI, PluginProvider):
                 advanced=True,
             ),
             ConfigEntry(
+                key=CONF_LLM_GUIDE,
+                type=ConfigEntryType.BOOLEAN,
+                label="Write a short listening guide for each work with the language model",
+                description="Off by default. Written once per work, when its page is first opened, from the "
+                "work's Wikipedia summary, dates and movement titles only; shown labelled as AI-written. "
+                "Uses the API settings below.",
+                default_value=False,
+                required=False,
+                advanced=True,
+            ),
+            ConfigEntry(
                 key=CONF_LLM_BASE_URL,
                 type=ConfigEntryType.STRING,
                 label="API base URL: https://api.anthropic.com for Claude, or OpenAI-compatible (e.g. http://localhost:11434/v1)",
                 default_value="",
                 required=False,
-                depends_on=CONF_LLM,
                 advanced=True,
             ),
             ConfigEntry(
@@ -134,7 +145,6 @@ class ClassicalProvider(CompanionUI, PluginProvider):
                 label="Model name (e.g. claude-opus-5-5)",
                 default_value="",
                 required=False,
-                depends_on=CONF_LLM,
                 advanced=True,
             ),
             ConfigEntry(
@@ -143,7 +153,6 @@ class ClassicalProvider(CompanionUI, PluginProvider):
                 label="API key (optional)",
                 default_value="",
                 required=False,
-                depends_on=CONF_LLM,
                 advanced=True,
             ),
             ConfigEntry(
@@ -245,15 +254,19 @@ class ClassicalProvider(CompanionUI, PluginProvider):
         if self._mb is not None and self.config.get_value(CONF_COVER_ART, True):
             self._caa = artwork.CAAClient(mb_contact(self.config.get_value(CONF_MB_CONTACT, "")) or "",
                                           cache=SqliteMBCache(self._con, run=self._db.write, table="web_cache"))
-        self._llm = None
-        if self.config.get_value(CONF_LLM, False):
+        # one client for both opt-in uses; the index only sees it when name resolution is on
+        self._llm = self._guide_llm = None
+        names_on, guide_on = self.config.get_value(CONF_LLM, False), self.config.get_value(CONF_LLM_GUIDE, False)
+        if names_on or guide_on:
             base = str(self.config.get_value(CONF_LLM_BASE_URL, "") or "").strip()
             model = str(self.config.get_value(CONF_LLM_MODEL, "") or "").strip()
             if base and model:
                 key = str(self.config.get_value(CONF_LLM_API_KEY, "") or "") or None
-                self._llm = LLMClient(base, model, api_key=key)
+                client = LLMClient(base, model, api_key=key)
+                self._llm = client if names_on else None
+                self._guide_llm = client if guide_on else None
             else:
-                self.logger.warning("Classical: language-model name resolution needs a base URL and a model")
+                self.logger.warning("Classical: the language-model options need a base URL and a model")
         self.index = Index(self._con, self._mb, db=self._db, llm=self._llm)
 
     def _net_clients(self, contact: str | None) -> dict[str, MBClient]:

@@ -8,6 +8,8 @@
   the work's MusicBrainz id → its Wikidata url-relation → the enwiki sitelink → Wikipedia's REST summary.
   Text is CC BY-SA 4.0: it is returned with its source URL and licence for attribution, and every request
   goes through the cached, rate-limited `MBClient` (the `web_cache` table). No search, no scraping.
+* `artist_bio`: the same chain for a composer or performer (their MusicBrainz artist url-relations), with
+  MusicBrainz's life span and Wikipedia's one-line description and thumbnail (Wikimedia's upload host only).
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ FIRST_WAIT = 3.0
 LICENSE = "CC BY-SA 4.0"
 LICENSE_URL = "https://creativecommons.org/licenses/by-sa/4.0/"
 MAX_EXTRACT = 1200
+THUMB_HOST = "https://upload.wikimedia.org/"
 _MBID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
@@ -187,14 +190,8 @@ def summary_out(data: dict, title: str) -> dict[str, Any] | None:
             "license": LICENSE, "license_url": LICENSE_URL}
 
 
-async def work_description(mbid: str, mb: Any, wikidata: Any, wikipedia: Any) -> dict[str, Any] | None:
-    """MB work → Wikidata → English Wikipedia summary (see the module note); None when any link is missing."""
-    if not _MBID.match(mbid or ""):
-        return None
-    data = await mb.get(mb.url("work", mbid, "url-rels"))
-    qid = wikidata_qid(parse_url_rels(data))
-    if not qid:
-        return None
+async def _wiki_summary(qid: str, wikidata: Any, wikipedia: Any) -> tuple[dict, dict[str, Any]] | None:
+    """(Wikipedia's raw summary, `summary_out` of it) for a Wikidata item's enwiki article; None without one."""
     entity = await wikidata.get(f"{wikidata.base_url}/w/api.php?action=wbgetentities&ids={qid}"
                                 "&props=sitelinks&sitefilter=enwiki&format=json")
     title = wikipedia_title(entity, qid)
@@ -203,6 +200,47 @@ async def work_description(mbid: str, mb: Any, wikidata: Any, wikipedia: Any) ->
     summary = await wikipedia.get(f"{wikipedia.base_url}/api/rest_v1/page/summary/"
                                   f"{quote(title.replace(' ', '_'), safe='')}")
     out = summary_out(summary, title)
-    if out is not None:
-        out["wikidata"] = f"https://www.wikidata.org/wiki/{qid}"
+    if out is None:
+        return None
+    out["wikidata"] = f"https://www.wikidata.org/wiki/{qid}"
+    return summary, out
+
+
+def _year(v: Any) -> int | None:
+    m = re.match(r"^(-?\d{1,4})", v) if isinstance(v, str) else None
+    return int(m.group(1)) if m else None
+
+
+async def artist_bio(mbid: str, mb: Any, wikidata: Any, wikipedia: Any) -> dict[str, Any] | None:
+    """MB artist → Wikidata → English Wikipedia summary, plus `born`/`died` years from MusicBrainz's life
+    span, Wikipedia's `description` and a `thumbnail` URL; None when any link is missing."""
+    if not _MBID.match(mbid or ""):
+        return None
+    data = await mb.get(mb.url("artist", mbid, "url-rels"))
+    qid = wikidata_qid(parse_url_rels(data))
+    if not qid:
+        return None
+    got = await _wiki_summary(qid, wikidata, wikipedia)
+    if got is None:
+        return None
+    raw, out = got
+    span = data.get("life-span") or {}
+    thumb = (raw.get("thumbnail") or {}).get("source")
+    desc = raw.get("description")
+    out.update(name=data.get("name"), born=_year(span.get("begin")), died=_year(span.get("end")),
+               description=desc.strip() if isinstance(desc, str) and desc.strip() else None,
+               thumbnail=thumb if isinstance(thumb, str) and thumb.startswith(THUMB_HOST) else None,
+               musicbrainz=f"https://musicbrainz.org/artist/{mbid}")
     return out
+
+
+async def work_description(mbid: str, mb: Any, wikidata: Any, wikipedia: Any) -> dict[str, Any] | None:
+    """MB work → Wikidata → English Wikipedia summary (see the module note); None when any link is missing."""
+    if not _MBID.match(mbid or ""):
+        return None
+    data = await mb.get(mb.url("work", mbid, "url-rels"))
+    qid = wikidata_qid(parse_url_rels(data))
+    if not qid:
+        return None
+    got = await _wiki_summary(qid, wikidata, wikipedia)
+    return got[1] if got else None
