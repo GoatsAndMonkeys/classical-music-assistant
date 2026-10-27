@@ -19,7 +19,7 @@ from music_assistant.controllers.webserver.helpers.auth_middleware import get_cu
 from music_assistant_models.auth import Scope
 from music_assistant_models.config_entries import ConfigEntry
 from music_assistant_models.enums import ConfigEntryType, MediaType, ProviderFeature
-from music_assistant_models.errors import InvalidDataError
+from music_assistant_models.errors import InvalidDataError, MediaNotFoundError
 
 from classical_core import __version__ as CORE_VERSION
 from classical_core import curation, streaming, views
@@ -90,6 +90,8 @@ class CompanionUI:
             ("classical/streaming", self.cmd_streaming),
         ):
             handles.append(reg(command, handler, required_scope=Scope.LIBRARY_READ))
+        # MA's own music/library/add_item scope: adding an album changes the shared library
+        handles.append(reg("classical/add_album", self.cmd_add_album, required_scope=Scope.LIBRARY_WRITE))
         self._web = ClassicalWeb(CORE_VERSION)
         ws = self.mass.webserver
         try:
@@ -133,7 +135,7 @@ class CompanionUI:
                      "role": str(getattr(getattr(user, "role", None), "value", getattr(user, "role", "")) or "")}
             if user else None,
             "can_correct": can(user, Scope.LIBRARY_MANAGE),
-            # MA's own music/library/add_item needs LIBRARY_WRITE; the page offers "Add to library" only then
+            # classical/add_album needs LIBRARY_WRITE (as MA's music/library/add_item); shown only then
             "can_add": can(user, Scope.LIBRARY_WRITE),
             "streaming": [{"instance": p.instance_id, "name": getattr(p, "name", None) or p.instance_id}
                           for p in self._streaming_providers(self._vis())],
@@ -202,7 +204,7 @@ class CompanionUI:
         """Other recordings of a work on the caller's streaming services (PLAN.md §5.10): each provider
         instance is searched itself (not MA's global search, which keeps one instance per service), and
         albums holding the work that are not in the library yet are listed. Nothing is added here; the
-        page's "Add to library" calls MA's own `music/library/add_item`."""
+        page's "Add to library" calls `classical/add_album`."""
         vis = self._vis()
         provs = [p for p in self._streaming_providers(vis) if provider in (None, p.instance_id)]
 
@@ -239,6 +241,29 @@ class CompanionUI:
         return image_urls({"work": {"id": w["id"], "title": w["title"]}, "query": query, "providers": list(found)},
                           self._image_id)
 
+    async def cmd_add_album(self, provider: str, item_id: str) -> dict[str, Any]:
+        """Add one album from a streaming service the caller can see to MA's library, with its tracks.
+
+        MA's `music/library/add_item` adds only the album unless the provider imports album tracks (off by
+        default), and the classical index reads library tracks, so the tracks are imported here too. The
+        provider must be one of the caller's visible, searchable streaming services: the page cannot name
+        any other provider instance or a non-album item."""
+        prov = next((p for p in self._streaming_providers(self._vis()) if p.instance_id == provider), None)
+        if prov is None or not isinstance(item_id, str) or not item_id.strip() or len(item_id) > 512:
+            raise InvalidDataError(NOT_FOUND)
+        try:
+            item = await self.mass.music.get_item(MediaType.ALBUM, item_id, prov.instance_id)
+        except MediaNotFoundError:
+            raise InvalidDataError(NOT_FOUND) from None
+        if getattr(item, "media_type", None) != MediaType.ALBUM:
+            raise InvalidDataError(NOT_FOUND)
+        lib = await self.mass.music.add_item_to_library(item)
+        tracks = False
+        if not prov.library_sync_album_tracks_enabled():    # else MA imports them itself
+            await prov.import_album_tracks(item_id, lib)
+            tracks = True
+        return {"library_album_id": str(getattr(lib, "item_id", "")), "imported_tracks": tracks}
+
     async def cmd_review(self) -> dict[str, Any]:
         """The review queue grouped by reason, with correction actions for composer identities."""
         return await self._view(views.review)
@@ -255,7 +280,8 @@ def _track_dict(t: Any, instance: str) -> dict[str, Any]:
         "provider_instance": instance, "item_id": str(getattr(t, "item_id", "")), "uri": getattr(t, "uri", None),
         "title": getattr(t, "name", "") or "", "duration": int(getattr(t, "duration", 0) or 0),
         "artists": [a.name for a in getattr(t, "artists", None) or [] if getattr(a, "name", None)],
-        "album": {"uri": getattr(alb, "uri", None), "name": getattr(alb, "name", "") or "",
+        "album": {"uri": getattr(alb, "uri", None), "item_id": str(getattr(alb, "item_id", "") or ""),
+                  "name": getattr(alb, "name", "") or "",
                   "year": getattr(alb, "year", None), "image": image,
                   "artists": [a.name for a in getattr(alb, "artists", None) or [] if getattr(a, "name", None)]}
         if alb is not None else {},

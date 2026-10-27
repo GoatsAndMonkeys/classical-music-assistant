@@ -79,7 +79,7 @@ FOLDER_CAP = 500
 MAX_PARENT_DEPTH = 3
 CUE_TRACK = "::track"                  # MA's CUE-sheet track item_id delimiter (file.cue::trackNN)
 # bumped when derivation changes, so every album re-derives once (tags are not re-read)
-DERIVE_VERSION = 6
+DERIVE_VERSION = 7
 _MB_FIELD = {"arrangement_of": "arranged_from"}          # WorkInfo field -> evidence field
 _MB_FIELD_BACK = {v: k for k, v in _MB_FIELD.items()}
 DATED = "dated:"                       # composer 'mbid' slot for an unlisted name with conflicting life dates
@@ -694,8 +694,10 @@ class Index:
                         {"releases": found, "why": why, "barcode": code}), "uncertain")]
         except MBError as e:
             log.debug("MB barcode %s for %r: %s", code, album.name, e)
-            stats.mb_failures += isinstance(e, MBTransientError)
-            return True
+            if isinstance(e, MBTransientError):
+                stats.mb_failures += 1      # retried on the next scan
+                return True
+            return False                    # MB refused this barcode query (400/404): the title search follows
         except Exception as e:  # noqa: BLE001 - malformed MB JSON abstains; it must not fail the album
             log.warning("MB barcode %s for %r: unparseable response: %r", code, album.name, e)
             return True
@@ -1578,6 +1580,20 @@ class Index:
         """The track's first tagged composer as resolved, or [] (no tag, or only librettists and the like)."""
         return self._composers_from(f.tags.composers)[:1] if f.tags and f.tags.composers else []
 
+    def _is_composer_of(self, head: str, composer: str) -> bool:
+        """Whether a title's head ('Beethoven', 'W. A. Mozart', 'Saint-Saëns') names this composer: their
+        full name, their surname, or a name the composer list or authority resolves to them. A work named
+        after a person ('Pulcinella', 'Boris Godunov', 'Don Giovanni') never matches."""
+        hk, ck = norm_key(head), norm_key(composer)
+        if not hk or not ck:
+            return False
+        if hk in (ck, norm_key(surname(composer, particles=False)), norm_key(surname(composer))):
+            return True
+        c = parse_one(head)
+        k = (lookup(head) or authority_match(c, self._name_ctx)[0]) if c is not None else None
+        target = lookup(composer)
+        return k is not None and norm_key(k.name) in (ck, norm_key(target.name) if target else ck)
+
     def _names_composer(self, seg: str) -> bool:
         c = parse_one(seg)
         return c is not None and (lookup(seg) is not None or authority_match(c, self._name_ctx)[0] is not None)
@@ -1727,15 +1743,18 @@ class Index:
         number = None
         hint = None
         named: str | None = None    # a composer the title itself names
+        lead: tuple[str, str] | None = None     # (composer-like head, rest) of the run's shared prefix
         if prefix:
             work = prefix
             number, movement = parse_movement(title[len(prefix):].lstrip(" :,-–—/"))
             # 'Beethoven: Symphony No. 5 in C Minor, Op. 67: I. …' on every track (how streaming services
-            # title classical tracks): the shared prefix starts with the composer, which is not the work
+            # title classical tracks): the shared prefix may start with the composer, which is not the work.
+            # Only a candidate here: it is dropped below unless it names the track's own composer.
             if parsed is not None and parsed.composer_hint and not parsed.hint_is_composer:
                 head = re.match(rf"{re.escape(parsed.composer_hint)}\s*:\s+(?P<w>\S.*)$", prefix)
-                if head and self._names_composer(parsed.composer_hint):
-                    work, hint = head.group("w"), parsed.composer_hint
+                if head:
+                    lead = (parsed.composer_hint, head.group("w"))
+                    hint = parsed.composer_hint
         elif parsed:
             work, number, movement, hint = parsed.work, parsed.movement_no, parsed.movement_name, parsed.composer_hint
         elif ((short := parse_shorthand(title)) is not None
@@ -1755,6 +1774,8 @@ class Index:
                 composers = self._composers_from([known])
         if not composers:
             return None  # no composer evidence: not treated as classical (keeps false positives down)
+        if lead is not None and self._is_composer_of(lead[0], composers[0][0]):
+            work = lead[1]          # 'Mozart: Requiem' -> 'Requiem'; 'Don Giovanni: Act 1' keeps its head
         if work is None:
             # a single-track work: needs a catalogue number or a recognisable form in its title
             if not (cat.parse_catalogues(title) or cat.work_type(title) != "Other"):

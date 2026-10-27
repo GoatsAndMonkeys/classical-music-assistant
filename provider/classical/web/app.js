@@ -1086,13 +1086,13 @@
   }
 
   function streamingRow(a) {
-    var canAdd = !!(state.info || {}).can_add;
+    var canAdd = !!(state.info || {}).can_add && !!a.item_id;
     var add = canAdd ? h("button", { type: "button", class: "btn small", text: "Add to library",
       onclick: async function () {
         add.disabled = true;
         add.textContent = "Adding…";
         try {
-          await call("music/library/add_item", { item: a.uri });
+          await call("classical/add_album", { provider: a.provider_instance, item_id: a.item_id });
           add.textContent = "Added — indexing";
         } catch (e) {
           add.disabled = false;

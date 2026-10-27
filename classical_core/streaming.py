@@ -118,11 +118,16 @@ def _qobuz(performers: list[str], artists: list[str]) -> tuple[list[str], list[P
 
 def _artist_credits(artists: list[str], composers: list[str]) -> list[Person]:
     """Performer credits from MA's track artists when the service gave no roles: groups by name, everyone
-    else as a performer. A listed composer among the artists is the composer, not a performer."""
+    else as a performer. A listed composer among the artists is the composer, not a performer. A composer
+    also known as a performer (Mahler, Bernstein) is kept only beside another listed composer, who is then
+    the one being played: Spotify lists 'Gustav Mahler' first on his own symphonies."""
     taken = {norm_key(c) for c in composers}
+    other = any(_composer_ok(a) for a in artists if a) or any(_composer_ok(c) for c in composers)
     out: list[Person] = []
     for a in artists:
         if not a or norm_key(a) in taken or _composer_ok(a):
+            continue
+        if lookup(a) is not None and not other:
             continue
         p = _person(a, "performer")
         if p is None:
@@ -225,7 +230,8 @@ def match_search(work_title: str, composer: str | None, tracks: list[dict], in_l
                                   *(alb.get("artists") or [])]))
         if sk and not re.search(rf"\b{re.escape(sk)}\b", text):
             continue
-        a = albums.setdefault(key, {"uri": key, "name": alb.get("name") or "", "year": alb.get("year"),
+        a = albums.setdefault(key, {"uri": key, "item_id": alb.get("item_id") or "",
+                                    "name": alb.get("name") or "", "year": alb.get("year"),
                                     "artist": ", ".join(alb.get("artists") or []), "image": alb.get("image"),
                                     "provider_instance": t.get("provider_instance"), "tracks": 0, "duration": 0,
                                     "performers": []})

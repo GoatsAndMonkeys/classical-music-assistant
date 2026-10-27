@@ -260,9 +260,13 @@ Each entry says what the plan asked for, what was built instead, and why.
   case is reviewed ("MusicBrainz ISRC match uncertain").
 - **Local albums' signatures and lookups are unchanged by any of this.**
 - **A shared title prefix no longer keeps a leading composer.** Streaming services title tracks "Beethoven:
-  Symphony No. 5 in C Minor, Op. 67: I. …". The run prefix now drops a leading "<listed composer>: ", so the work
-  title and key match the local copy's. This changes derivation for local files titled the same way, so
-  `DERIVE_VERSION` is now 6. Tags are not re-read.
+  Symphony No. 5 in C Minor, Op. 67: I. …". The run prefix now drops a leading "<composer>: " only when that
+  head names the track's own composer (full name, surname, or a name that resolves to them), so the work
+  title and key match the local copy's. "Don Giovanni: Act 1", "Pulcinella: …" and Liszt's "Beethoven:
+  Symphony No. 5" transcription keep their heads. This changes derivation for local files titled the same
+  way, so `DERIVE_VERSION` is now 7. Tags are not re-read.
+- **A composer best known as a performer (Mahler, Bernstein) is not a roleless performer credit** unless a
+  listed composer is also among the track artists: Spotify lists "Gustav Mahler" first on his own symphonies.
 - **Provider badges.**
   - A recording lists the visible provider instances of its tracks.
   - A work whose visible recordings are all local sends no sources at all, so local-only libraries look and
@@ -274,8 +278,12 @@ Each entry says what the plan asked for, what was built instead, and why.
     composer's surname must appear on the track or its album.
   - Albums with any track already in the library are dropped.
   - The search runs only on a button press, and only for the caller's visible services that can search.
-- **"Add to library" is MA's own `music/library/add_item`, called from the page.** It needs `LIBRARY_WRITE`
-  (`ui_info.can_add`). Indexing follows MA's normal library-sync path; nothing is added implicitly.
+- **"Add to library" is `classical/add_album`, which needs `LIBRARY_WRITE`** (as MA's `music/library/add_item`;
+  `ui_info.can_add`). It takes a provider instance and album id, accepts only the caller's visible, searchable
+  streaming services, and calls MA's `add_item_to_library`. MA adds no album tracks unless the provider's
+  "import album tracks" option is on (off by default), and the index reads library tracks, so the command
+  imports them (`import_album_tracks`) when the option is off. Indexing then follows MA's normal events;
+  nothing is added implicitly.
 - **Deferred.**
   - §5.10's catalogue model for items that are not in the library: suggestions are not stored and not browsable
     in MA's folders.

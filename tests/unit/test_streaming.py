@@ -229,3 +229,71 @@ def test_search_results_are_grouped_by_album_and_filtered():
     # b is another composer's Op. 64, d is owned, e names no work; c names Beethoven only on its album
     assert [a["uri"] for a in got] == ["qobuz://album/a", "qobuz://album/c"]
     assert got[0]["tracks"] == 2 and got[0]["performers"] == ["Karajan"]
+
+
+# ---- the composer prefix is dropped only when it names the track's own composer ----
+
+def _run_album(ix, aid, titles, composer, domain="qobuz", tags=None, artist="Somebody"):
+    tracks = []
+    for i, t in enumerate(titles):
+        if domain == "filesystem_local":
+            p = f"{aid}/{i}.flac"
+            tags[p] = TagInfo(title=t, composers=[composer], performers=[], album=aid)
+            maps = [MappingIn("filesystem_local", p, fingerprint="f", path=p)]
+            perf = []
+        else:
+            maps = [MappingIn(f"{domain}--x", f"{aid}{i}", path=None, domain=domain)]
+            perf = [f"{composer}, Composer", f"{artist}, Conductor"]
+        tracks.append(TrackIn(f"{aid}-{i}", 1, i + 1, t, artist, 300 + i, mappings=maps, performers=perf,
+                              artists=[artist]))
+    run(ix.index_album(AlbumIn(aid, aid, artist, None, None, tracks)))
+
+
+def test_an_ambiguous_surname_prefix_is_dropped_when_it_is_the_tracks_composer(tmp_path):
+    # 'Mozart' alone is ambiguous (Leopold, W. A.), but the track's own composer says which one is meant
+    tags = {}
+    ix = new_index(tmp_path, tags=tags)
+    req = "Requiem in D Minor, K. 626"
+    mv = ["I. Introitus: Requiem aeternam", "II. Kyrie", "III. Sequentia: Dies irae"]
+    _run_album(ix, "loc", [f"{req}: {m}" for m in mv], "Wolfgang Amadeus Mozart", "filesystem_local", tags)
+    _run_album(ix, "qob", [f"Mozart: {req}: {m}" for m in mv], "Wolfgang Amadeus Mozart")
+    works = [w for w in ix.works() if "Requiem" in w["title"]]
+    assert [w["title"] for w in works] == [req]
+    assert len(ix.recordings(works[0]["id"])) == 2
+
+
+def test_a_prefix_naming_another_composer_or_a_character_is_kept(tmp_path):
+    ix = new_index(tmp_path)
+    # Liszt's transcription: 'Beethoven' is not this track's composer, so it stays part of the title
+    _run_album(ix, "liszt", [f"Beethoven: {WORK}: {m}" for m in MVTS[:3]], "Franz Liszt")
+    # an opera's title character is not a composer
+    _run_album(ix, "dg", ["Don Giovanni: Act 1: Overture", "Don Giovanni: Act 1: Notte e giorno faticar",
+                          "Don Giovanni: Act 1: Madamina, il catalogo è questo"], "Wolfgang Amadeus Mozart")
+    titles = {w["title"] for w in ix.works()}
+    assert WORK not in titles and any(t.startswith("Beethoven: Symphony No. 5") for t in titles)
+    assert any(t.startswith("Don Giovanni") for t in titles)
+
+
+def test_a_performing_composer_is_not_made_a_performer_of_his_own_work():
+    # Spotify: no roles, the composer is one of the track artists
+    mahler = provider_facts("spotify", [], ["Gustav Mahler", "Claudio Abbado", "Berliner Philharmoniker"])
+    assert {p.name for p in mahler.performers} == {"Claudio Abbado", "Berliner Philharmoniker"}
+    lenny = provider_facts("spotify", [], ["Ludwig van Beethoven", "Leonard Bernstein", "Wiener Philharmoniker"])
+    assert {p.name for p in lenny.performers} == {"Leonard Bernstein", "Wiener Philharmoniker"}
+    # and a performer is never promoted to composer by the service facts themselves
+    assert lenny.composers == [] and mahler.composers == []
+
+
+def test_a_refused_barcode_query_falls_back_to_the_title_search(tmp_path):
+    class Refusing(StreamMB):
+        async def fetch(self, url, headers):
+            if "/release?" in url and "barcode" in url:
+                self.calls.append(url)
+                return 400, b"{}"
+            return await super().fetch(url, headers)
+
+    mb = Refusing()
+    ix = new_index(tmp_path, mb)
+    run(ix.index_album(qobuz_album(barcode="0886975965221")))
+    assert any("barcode" in u for u in mb.calls)
+    assert any("/release?" in u and "barcode" not in u for u in mb.calls)

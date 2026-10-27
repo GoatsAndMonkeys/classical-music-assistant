@@ -87,10 +87,13 @@ def test_register_ui_registers_commands_and_replaces_a_stale_route(mods):
     names = [c.args[0] for c in p.mass.register_api_command.call_args_list]
     assert names == ["classical/ui_info", "classical/composers", "classical/works", "classical/work",
                      "classical/recording", "classical/performers", "classical/performer", "classical/review",
-                     "classical/accolades", "classical/today", "classical/streaming"]
+                     "classical/accolades", "classical/today", "classical/streaming", "classical/add_album"]
+    scopes = {c.args[0]: c.kwargs["required_scope"] for c in p.mass.register_api_command.call_args_list}
+    assert scopes["classical/add_album"] is mods.ui.Scope.LIBRARY_WRITE
+    assert scopes["classical/streaming"] is mods.ui.Scope.LIBRARY_READ
     p.mass.webserver.unregister_dynamic_route.assert_called_once_with("/classical/*", "*")
     assert p.mass.webserver.register_dynamic_route.call_count == 2 and handles[-1] is unreg
-    assert len(handles) == 12
+    assert len(handles) == 13
     assert p._ui_url() == "http://ma.local:8095/classical/"
 
 
@@ -314,3 +317,47 @@ def test_streaming_search_lists_albums_per_service(mods, tmp_path):
     assert [x["instance"] for x in asyncio.run(p.cmd_streaming(w["id"], "qobuz--abc"))["providers"]] == ["qobuz--abc"]
     with pytest.raises(sys.modules["music_assistant_models.errors"].InvalidDataError):
         asyncio.run(p.cmd_streaming("w_missing"))
+
+
+def test_add_album_only_from_a_visible_streaming_service_and_imports_its_tracks(mods):
+    """'Add to library' is classical/add_album (LIBRARY_WRITE): the provider must be one the caller can see,
+    and the album's tracks are imported so the index can read them (MA's add_item alone adds no tracks)."""
+    added, imported = [], []
+
+    def prov(instance, sync_tracks=False):
+        async def import_album_tracks(item_id, album):
+            imported.append((instance, item_id, album))
+        return types.SimpleNamespace(instance_id=instance, name=instance, is_streaming_provider=True,
+                                     supported_features={mods.ui.ProviderFeature.SEARCH},
+                                     library_sync_album_tracks_enabled=lambda: sync_tracks,
+                                     import_album_tracks=import_album_tracks)
+
+    p = object.__new__(mods.glue.ClassicalProvider)
+    p.mass = MagicMock()
+    p.mass.music.providers = [prov("qobuz--abc"), prov("tidal--t", sync_tracks=True), prov("spotify--hidden")]
+    p._vis = lambda: ["qobuz--abc", "tidal--t"]
+    lib = types.SimpleNamespace(item_id=42)
+
+    async def get_item(media_type, item_id, instance):
+        if item_id == "gone":
+            raise mods.glue.MediaNotFoundError("gone")
+        return types.SimpleNamespace(media_type=media_type, item_id=item_id, provider=instance)
+
+    async def add_item_to_library(item):
+        added.append((item.provider, item.item_id))
+        return lib
+
+    p.mass.music.get_item = get_item
+    p.mass.music.add_item_to_library = add_item_to_library
+    res = asyncio.run(p.cmd_add_album("qobuz--abc", "a1"))
+    assert res == {"library_album_id": "42", "imported_tracks": True}
+    assert added == [("qobuz--abc", "a1")] and imported == [("qobuz--abc", "a1", lib)]
+    # MA imports the tracks itself when the provider is set to
+    assert asyncio.run(p.cmd_add_album("tidal--t", "b2"))["imported_tracks"] is False
+    bad = sys.modules["music_assistant_models.errors"].InvalidDataError
+    for args in (("spotify--hidden", "x"), ("filesystem_local", "x"), ("qobuz--abc", ""), ("qobuz--abc", "gone"),
+                 ("qobuz--abc", None)):
+        with pytest.raises(bad):
+            asyncio.run(p.cmd_add_album(*args))
+    assert len(added) == 2
+
