@@ -74,6 +74,7 @@ MAX_PARENT_DEPTH = 3
 CUE_TRACK = "::track"                  # MA's CUE-sheet track item_id delimiter (file.cue::trackNN)
 # bumped when derivation changes, so every album re-derives once (tags are not re-read)
 DERIVE_VERSION = 3
+DATED = "dated:"                       # composer 'mbid' slot for an unlisted name with conflicting life dates
 
 
 # ---- inputs from the glue ------------------------------------------------------------------------------
@@ -253,7 +254,7 @@ class Index:
         self.mb = mb
         self.llm = llm
         self._name_ctx = NameContext()
-        self._name_memo: dict[str, tuple[str, str | None]] = {}
+        self._name_memo: dict[tuple[str, int | None, int | None], tuple[str, str | None]] = {}
         self._reviews: list = []
         self.tag_reader = tag_reader
         self.db = db
@@ -792,9 +793,11 @@ class Index:
     def _composers_from(self, raws: Iterable[str]) -> list[tuple[str, str | None]]:
         out: list[tuple[str, str | None]] = []
         for c in parse_names(list(raws)):
-            ident = self._name_memo.get(c.key)
+            # life dates are part of the memo key: 'Johann Strauss (1804-1849)' and '(1825-1899)' differ
+            mk = (c.key, c.born, c.died)
+            ident = self._name_memo.get(mk)
             if ident is None:
-                ident = self._name_memo[c.key] = self._identity(c, self._reviews)
+                ident = self._name_memo[mk] = self._identity(c, self._reviews)
             if ident not in out:
                 out.append(ident)
         return out
@@ -825,6 +828,10 @@ class Index:
         if how in ("ambiguous surname", "surname shared outside the list", "life dates disagree with the list"):
             reviews.append((f"composer not resolved: {how}", "name", c.key,
                             {"name": c.name, "candidates": [h.name for h in by_surname(c.name)]}))
+        if how == "life dates disagree with the list":
+            # same name, other dates (W. A. Mozart's son billed as 'Wolfgang Amadeus Mozart (1791-1844)'): a
+            # person of its own, never folded back into the listed composer by name
+            return c.name, f"{DATED}{c.born or ''}-{c.died or ''}"
         g = given_name_conflict(c)
         if g is not None:
             reviews.append(("composer name may be wrong", "name", c.key, {"name": c.name, "known": g.name}))
@@ -1335,6 +1342,18 @@ class Index:
     def _composer_for(self, name: str, mbid: str | None) -> str:
         if mbid and mbid.startswith("cid:"):
             return self.resolve("composer", mbid[4:])   # a user's name override
+        if mbid and mbid.startswith(DATED):
+            # a name whose life dates rule out the listed bearer: keyed by name and dates, not by name
+            dates = mbid[len(DATED):]
+            akey = f"{norm_key(name)}|{dates}"
+            cid = self._alias("composer", "dated_name", akey)
+            if cid is None:
+                cid = new_id("c")
+                born, _, died = dates.partition("-")
+                self.con.execute("INSERT INTO composer(id, name, sort_name, born, died) VALUES (?,?,?,?,?)",
+                                 (cid, name, sort_name(name), born or None, died or None))
+                self._add_alias("composer", cid, "dated_name", akey)
+            return cid
         known = lookup(name)
         canonical = known.name if known else name
         cid = self._alias("composer", "mbid", mbid) if mbid else None

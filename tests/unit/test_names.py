@@ -326,3 +326,30 @@ def test_initials_resolve_only_when_one_bearer_fits():
     assert authority_match(parse_names("W. A. Mozart")[0])[0].name == "Wolfgang Amadeus Mozart"
     assert authority_match(parse_names("J. Bach")[0])[0] is None
     assert authority_match(parse_names("Strauss, J.")[0])[0] is None
+
+
+def test_conflicting_life_dates_are_never_folded_into_the_listed_composer(tmp_path):
+    """Mozart's son was billed 'Wolfgang Amadeus Mozart'; his dates (1791-1844) rule out the listed W. A."""
+    idx, r = make_index(tmp_path)
+    add_album(idx, r, "A", "Son", [("Piano Concerto No. 1: I. Allegro", "Wolfgang Amadeus Mozart (1791-1844)", None, None),
+                                   ("Piano Concerto No. 1: II. Andante", "Wolfgang Amadeus Mozart (1791-1844)", None, None)])
+    add_album(idx, r, "B", "Father", [("Symphony No. 40: I. Allegro", "Wolfgang Amadeus Mozart", None, None),
+                                      ("Symphony No. 40: II. Andante", "Wolfgang Amadeus Mozart", None, None)])
+    add_album(idx, r, "C", "Son again", [("Piano Concerto No. 2: I. Allegro", "Mozart, Wolfgang Amadeus (1791-1844)",
+                                          None, None),
+                                         ("Piano Concerto No. 2: II. Rondo", "Mozart, Wolfgang Amadeus (1791-1844)",
+                                          None, None)])
+    cs = sorted((c["born"] or "", c["works"]) for c in idx.composers())
+    assert cs == [("1756", 1), ("1791", 2)]
+    assert any("life dates disagree" in v["reason"] for v in idx.review())
+
+
+def test_same_name_with_different_dates_on_one_album_is_not_memoised_as_one(tmp_path):
+    idx, r = make_index(tmp_path)
+    add_album(idx, r, "A", "Family", [("Piano Concerto No. 1: I. Allegro", "Wolfgang Amadeus Mozart (1791-1844)", None,
+                                       None),
+                                      ("Piano Concerto No. 1: II. Andante", "Wolfgang Amadeus Mozart (1791-1844)", None,
+                                       None),
+                                      ("Symphony No. 40: I. Allegro", "Wolfgang Amadeus Mozart (1756-1791)", None, None),
+                                      ("Symphony No. 40: II. Andante", "Wolfgang Amadeus Mozart (1756-1791)", None, None)])
+    assert len(idx.composers()) == 2
