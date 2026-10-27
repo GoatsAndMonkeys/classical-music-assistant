@@ -494,6 +494,7 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             fingerprint=pm.details or None,
             path=path,
             available=prov is not None and pm.available,
+            domain=getattr(pm, "provider_domain", None) or None,
         )
 
     async def _index_album_id(self, album_id: str, force: bool = False) -> bool:
@@ -519,9 +520,13 @@ class ClassicalProvider(CompanionUI, PluginProvider):
                     duration=int(t.duration or 0),
                     mbid=t.mbid,
                     mappings=[self._mapping_in(pm) for pm in t.provider_mappings],
+                    isrcs=external_ids(t, "isrc"),
+                    performers=sorted(str(p) for p in (getattr(getattr(t, "metadata", None), "performers", None) or ()) if p),
+                    artists=[a.name for a in t.artists or [] if getattr(a, "name", None)],
                 )
                 for t in tracks
             ],
+            barcodes=external_ids(album, "barcode"),
         )
         stats = await self.index.index_album(ain, force=force)
         await self._write(accolades.set_album_ids, self._con, ain.library_album_id, *album_ids(album))
@@ -949,6 +954,17 @@ def job_order(key: str) -> tuple[bool, bool, bool]:
     """The worker's order: removals and provider checks first, then single albums, then scans, then accolades
     (the dataset refresh and the network enrichment wait until the library is indexed)."""
     return (not key.startswith(("providers", "remove:")), key.startswith("accolades"), key.startswith("scan"))
+
+
+def external_ids(item: Any, kind: str) -> list[str]:
+    """Every value of one external id type ('isrc', 'barcode') on an MA media item, sorted."""
+    ext = getattr(item, "external_ids", None)
+    out: set[str] = set()
+    if isinstance(ext, (set, frozenset, list, tuple)):
+        for x in ext:
+            if isinstance(x, (tuple, list)) and len(x) == 2 and x[1] and str(getattr(x[0], "value", x[0])) == kind:
+                out.add(str(x[1]).strip())
+    return sorted(out - {""})
 
 
 def album_ids(album: Any) -> tuple[str | None, ...]:

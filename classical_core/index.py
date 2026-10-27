@@ -52,6 +52,7 @@ from .names import (
     respelling_fits,
 )
 from .sethster_canonical import _CAT_RE, CATALOGUE_COMPOSER, form_key
+from .streaming import domain_of, is_streaming, provider_facts
 from .tags import Person, TagInfo, normalize_person, read_tags, year_of
 from .text import fold, norm_key, sort_name, surname
 from .titles import (
@@ -78,7 +79,7 @@ FOLDER_CAP = 500
 MAX_PARENT_DEPTH = 3
 CUE_TRACK = "::track"                  # MA's CUE-sheet track item_id delimiter (file.cue::trackNN)
 # bumped when derivation changes, so every album re-derives once (tags are not re-read)
-DERIVE_VERSION = 5
+DERIVE_VERSION = 6
 _MB_FIELD = {"arrangement_of": "arranged_from"}          # WorkInfo field -> evidence field
 _MB_FIELD_BACK = {v: k for k, v in _MB_FIELD.items()}
 DATED = "dated:"                       # composer 'mbid' slot for an unlisted name with conflicting life dates
@@ -94,6 +95,7 @@ class MappingIn:
     fingerprint: str | None = None
     path: str | None = None          # absolute path for local files; None skips Tier 1 (remote, CUE)
     available: bool = True           # False: provider configured but not loaded
+    domain: str | None = None        # MA provider domain ('qobuz'); None = from the instance id
 
 
 @dataclass(slots=True)
@@ -106,6 +108,16 @@ class TrackIn:
     duration: int = 0
     mbid: str | None = None
     mappings: list[MappingIn] = field(default_factory=list)
+    # what a streaming service says (§5.10); read only for tracks with no local file (`remote`)
+    isrcs: list[str] = field(default_factory=list)
+    performers: list[str] = field(default_factory=list)    # MA's metadata.performers, as the provider gave it
+    artists: list[str] = field(default_factory=list)       # the track artists' names, in MA's order
+
+    @property
+    def remote(self) -> bool:
+        """No local file: every mapping is a streaming (or other remote) item, so there are no tags."""
+        return bool(self.mappings) and all(m.path is None and is_streaming(m.provider_instance, m.domain)
+                                           for m in self.mappings)
 
 
 @dataclass(slots=True)
@@ -116,6 +128,11 @@ class AlbumIn:
     year: int | None = None
     image: dict | None = None
     tracks: list[TrackIn] = field(default_factory=list)
+    barcodes: list[str] = field(default_factory=list)      # UPC/EAN from MA; used for streaming-only albums
+
+    @property
+    def remote(self) -> bool:
+        return bool(self.tracks) and all(t.remote for t in self.tracks)
 
 
 @dataclass(slots=True)
@@ -367,6 +384,17 @@ class Index:
         self._upsert_mapping(m, track, row, status="ok", tag_hash=h, mbid=read.recording_mbid, indexed_at=now)
         return "read"
 
+    def _apply_provider_facts(self, t: TrackIn) -> None:
+        """A streaming track's composers and credits from its service (`streaming.py`), stored as evidence
+        that stands in for tags only while the track has no local file. Tracks MA merged across several
+        services keep only what the artist names say: which service filled `performers` is not known."""
+        info = None
+        if t.remote:
+            domains = {domain_of(m.provider_instance, m.domain) for m in t.mappings}
+            info = provider_facts(next(iter(domains)) if len(domains) == 1 else "", t.performers, t.artists)
+        rows = [("provider_track", t.library_track_id, f, v, e) for f, v, e in _tag_rows(info)] if info else []
+        self.replace_origin(f"provider:{t.library_track_id}", "provider", rows)
+
     def _upsert_mapping(self, m: MappingIn, track: TrackIn, row: sqlite3.Row | None, status: str,
                         **kw: Any) -> None:
         vals = {"file_fingerprint": m.fingerprint if status == "ok" else (row["file_fingerprint"] if row else None),
@@ -571,6 +599,7 @@ class Index:
             await self.refresh_mb_work_chain(wid, stats)
         await self.prefetch_names(album, tracks, stats)
         await self.match_release(album, tracks, stats)
+        await self.match_isrcs(tracks, stats)
         # a transient MB failure leaves the signature unset, so the next scan retries the album
         await self._w(self._finish_album, album, tracks, stats, None if stats.mb_failures else sig)
         return stats
@@ -581,13 +610,19 @@ class Index:
         if self.mb is None:
             return
         aid = album.library_album_id
-        if not mbrel.wanted(album.name, album.artist) or not await self._w(self._release_wanted, tracks):
+        if not await self._w(self._release_wanted, tracks):
             await self._w(self._retract_release, aid, tracks, None)  # a match from before the album had MBIDs
             return
-        url = mbrel.search_url(self.mb.base_url, album.name, album.artist)
         counts: dict[int, int] = {}
         for t in tracks:
             counts[t.disc or 1] = counts.get(t.disc or 1, 0) + 1
+        codes = sorted({c for c in album.barcodes if mbrel.barcode_key(c)}) if album.remote else []
+        if codes and await self._match_barcode(album, tracks, counts, codes[0], stats):
+            return
+        if not mbrel.wanted(album.name, album.artist):
+            await self._w(self._retract_release, aid, tracks, None)
+            return
+        url = mbrel.search_url(self.mb.base_url, album.name, album.artist)
         try:
             pick = mbrel.pick_release(await self.mb.get(url), album.name, album.artist, counts)
             stats.mb_requests += 1
@@ -621,6 +656,124 @@ class Index:
         origin = f"{url}#album={aid}"
         await self._w(self._retract_release, aid, tracks, origin)   # a search under an earlier album name
         await self._w(self.replace_origin, origin, "mb", rows)
+
+    async def _match_barcode(self, album: AlbumIn, tracks: list[TrackIn], counts: dict[int, int], code: str,
+                             stats: AlbumStats) -> bool:
+        """A streaming album's release from its UPC/EAN (§5.10). MB may list one product twice; the match
+        stands only when every release with the barcode that fits the disc layout gives the same recordings
+        and the track lengths confirm it. False when MB knows no such release (the title search follows)."""
+        assert self.mb is not None
+        aid = album.library_album_id
+        url = mbrel.barcode_url(self.mb.base_url, code)
+        try:
+            found = mbrel.barcode_releases(await self.mb.get(url), code, counts)
+            stats.mb_requests += 1
+            if not found:
+                return False
+            rows: list[tuple[str, str, str, str, str]]
+            if len(found) > mbrel.MAX_BARCODE_RELEASES:
+                rows = [("release_album", aid, "uncertain", json.dumps(
+                    {"releases": found[:10], "why": "several releases carry this barcode", "barcode": code}),
+                    "uncertain")]
+            else:
+                ours = [(t.library_track_id, t.disc, t.position, t.duration) for t in tracks]
+                results = []
+                for mbid in found:
+                    rel = await self.mb.get(mbrel.lookup_url(self.mb.base_url, mbid))
+                    stats.mb_requests += 1
+                    results.append((mbid, *mbrel.track_recordings(rel, ours, None)))
+                mbid, recs, why = results[0]
+                if recs and all(r[1] == recs for r in results):
+                    rows = [("release_track", tid, "recording_mbid", json.dumps(rid), f"release:{mbid}")
+                            for tid, rid in sorted(recs.items())]
+                    for rid in sorted(set(recs.values())):
+                        await self.refresh_mb_recording(rid, stats)
+                else:
+                    why = why if len(results) == 1 else "releases with this barcode disagree"
+                    rows = [("release_album", aid, "uncertain", json.dumps(
+                        {"releases": found, "why": why, "barcode": code}), "uncertain")]
+        except MBError as e:
+            log.debug("MB barcode %s for %r: %s", code, album.name, e)
+            stats.mb_failures += isinstance(e, MBTransientError)
+            return True
+        except Exception as e:  # noqa: BLE001 - malformed MB JSON abstains; it must not fail the album
+            log.warning("MB barcode %s for %r: unparseable response: %r", code, album.name, e)
+            return True
+        origin = f"{url}#album={aid}"
+        await self._w(self._retract_release, aid, tracks, origin)
+        await self._w(self.replace_origin, origin, "mb", rows)
+        return True
+
+    async def match_isrcs(self, tracks: list[TrackIn], stats: AlbumStats) -> None:
+        """Recordings for streaming tracks that still have no MBID, from their ISRCs (§5.10). The ISRC's
+        recordings are stored as evidence of the ISRC lookup; which one a track is gets decided at derive
+        time (`_isrc_recording`), so an ambiguous ISRC is a review item, never a guess."""
+        if self.mb is None:
+            return
+        todo = await self._w(self._isrc_wanted, tracks)
+        for t in todo:
+            for isrc in sorted({i.strip().upper() for i in t.isrcs if mbrel.valid_isrc(i)})[:2]:
+                url = mbrel.isrc_url(self.mb.base_url, isrc)
+                try:
+                    data = await self.mb.get(url)
+                    stats.mb_requests += 1
+                    recs = [r for r in data.get("recordings") or [] if is_mbid(r.get("id"))]
+                except MBError as e:
+                    if isinstance(e, MBTransientError):
+                        stats.mb_failures += 1
+                    else:       # MB has no such ISRC (404): nothing to assert
+                        await self._w(self.replace_origin, url, "mb", [])
+                    continue
+                except Exception as e:  # noqa: BLE001 - malformed MB JSON abstains
+                    log.warning("MB ISRC %s: unparseable response: %r", isrc, e)
+                    continue
+                rows = [("isrc", isrc, "recording", json.dumps(
+                    {"id": r["id"].lower(), "length": r.get("length")}, sort_keys=True), f"recording:{r['id'].lower()}")
+                    for r in recs]
+                await self._w(self.replace_origin, url, "mb", rows)
+                fits = [r["id"].lower() for r in recs if mbrel.length_fits(r.get("length"), t.duration)]
+                if len(fits) <= mbrel.MAX_ISRC_RECORDINGS:
+                    for rid in sorted(set(fits)):
+                        await self.refresh_mb_recording(rid, stats)
+
+    def _isrc_wanted(self, tracks: list[TrackIn]) -> list[TrackIn]:
+        """Streaming tracks with ISRCs and no recording MBID from MA, tags or a release match."""
+        from_release = self._release_recordings(tracks)
+        out = []
+        for t in tracks:
+            if not t.remote or not t.isrcs or is_mbid(t.mbid) or t.library_track_id in from_release:
+                continue
+            tags = self.track_tags(t.library_track_id)[0]
+            if tags and tags.recording_mbid:
+                continue
+            out.append(t)
+        return out
+
+    def _isrc_recording(self, t: TrackIn) -> tuple[str | None, dict | None]:
+        """(recording MBID, review detail) from a track's ISRC evidence. One recording whose length fits is
+        taken; several only when MB links them all to the same works (duplicate recording entries); anything
+        else is a review item and no MBID."""
+        if not t.remote:
+            return None, None
+        cands: dict[str, Any] = {}
+        for isrc in sorted({i.strip().upper() for i in t.isrcs if mbrel.valid_isrc(i)}):
+            for r in self._live("isrc", isrc):
+                d = json.loads(r["value"])
+                cands.setdefault(d["id"], d.get("length"))
+        fits = sorted(rid for rid, length in cands.items() if mbrel.length_fits(length, t.duration))
+        if not fits:
+            return None, ({"track": t.title, "why": "recording lengths do not match", "recordings": sorted(cands)}
+                          if cands else None)
+        if len(fits) == 1:
+            return fits[0], None
+        if len(fits) <= mbrel.MAX_ISRC_RECORDINGS:
+            links = []
+            for rid in fits:
+                rec = self._mb_recording(rid)
+                links.append(frozenset(w.work_mbid for w in rec.works) if rec else frozenset())
+            if links[0] and all(x == links[0] for x in links):
+                return fits[0], None
+        return None, {"track": t.title, "why": "the ISRC matches several recordings", "recordings": fits[:10]}
 
     def _retract_release(self, aid: str, tracks: list[TrackIn], keep: str | None) -> None:
         """Retract release-match evidence for this album from any search but `keep`."""
@@ -680,6 +833,7 @@ class Index:
                                  "AND status<>'gone'", (t.library_track_id,)):
                     if (r["provider_instance"], r["item_id"]) not in current:
                         self.mark_gone(r["provider_instance"], r["item_id"])
+                self._apply_provider_facts(t)
             self.con.execute("COMMIT")
         except BaseException:
             self.con.execute("ROLLBACK")
@@ -754,6 +908,9 @@ class Index:
             if chosen is None:
                 chosen = _tags_from_rows(rows)
                 origin = f"tags:{m['provider_instance']}/{m['item_id']}"
+        if chosen is None and (rows := self._live("provider_track", library_track_id)):
+            # a streaming track: what its service says, never as strong as a file's own tags
+            return _tags_from_rows(rows), f"provider:{library_track_id}", False
         return chosen, origin, len(hashes) > 1
 
     def _clear_derived(self, album_id: str) -> None:
@@ -1101,6 +1258,11 @@ class Index:
                                 {"track": t.title}))
             rec_mbid = next((m.lower() for m in (tags.recording_mbid if tags else None, t.mbid,
                                                  from_release.get(t.library_track_id)) if is_mbid(m)), None)
+            if rec_mbid is None and t.isrcs:
+                rec_mbid, isrc_why = self._isrc_recording(t)
+                if isrc_why:
+                    reviews.append(("MusicBrainz ISRC match uncertain", "occurrence", occ_ids[t.library_track_id],
+                                    isrc_why))
             mb = self._mb_recording(rec_mbid) if rec_mbid else None
             facts.append(OccFacts(occ_ids[t.library_track_id], {"title": t.title, "artist": t.artist,
                                   "duration": t.duration, "disc": t.disc, "position": t.position}, tags, origin, mb))
@@ -1568,6 +1730,12 @@ class Index:
         if prefix:
             work = prefix
             number, movement = parse_movement(title[len(prefix):].lstrip(" :,-–—/"))
+            # 'Beethoven: Symphony No. 5 in C Minor, Op. 67: I. …' on every track (how streaming services
+            # title classical tracks): the shared prefix starts with the composer, which is not the work
+            if parsed is not None and parsed.composer_hint and not parsed.hint_is_composer:
+                head = re.match(rf"{re.escape(parsed.composer_hint)}\s*:\s+(?P<w>\S.*)$", prefix)
+                if head and self._names_composer(parsed.composer_hint):
+                    work, hint = head.group("w"), parsed.composer_hint
         elif parsed:
             work, number, movement, hint = parsed.work, parsed.movement_no, parsed.movement_name, parsed.composer_hint
         elif ((short := parse_shorthand(title)) is not None
@@ -2258,6 +2426,11 @@ def album_signature(album: AlbumIn) -> str:
             sorted([t.library_track_id, t.disc, t.position, t.title, t.artist, t.duration, t.mbid,
                     sorted([m.provider_instance, m.item_id, m.fingerprint, m.path is not None, m.available]
                            for m in t.mappings)] for t in album.tracks)]
+    # streaming facts count only where they are read (local albums keep their signatures)
+    remote = [[t.library_track_id, sorted(t.isrcs), sorted(t.performers), t.artists]
+              for t in album.tracks if t.remote]
+    if remote:
+        data += [remote, sorted(album.barcodes) if album.remote else []]
     return hashlib.sha1(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()
 
 

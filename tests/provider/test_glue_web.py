@@ -87,10 +87,10 @@ def test_register_ui_registers_commands_and_replaces_a_stale_route(mods):
     names = [c.args[0] for c in p.mass.register_api_command.call_args_list]
     assert names == ["classical/ui_info", "classical/composers", "classical/works", "classical/work",
                      "classical/recording", "classical/performers", "classical/performer", "classical/review",
-                     "classical/accolades", "classical/today"]
+                     "classical/accolades", "classical/today", "classical/streaming"]
     p.mass.webserver.unregister_dynamic_route.assert_called_once_with("/classical/*", "*")
     assert p.mass.webserver.register_dynamic_route.call_count == 2 and handles[-1] is unreg
-    assert len(handles) == 11
+    assert len(handles) == 12
     assert p._ui_url() == "http://ma.local:8095/classical/"
 
 
@@ -253,3 +253,64 @@ def test_today_home_rows_and_items(mods, tmp_path, monkeypatch):
     assert node.name == "Danse macabre, Op. 40" and node.playable
     assert node.path == node.item_id and node.path.startswith("works/") and "Halloween" in node.version
     assert asyncio.run(p.get_recommendation_items("today/nope")) == []
+
+
+def test_streaming_search_lists_albums_per_service(mods, tmp_path):
+    """'Other recordings on Qobuz': each visible streaming service is searched itself; albums already in the
+    library, hidden services and services that cannot search are left out; one failing service says so."""
+    from tests.unit.test_streaming import local_album, new_index, qobuz_album, run
+
+    tags = {}
+    ix = new_index(tmp_path, tags=tags)
+    run(ix.index_album(local_album(tags)))
+    run(ix.index_album(qobuz_album()))
+    [w] = [w for w in ix.works() if "Symphony No. 5" in w["title"]]
+
+    def track(item, title, album, artists, image=None):
+        a = [types.SimpleNamespace(name=n) for n in artists]
+        alb = types.SimpleNamespace(uri=f"qobuz://album/{album}", name=album, year=2001, artists=a,
+                                    image=types.SimpleNamespace(to_dict=lambda: image) if image else None)
+        return types.SimpleNamespace(item_id=item, uri=f"qobuz://track/{item}", name=title, duration=400,
+                                     artists=a, album=alb)
+
+    searched = []
+
+    def prov(instance, name, tracks=None, fail=False, streaming=True, search=True):
+        async def do_search(query, media_types, limit=5):
+            searched.append((instance, query))
+            if fail:
+                raise RuntimeError("down")
+            return types.SimpleNamespace(tracks=tracks or [])
+        return types.SimpleNamespace(instance_id=instance, name=name, is_streaming_provider=streaming,
+                                     supported_features={mods.ui.ProviderFeature.SEARCH} if search else set(),
+                                     search=do_search)
+
+    hits = [track("q0", "Symphony No. 5 in C minor, Op. 67: I. Allegro con brio", "Beethoven 5 (Järvi)",
+                  ["Paavo Järvi"]),     # in the library already (its track q0 is)
+            track("n1", "Symphony No. 5 in C minor, Op. 67: I. Allegro con brio", "Beethoven 5 (Abbado)",
+                  ["Claudio Abbado"], image={"provider": "qobuz--abc", "path": "img"}),
+            track("n2", "Symphony No. 5 in E minor, Op. 64: I. Andante", "Tchaikovsky 5", ["Tchaikovsky"])]
+    p = object.__new__(mods.glue.ClassicalProvider)
+    p.mass = MagicMock()
+    p.mass.metadata.compute_image_id = lambda prov, path: f"{prov}-{path}"
+    p.mass.music.providers = [prov("qobuz--abc", "Qobuz", hits), prov("spotify--s", "Spotify", fail=True),
+                              prov("tidal--hidden", "Tidal"), prov("filesystem_local", "Files", streaming=False),
+                              prov("ytmusic--y", "YouTube Music", search=False)]
+    p._vis = lambda: ["filesystem_local", "qobuz--abc", "spotify--s", "ytmusic--y"]
+
+    async def read(fn):
+        return fn(ix)
+
+    p._read = read
+    p.logger = MagicMock()
+    res = asyncio.run(p.cmd_streaming(w["id"]))
+    assert res["query"] == "Beethoven Symphony No. 5 in C Minor, Op. 67"
+    assert sorted(i for i, _ in searched) == ["qobuz--abc", "spotify--s"]
+    qob, spo = res["providers"]
+    assert (spo["instance"], spo["error"], spo["albums"]) == ("spotify--s", "Search failed", [])
+    assert [(a["name"], a["performers"], a["image_url"]) for a in qob["albums"]] == [
+        ("Beethoven 5 (Abbado)", ["Claudio Abbado"], "imageproxy/qobuz--abc-img?size=256")]
+    searched.clear()
+    assert [x["instance"] for x in asyncio.run(p.cmd_streaming(w["id"], "qobuz--abc"))["providers"]] == ["qobuz--abc"]
+    with pytest.raises(sys.modules["music_assistant_models.errors"].InvalidDataError):
+        asyncio.run(p.cmd_streaming("w_missing"))

@@ -236,3 +236,50 @@ Each entry says what the plan asked for, what was built instead, and why.
   Halloween and "Optoberfest", a hemisphere option (default north) and a bundled `premieres.json` list
   (Wikipedia-sourced). US civic holidays are left out. The companion UI opens on a new Today tab, and MA's
   home shows the same shelves as `today/<id>` recommendation rows.
+
+## Streaming albums in the library (§5.10, 2026-10-27)
+
+- **What a service says is fallback evidence, never a tag.** A streaming track has no file, so its composers and
+  credits come from MA's `Track.metadata.performers` and `artists`. They are stored as their own entity
+  (`provider_track`, origin `provider:<track>`), used only when the track has no file tags, and never raise a
+  "conflicting tags" review. Each service fills `performers` differently: Qobuz gives "Name, Role" credits,
+  Apple Music the composer field, Tidal/Subsonic bare names, and Spotify/Deezer/YouTube nothing. With nothing
+  usable, the track is treated as having no composer and is not indexed as classical. No guessing.
+- **MA 2.10.8 splits Qobuz credits on every '-'.** As a result, "Jean-Efflam Bavouzet, Piano" arrives as an
+  unordered set: {"Jean", "Efflam Bavouzet, Piano"}. When any fragment shows this damage, a credit is kept only
+  in two cases:
+  - an MA artist confirms it, exactly or as a hyphen tail;
+  - for composers, a listed composer confirms it, either as given or rejoined with a fragment
+    ("Camille Saint" + "Saëns").
+- **Barcode and ISRC lookups apply only to remote items.** A streaming-only album with a UPC/EAN looks it up on
+  MusicBrainz before the title search. It is accepted only when every release with that barcode that fits the
+  disc layout gives the same recordings, and the track lengths agree. Otherwise it goes to review ("releases with
+  this barcode disagree").
+- **ISRCs are a last resort, after tags, MA's MBID and the release match.** An ISRC with one recording of
+  fitting length is taken. With 2–3, they are taken only when MB links them all to the same works; any other
+  case is reviewed ("MusicBrainz ISRC match uncertain").
+- **Local albums' signatures and lookups are unchanged by any of this.**
+- **A shared title prefix no longer keeps a leading composer.** Streaming services title tracks "Beethoven:
+  Symphony No. 5 in C Minor, Op. 67: I. …". The run prefix now drops a leading "<listed composer>: ", so the work
+  title and key match the local copy's. This changes derivation for local files titled the same way, so
+  `DERIVE_VERSION` is now 6. Tags are not re-read.
+- **Provider badges.**
+  - A recording lists the visible provider instances of its tracks.
+  - A work whose visible recordings are all local sends no sources at all, so local-only libraries look and
+    weigh as before. The 400-recording view stays under its size budget.
+  - Local files get a badge only beside a streaming copy.
+- **"Other recordings on <service>" searches each provider instance itself** (`prov.search`, tracks, limit 50,
+  20 s timeout). MA's global search keeps only one instance per streaming domain, so it is not used.
+  - Results are grouped by album. A track must name the work (by catalogue number when the work has one) and the
+    composer's surname must appear on the track or its album.
+  - Albums with any track already in the library are dropped.
+  - The search runs only on a button press, and only for the caller's visible services that can search.
+- **"Add to library" is MA's own `music/library/add_item`, called from the page.** It needs `LIBRARY_WRITE`
+  (`ui_info.can_add`). Indexing follows MA's normal library-sync path; nothing is added implicitly.
+- **Deferred.**
+  - §5.10's catalogue model for items that are not in the library: suggestions are not stored and not browsable
+    in MA's folders.
+  - Promoting a streaming recording to replace a local one.
+  - Per-service credit parsing beyond the five shapes above.
+  - A live test against a real streaming account (the M1 has none). Fixtures cover Qobuz, Apple Music and
+    Spotify.

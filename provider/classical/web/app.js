@@ -99,6 +99,25 @@
     return rec.year_kind === "released" ? "rel. " + rec.year : String(rec.year);
   }
 
+  /** A recording's provider badges ("Qobuz", "Local files"): one per service, streaming first. Local files
+   * are named only when `withLocal` (the work also has streaming recordings), so a local-only library stays
+   * as it was. */
+  function sourceLabels(sources, withLocal) {
+    var seen = {};
+    var out = [];
+    (sources || []).slice().sort(function (a, b) { return (b.streaming ? 1 : 0) - (a.streaming ? 1 : 0); })
+      .forEach(function (s) {
+        if (!s || !s.name || seen[s.name] || (!s.streaming && !withLocal)) return;
+        seen[s.name] = true;
+        out.push({ text: s.name, streaming: !!s.streaming });
+      });
+    return out;
+  }
+
+  function anyStreaming(recs) {
+    return (recs || []).some(function (r) { return (r.sources || []).some(function (s) { return s && s.streaming; }); });
+  }
+
   function workSubtitle(w) {
     return [w.composer, w.catalogue, w.key, w.work_type].filter(function (x, i, a) {
       return x && a.indexOf(x) === i && !(i > 0 && w.title && x !== w.work_type && w.title.indexOf(x) >= 0);
@@ -294,7 +313,8 @@
 
   var pure = {
     BUCKETS: BUCKETS, parseHash: parseHash, formatHash: formatHash, takeCode: takeCode, fmtDuration: fmtDuration,
-    lifeDates: lifeDates, yearText: yearText, workSubtitle: workSubtitle, recordingMatches: recordingMatches,
+    lifeDates: lifeDates, yearText: yearText, sourceLabels: sourceLabels, anyStreaming: anyStreaming,
+    workSubtitle: workSubtitle, recordingMatches: recordingMatches,
     filterRecordings: filterRecordings, sortRecordings: sortRecordings, creditGroups: creditGroups,
     reviewSubtitle: reviewSubtitle, badgeText: badgeText, anyAcclaim: anyAcclaim, safeHref: safeHref,
     byLetter: byLetter, playArgs: playArgs, loginReturnUrl: loginReturnUrl, choosePlayer: choosePlayer, errorText: errorText, imageSrc: imageSrc,
@@ -911,6 +931,7 @@
     var res = await call("classical/work", { id: args[0], scope: query.scope || null });
     var w = res.work;
     var recs = res.recordings;
+    var withLocal = anyStreaming(recs);
     recs.forEach(function (r) { r._text = recordingText(r); });
     var byId = {};
     recs.forEach(function (r) { byId[r.id] = r; });
@@ -1011,6 +1032,7 @@
       });
       wrap.appendChild(h("section", { class: "section" }, h("h2", { text: "Also contains this work" }), ct));
     }
+    ((state.info || {}).streaming || []).forEach(function (p) { wrap.appendChild(streamingSection(w, p)); });
 
     function drawScope() {
       clear(scopeBar);
@@ -1027,7 +1049,7 @@
       count.textContent = hits.length === recs.length ? plural(recs.length, "recording")
         : hits.length + " of " + plural(recs.length, "recording");
       clear(list);
-      hits.slice(0, shown).forEach(function (r) { list.appendChild(recRow(r, expanded)); });
+      hits.slice(0, shown).forEach(function (r) { list.appendChild(recRow(r, expanded, withLocal)); });
       if (!hits.length) list.appendChild(empty("No recordings match."));
       moreBtn.hidden = hits.length <= shown;
     }
@@ -1035,7 +1057,69 @@
     return wrap;
   };
 
-  function recRow(r, expanded) {
+  /** "Other recordings on Qobuz" (§5.10): searched only when asked, never added without the button. */
+  function streamingSection(w, prov) {
+    var sec = h("section", { class: "section streaming" }, h("h2", { text: "Other recordings on " + prov.name }));
+    var body = h("div", { class: "list" });
+    var btn = h("button", { type: "button", class: "btn", text: "Search " + prov.name, onclick: search });
+    sec.appendChild(btn);
+    sec.appendChild(body);
+    async function search() {
+      btn.disabled = true;
+      clear(body).appendChild(h("div", { class: "loading small", text: "Searching " + prov.name + "…" }));
+      var res;
+      try {
+        res = await call("classical/streaming", { work_id: w.id, provider: prov.instance });
+      } catch (e) {
+        clear(body).appendChild(empty(e.message || "Search failed."));
+        btn.disabled = false;
+        return;
+      }
+      btn.hidden = true;
+      clear(body);
+      var entry = (res.providers || [])[0] || { albums: [] };
+      if (entry.error) { body.appendChild(empty(entry.error + ".")); btn.hidden = false; btn.disabled = false; return; }
+      if (!entry.albums.length) { body.appendChild(empty("Nothing else found on " + prov.name + ".")); return; }
+      entry.albums.forEach(function (a) { body.appendChild(streamingRow(a)); });
+    }
+    return sec;
+  }
+
+  function streamingRow(a) {
+    var canAdd = !!(state.info || {}).can_add;
+    var add = canAdd ? h("button", { type: "button", class: "btn small", text: "Add to library",
+      onclick: async function () {
+        add.disabled = true;
+        add.textContent = "Adding…";
+        try {
+          await call("music/library/add_item", { item: a.uri });
+          add.textContent = "Added — indexing";
+        } catch (e) {
+          add.disabled = false;
+          add.textContent = "Add to library";
+          toast(e.message || "Could not add the album.");
+        }
+      } }) : null;
+    return h("div", { class: "row" }, img(a.image_url, "thumb"),
+      h("span", { class: "row-main" },
+        h("span", { class: "row-title", text: a.name }),
+        h("span", { class: "row-sub", text: [a.performers.slice(0, 3).join(", ") || a.artist, a.year,
+          plural(a.tracks, "track")].filter(Boolean).join(" · ") })),
+      add);
+  }
+
+  function sourceBadges(r, withLocal) {
+    var list = sourceLabels(r.sources, withLocal);
+    if (!list.length) return null;
+    var box = h("span", { class: "badges sources" });
+    list.forEach(function (s) {
+      box.appendChild(h("span", { class: "badge source" + (s.streaming ? " streaming" : ""), text: s.text,
+        title: s.streaming ? "Plays from " + s.text : "Plays from your files" }));
+    });
+    return box;
+  }
+
+  function recRow(r, expanded, withLocal) {
     var box = h("div", { class: "rec" + (expanded[r.id] ? " open" : "") });
     var detail = h("div", { class: "rec-detail" });
     var head = h("button", { type: "button", class: "rec-head", "aria-expanded": expanded[r.id] ? "true" : "false",
@@ -1050,7 +1134,7 @@
       h("span", { class: "row-title", text: r.who || r.album || "Unknown performers" }),
       h("span", { class: "row-sub", text: [yearText(r), r.album, r.tracks ? plural(r.tracks, "track") : null]
         .filter(Boolean).join(" · ") }),
-      badges(r.accolades, 2)),
+      badges(r.accolades, 2), sourceBadges(r, withLocal)),
     h("span", { class: "dur", text: r.duration ? r.duration_text : "" }));
     var filled = false;
     async function fillDetail() {
@@ -1197,7 +1281,7 @@
       h("div", null,
         h("p", { class: "album-name", text: album.name || r.album || "" }),
         h("p", { class: "fine", text: [album.artist, album.year].filter(Boolean).join(" · ") }),
-        badges(r.accolades))));
+        badges(r.accolades), sourceBadges(r, true))));
     wrap.appendChild(recordingBody(r, false));
     wrap.appendChild(accoladesSection(r));
     if (r.merged && (state.info || {}).can_correct) {

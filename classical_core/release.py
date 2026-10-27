@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 import urllib.parse
 from dataclasses import dataclass
+from typing import Any
 
 from .text import norm_key
 
@@ -163,3 +164,49 @@ def track_recordings(release: dict, tracks: list[tuple[str, int | None, int | No
     if total < max(1, len(tracks) // 2) or agree < LENGTH_SHARE * total:
         return {}, "track lengths do not match"
     return out, "ok"
+
+
+# ---- streaming albums: barcode and ISRC (PLAN.md §5.10) ------------------------------------------------
+
+MAX_BARCODE_RELEASES = 3     # MB often holds a release twice (two countries, one barcode); more is a guess
+MAX_ISRC_RECORDINGS = 3
+
+
+def barcode_key(code: str | None) -> str:
+    """UPC-A and its EAN-13 spelling ('0' + UPC) are one barcode."""
+    digits = re.sub(r"\D", "", code or "")
+    return digits.lstrip("0")
+
+
+def barcode_url(base_url: str, code: str) -> str:
+    digits = re.sub(r"\D", "", code)
+    forms = sorted({digits, digits.lstrip("0"), "0" + digits.lstrip("0")} - {""})
+    q = " OR ".join(f"barcode:{f}" for f in forms)
+    return f"{base_url.rstrip('/')}/release?query={urllib.parse.quote(q)}&limit=25&fmt=json"
+
+
+def barcode_releases(search: dict, code: str, disc_counts: dict[int, int]) -> list[str]:
+    """The releases carrying exactly this barcode whose per-disc track counts fit the album."""
+    key = barcode_key(code)
+    out = []
+    for r in search.get("releases") or []:
+        if not r.get("id") or not key or barcode_key(r.get("barcode")) != key:
+            continue
+        if _counts_fit(r, disc_counts, None):
+            out.append(r["id"])
+    return sorted(set(out))
+
+
+def isrc_url(base_url: str, isrc: str) -> str:
+    return f"{base_url.rstrip('/')}/isrc/{urllib.parse.quote(isrc.strip().upper())}?fmt=json"
+
+
+def valid_isrc(isrc: str | None) -> bool:
+    return bool(re.fullmatch(r"[A-Z]{2}[A-Z0-9]{3}\d{7}", (isrc or "").strip().upper()))
+
+
+def length_fits(length_ms: Any, dur: int | None) -> bool:
+    """A recording length agrees with a track's (unknown on either side counts as agreeing)."""
+    if not dur or not isinstance(length_ms, (int, float)):
+        return True
+    return abs(length_ms / 1000 - dur) <= max(LENGTH_SLACK_S, 0.05 * dur)

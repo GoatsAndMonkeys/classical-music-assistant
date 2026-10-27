@@ -264,6 +264,8 @@ select.input {
 .pick-why { color: var(--accent); font-size: 13px; margin-top: 2px; overflow-wrap: anywhere; }
 .pick .icon-btn { color: var(--accent); }
 .row-actions .btn { min-height: 38px; padding: 0 14px; font-size: 14px; }
+.btn.small { flex: none; min-height: 38px; padding: 0 14px; font-size: 14px; }
+.section.streaming > .btn { margin-bottom: 8px; }
 .more-link { display: inline-block; margin-top: 8px; color: var(--accent); font-weight: 600; font-size: 14px; }
 
 .credits, .facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 12px 0; font-size: 15px; }
@@ -342,6 +344,9 @@ select.input {
 .badge.nominee { border-style: dashed; }
 .badge.album, .badge.other, .badge.more { border-color: var(--line); color: var(--muted); }
 .acclaim { flex-basis: 100%; margin: 0; }
+/* where a recording plays from (§5.10) */
+.badge.source { border-color: var(--line); color: var(--muted); }
+.badge.source.streaming { border-color: var(--muted); color: var(--text); }
 .accolades ul.awards { list-style: none; padding: 0; margin: 6px 0; }
 .accolades ul.awards li { margin: 4px 0; }
 .accolades blockquote.review { margin: 8px 0; padding-left: 10px; border-left: 3px solid var(--line); }

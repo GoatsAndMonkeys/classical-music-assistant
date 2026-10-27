@@ -204,3 +204,15 @@ test("sign-in probes stored tokens first outside ingress; the credential-less pr
   assert.deepEqual(app.probeOrder("/classical/", null, null), ["ingress"]);
   assert.deepEqual(app.probeOrder("/api/hassio_ingress/abc/classical/", "t1", null), ["ingress", "own"]);
 });
+
+test("provider badges: streaming services first, local only beside a streaming copy", () => {
+  const q = { instance: "qobuz--a", name: "Qobuz", streaming: true };
+  const q2 = { instance: "qobuz--b", name: "Qobuz", streaming: true };
+  const loc = { instance: "filesystem_smb--x", name: "Network share", streaming: false };
+  assert.deepEqual(app.sourceLabels([loc, q, q2], true).map((s) => s.text), ["Qobuz", "Network share"]);
+  assert.deepEqual(app.sourceLabels([loc, q], false).map((s) => s.text), ["Qobuz"]);
+  assert.deepEqual(app.sourceLabels([loc], false), []);
+  assert.deepEqual(app.sourceLabels(undefined, true), []);
+  assert.equal(app.anyStreaming([{ sources: [loc] }, { sources: [q] }]), true);
+  assert.equal(app.anyStreaming([{ sources: [loc] }, {}]), false);
+});

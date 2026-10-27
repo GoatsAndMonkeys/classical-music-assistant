@@ -20,6 +20,7 @@ from . import accolades as acc
 from .browse import NotFound, letter_of, play_uri
 from .catalogue import WORK_TYPES
 from .index import Index, _fmt_duration, recording_label
+from .streaming import source
 from .text import fold, norm_key
 
 BUCKETS = ("conductors", "orchestras", "chamber", "choirs", "soloists", "other")
@@ -224,14 +225,35 @@ _RECORDINGS_SQL = (
     "ORDER BY r.recorded_start IS NULL, r.recorded_start, r.album_library_id, first_pos")
 
 
+def _sources_by_recording(ix: Index, wid: str, vis, rid: str | None = None) -> dict[str, list[dict]]:
+    """Where each of a work's recordings plays from, as far as the caller can see (local files, Qobuz…):
+    the visible provider instances of its tracks' mappings. One query."""
+    rows = ix._q(
+        "SELECT s.recording_id AS rid, m.provider_instance AS pi FROM recording r "
+        "JOIN recording_slot s ON s.recording_id=r.id JOIN occurrence o ON o.id=s.occurrence_id "
+        "JOIN mapping_state m ON m.library_track_id=o.library_track_id "
+        "WHERE r.work_id=:wid AND (:rid IS NULL OR r.id=:rid) AND m.status IN ('ok','read_error') "
+        "AND (:vis IS NULL OR m.provider_instance IN (SELECT value FROM json_each(:vis))) "
+        "AND m.provider_instance NOT IN (SELECT provider_instance FROM provider_seen WHERE state<>'configured') "
+        "GROUP BY 1, 2 ORDER BY 1, 2", {"wid": wid, "rid": rid, **_vis_args(vis)})
+    out: dict[str, list[dict]] = defaultdict(list)
+    for r in rows:
+        out[r["rid"]].append(source(r["pi"]))
+    return out
+
+
 def _recordings(ix: Index, wid: str, vis, rid: str | None = None) -> tuple[list[dict], dict[str, list[dict]]]:
-    """A work's visible recordings (or just `rid`) as `Index.recordings` returns them, plus their credits:
-    two queries however many recordings the work has."""
+    """A work's visible recordings (or just `rid`) as `Index.recordings` returns them, plus their credits
+    and sources: three queries however many recordings the work has."""
     credits = _credits_by_recording(ix, wid, vis, rid)
+    sources = _sources_by_recording(ix, wid, vis, rid)
+    if not any(s["streaming"] for ss in sources.values() for s in ss):
+        sources = {}        # a library with only local files shows no badges (and sends none)
     out = []
     for row in ix._q(_RECORDINGS_SQL, {"wid": wid, "rid": rid, **_vis_args(vis)}):
         d = dict(row)
         d["credits"] = credits.get(d["id"], [])
+        d["sources"] = sources.get(d["id"], [])
         d["label"] = recording_label(d)
         image = d.pop("image_json", None)
         d["image"] = json.loads(image) if image else None
@@ -254,6 +276,7 @@ def _summary(r: dict, credits: list[dict], wid: str) -> dict:
         "venue": r.get("venue"),
         "album": r.get("album"), "album_id": r.get("album_library_id"), "album_artist": r.get("album_artist"),
         "image": r.get("image"), "credits": credits, "play_uri": play_uri(wid, r["id"]), "accolades": [],
+        **({"sources": r["sources"]} if r.get("sources") else {}),
     }
 
 

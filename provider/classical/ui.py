@@ -9,6 +9,8 @@ then maps images to image-proxy URLs. Corrections reuse the existing `classical/
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import datetime as dt
 from collections.abc import Callable
 from typing import Any
@@ -16,11 +18,11 @@ from typing import Any
 from music_assistant.controllers.webserver.helpers.auth_middleware import get_current_user
 from music_assistant_models.auth import Scope
 from music_assistant_models.config_entries import ConfigEntry
-from music_assistant_models.enums import ConfigEntryType
+from music_assistant_models.enums import ConfigEntryType, MediaType, ProviderFeature
 from music_assistant_models.errors import InvalidDataError
 
 from classical_core import __version__ as CORE_VERSION
-from classical_core import curation, views
+from classical_core import curation, streaming, views
 from classical_core.index import Index
 
 from .web import ROUTE, ClassicalWeb, image_urls
@@ -85,6 +87,7 @@ class CompanionUI:
             ("classical/review", self.cmd_review),
             ("classical/accolades", self.cmd_accolades),
             ("classical/today", self.cmd_today),
+            ("classical/streaming", self.cmd_streaming),
         ):
             handles.append(reg(command, handler, required_scope=Scope.LIBRARY_READ))
         self._web = ClassicalWeb(CORE_VERSION)
@@ -130,6 +133,10 @@ class CompanionUI:
                      "role": str(getattr(getattr(user, "role", None), "value", getattr(user, "role", "")) or "")}
             if user else None,
             "can_correct": can(user, Scope.LIBRARY_MANAGE),
+            # MA's own music/library/add_item needs LIBRARY_WRITE; the page offers "Add to library" only then
+            "can_add": can(user, Scope.LIBRARY_WRITE),
+            "streaming": [{"instance": p.instance_id, "name": getattr(p, "name", None) or p.instance_id}
+                          for p in self._streaming_providers(self._vis())],
             "can_status": can(user, Scope.LIBRARY_MANAGE),
             "ui_url": self._ui_url(),
         }
@@ -178,6 +185,78 @@ class CompanionUI:
         res = curation.header(day, self._hemisphere()) | {"shelves": await self._today(day)}
         return image_urls(res, self._image_id)
 
+    def _streaming_providers(self, vis: list[str] | None) -> list[Any]:
+        """The caller's loaded streaming providers that can search (none: the section is not offered)."""
+        out = []
+        for prov in list(getattr(self.mass.music, "providers", None) or []):
+            if getattr(prov, "is_streaming_provider", False) is not True:
+                continue
+            if ProviderFeature.SEARCH not in (getattr(prov, "supported_features", None) or ()):
+                continue
+            if vis is not None and prov.instance_id not in vis:
+                continue
+            out.append(prov)
+        return sorted(out, key=lambda p: p.instance_id)
+
+    async def cmd_streaming(self, work_id: str, provider: str | None = None) -> dict[str, Any]:
+        """Other recordings of a work on the caller's streaming services (PLAN.md §5.10): each provider
+        instance is searched itself (not MA's global search, which keeps one instance per service), and
+        albums holding the work that are not in the library yet are listed. Nothing is added here; the
+        page's "Add to library" calls MA's own `music/library/add_item`."""
+        vis = self._vis()
+        provs = [p for p in self._streaming_providers(vis) if provider in (None, p.instance_id)]
+
+        def facts(ix: Index) -> tuple[dict, set[tuple[str, str]]]:
+            w = views.work(ix, work_id, vis=vis)["work"]   # NotFound for a work the caller cannot see
+            marks = ",".join("?" * len(provs))
+            have = {(r[0], r[1]) for r in ix._q(
+                f"SELECT provider_instance, item_id FROM mapping_state WHERE status<>'gone' "
+                f"AND provider_instance IN ({marks})", [p.instance_id for p in provs])} if provs else set()
+            return w, have
+
+        try:
+            w, have = await self._read(facts)
+        except views.NotFound:
+            raise InvalidDataError(NOT_FOUND) from None
+        composer = (w.get("composers") or [{}])[0].get("name")
+        query = streaming.search_query(w["title"], composer)
+
+        async def one(prov: Any) -> dict[str, Any]:
+            entry: dict[str, Any] = {"instance": prov.instance_id, "name": getattr(prov, "name", None)
+                                     or prov.instance_id, "albums": [], "error": None}
+            try:
+                res = await asyncio.wait_for(prov.search(query, [MediaType.TRACK], limit=50), timeout=20)
+            except Exception as err:  # noqa: BLE001 - one service failing leaves the others
+                self.logger.debug("Streaming search on %s for %r: %r", prov.instance_id, query, err)
+                entry["error"] = "Search failed"
+                return entry
+            entry["albums"] = streaming.match_search(
+                w["title"], composer, [_track_dict(t, prov.instance_id) for t in getattr(res, "tracks", None) or []],
+                have)
+            return entry
+
+        found = await asyncio.gather(*(one(p) for p in provs))
+        return image_urls({"work": {"id": w["id"], "title": w["title"]}, "query": query, "providers": list(found)},
+                          self._image_id)
+
     async def cmd_review(self) -> dict[str, Any]:
         """The review queue grouped by reason, with correction actions for composer identities."""
         return await self._view(views.review)
+
+
+def _track_dict(t: Any, instance: str) -> dict[str, Any]:
+    """An MA search result track as `streaming.match_search` reads it."""
+    alb = getattr(t, "album", None)
+    image = None
+    with contextlib.suppress(Exception):
+        img = getattr(alb, "image", None)
+        image = img.to_dict() if img is not None else None
+    return {
+        "provider_instance": instance, "item_id": str(getattr(t, "item_id", "")), "uri": getattr(t, "uri", None),
+        "title": getattr(t, "name", "") or "", "duration": int(getattr(t, "duration", 0) or 0),
+        "artists": [a.name for a in getattr(t, "artists", None) or [] if getattr(a, "name", None)],
+        "album": {"uri": getattr(alb, "uri", None), "name": getattr(alb, "name", "") or "",
+                  "year": getattr(alb, "year", None), "image": image,
+                  "artists": [a.name for a in getattr(alb, "artists", None) or [] if getattr(a, "name", None)]}
+        if alb is not None else {},
+    }
