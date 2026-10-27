@@ -208,6 +208,18 @@ def test_user_name_identity_wins_over_the_authority(tmp_path):
     assert idx.composers()[0]["works"] == 2
 
 
+def test_merging_into_an_unknown_composer_is_refused(tmp_path):
+    idx, r = make_index(tmp_path)
+    add_album(idx, r, "A", "One", [("Partita No. 1: I. Allemande", "Heinrich Ignaz Franz Biber", None, None),
+                                   ("Partita No. 1: II. Sarabande", "Heinrich Ignaz Franz Biber", None, None)])
+    biber = idx.composers()[0]["id"]
+    with pytest.raises(ValueError):
+        idx.merge_composers(biber, "no-such-composer", user="seth")   # a redirect to nothing would hide Biber
+    with pytest.raises(ValueError):
+        idx.set_name_identity("Biber", "no-such-composer", user="seth")
+    assert composer_names(idx) == ["Heinrich Ignaz Franz Biber"]
+    assert idx.merge_composers(biber, biber) == biber
+
 # ---- (c) MusicBrainz artist search ---------------------------------------------------------------------
 
 BIBER_MBID = "0c2b2f9a-1d8c-4b5e-9b8e-3f1f6c0d2a11"

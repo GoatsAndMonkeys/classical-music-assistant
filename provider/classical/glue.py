@@ -671,8 +671,12 @@ class ClassicalProvider(PluginProvider):
 
     async def cmd_merge_composers(self, source_id: str, target_id: str) -> dict[str, Any]:
         """A user correction: every occurrence of one composer becomes another (§5.11 f)."""
-        await self._write(self.index.merge_composers, source_id, target_id, self._user_name())
-        return {"merged": source_id, "into": self.index.resolve("composer", target_id)}
+        try:
+            # the surviving id comes back from the writer thread: no SQLite on the event loop
+            into = await self._write(self.index.merge_composers, source_id, target_id, self._user_name())
+        except ValueError as err:
+            raise InvalidDataError(str(err)) from err
+        return {"merged": source_id, "into": into}
 
     async def cmd_composer_name(self, name: str, composer_id: str) -> dict[str, Any]:
         """A user correction: this credit string always means this composer; affected albums re-derive."""
@@ -688,7 +692,10 @@ class ClassicalProvider(PluginProvider):
                 ix.con.execute("ROLLBACK")
                 raise
 
-        albums = await self._write(apply, self.index)
+        try:
+            albums = await self._write(apply, self.index)
+        except ValueError as err:
+            raise InvalidDataError(str(err)) from err
         self._enqueue("scan")
         return {"albums": len(albums), "queued": list(self._jobs)}
 

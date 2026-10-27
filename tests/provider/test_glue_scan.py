@@ -199,3 +199,25 @@ def test_media_item_event_from_item_without_uri(glue):
     ev.data = types.SimpleNamespace(provider="library", media_type=types.SimpleNamespace(value="album"), item_id=9)
     p._on_media_item(ev)
     assert list(p._jobs) == ["album:9"]
+
+
+def test_merge_command_reads_nothing_on_the_loop_and_rejects_unknown_ids(glue, tmp_path):
+    p, con, _ = _provider(glue, tmp_path)
+    p.index.resolve = MagicMock(side_effect=AssertionError("SQLite touched on the event loop"))
+    calls = []
+
+    async def write(fn, *args):
+        calls.append(fn.__name__)
+        return "c-into" if fn.__name__ == "merge_composers" else None
+
+    p._write = write
+    p._user_name = staticmethod(lambda: "seth")
+    assert asyncio.run(p.cmd_merge_composers("c-src", "c-dst")) == {"merged": "c-src", "into": "c-into"}
+    assert calls == ["merge_composers"]
+
+    async def refuse(fn, *args):
+        raise ValueError("no composer c-dst")
+
+    p._write = refuse
+    with pytest.raises(glue.InvalidDataError):
+        asyncio.run(p.cmd_merge_composers("c-src", "c-dst"))

@@ -882,11 +882,18 @@ class Index:
 
     # -- user corrections (f) --
 
-    def merge_composers(self, src: str, dst: str, user: str | None = None) -> None:
-        """Every occurrence of `src` becomes `dst`, now and on every later derivation (redirect)."""
-        src, dst = self.resolve("composer", src), self.resolve("composer", dst)
+    def _require_composer(self, cid: str) -> str:
+        cid = self.resolve("composer", cid)
+        if not self._one("SELECT 1 FROM composer WHERE id=?", (cid,)):
+            raise ValueError(f"no composer {cid}")
+        return cid
+
+    def merge_composers(self, src: str, dst: str, user: str | None = None) -> str:
+        """Every occurrence of `src` becomes `dst`, now and on every later derivation (redirect). Both must
+        exist (a redirect to nothing would make `src` vanish). Returns the surviving composer id."""
+        src, dst = self._require_composer(src), self._require_composer(dst)
         if src == dst:
-            return
+            return dst
         own_tx = not self.con.in_transaction
         if own_tx:
             self.con.execute("BEGIN IMMEDIATE")
@@ -907,10 +914,14 @@ class Index:
             if own_tx:
                 self.con.execute("ROLLBACK")
             raise
+        return dst
 
     def set_name_identity(self, raw: str, composer_id: str, user: str | None = None) -> list[str]:
         """Pin a credit string to a composer (wins over every tier). Returns the albums to re-derive."""
+        self._require_composer(composer_id)
         keys = [c.key for c in parse_names(raw)] or [norm_key(raw)]
+        if not any(keys):
+            raise ValueError("empty credit string")
         now = time.time()
         for k in keys:
             self.con.execute("INSERT INTO override(entity, entity_id, op, payload_json, created_at, by_user) "
