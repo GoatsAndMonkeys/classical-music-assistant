@@ -204,8 +204,9 @@ def parse_work(data: dict) -> WorkInfo:
             back = r.get("direction") == "backward"
             if t == "parts":
                 (info.parents if back else info.parts).append(ref)
-            elif t == "arrangement" and not back:
-                # MB: "<arrangement> is an arrangement of <original>" is stored forward on the arrangement
+            elif t == "arrangement" and back:
+                # MB stores "<original> has arrangement <arrangement>" forward on the original (Fidelio lists
+                # 'A Fidelio Symphony'); the arrangement sees its original as a backward relation
                 info.arrangement_of.append(ref)
             elif t == "revision of" and not back:
                 info.revision_of.append(ref)

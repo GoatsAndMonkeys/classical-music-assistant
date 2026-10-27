@@ -142,3 +142,16 @@ def test_retry_after_is_honoured():
 
     asyncio.run(main())
     assert sleeps and 4.9 < sleeps[0] <= 5.0 and 2.0 not in sleeps   # waited the server's 5 s, not the backoff
+
+
+def test_arrangement_direction_original_lists_arrangements_forward():
+    # MB stores "<original> has arrangement <x>" forward on the original: Dvořák 9 and Vltava are
+    # originals, not arrangements (reading it backwards kept Fidelio out of its own cross-album work)
+    for mbid in (SYM9, "009b2276-f259-3f13-9112-7f1df8e6962a", "be255a2d-85b1-4258-b78c-280e8739df95"):
+        d = load("work", mbid)
+        assert all(r["direction"] == "forward" for r in d["relations"] if r.get("type") == "arrangement")
+        assert parse_work(d).arrangement_of == []
+    rel = {"type": "arrangement", "direction": "backward", "target-type": "work",
+           "work": {"id": SYM9, "title": "Symfonie č. 9"}}
+    goin = {"id": "00000000-0000-0000-0000-000000000001", "title": "Goin' Home", "relations": [rel]}
+    assert [r.mbid for r in parse_work(goin).arrangement_of] == [SYM9]

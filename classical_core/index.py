@@ -78,7 +78,9 @@ FOLDER_CAP = 500
 MAX_PARENT_DEPTH = 3
 CUE_TRACK = "::track"                  # MA's CUE-sheet track item_id delimiter (file.cue::trackNN)
 # bumped when derivation changes, so every album re-derives once (tags are not re-read)
-DERIVE_VERSION = 4
+DERIVE_VERSION = 5
+_MB_FIELD = {"arrangement_of": "arranged_from"}          # WorkInfo field -> evidence field
+_MB_FIELD_BACK = {v: k for k, v in _MB_FIELD.items()}
 DATED = "dated:"                       # composer 'mbid' slot for an unlisted name with conflicting life dates
 
 
@@ -453,7 +455,9 @@ class Index:
             if getattr(w, f):
                 rows.append((*e, f, json.dumps(getattr(w, f)), f))
         for f in ("composers", "credits", "parents", "parts", "arrangement_of", "revision_of"):
-            rows += [(*e, f, json.dumps(asdict(x), sort_keys=True), x.edge) for x in getattr(w, f)]
+            # 'arranged_from': indexes before 2026-10-27 stored the arrangements *of* this work as
+            # 'arrangement_of'; those rows are ignored until the next MusicBrainz refresh retracts them
+            rows += [(*e, _MB_FIELD.get(f, f), json.dumps(asdict(x), sort_keys=True), x.edge) for x in getattr(w, f)]
         rows += [(*e, "catalogues", json.dumps(c), f"cat:{c[0]}:{c[1]}") for c in w.catalogues]
         await self._w(self.replace_origin, url, "mb", rows)
         return w
@@ -490,8 +494,8 @@ class Index:
                 setattr(w, f, v)
             elif f in ("composers", "credits"):
                 getattr(w, f).append(Credit(**v))
-            elif f in ("parents", "parts", "arrangement_of", "revision_of"):
-                getattr(w, f).append(WorkRef(**v))
+            elif f in ("parents", "parts", "arranged_from", "revision_of"):
+                getattr(w, _MB_FIELD_BACK.get(f, f)).append(WorkRef(**v))
             elif f == "catalogues":
                 w.catalogues.append(tuple(v))
         w.parts.sort(key=lambda p: (p.ordering is None, p.ordering or 0))
