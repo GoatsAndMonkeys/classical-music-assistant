@@ -1,0 +1,40 @@
+# Local MA dev instance with the Classical plugin bind-mounted (PLAN.md §7, §8).
+#   python3 scripts/make_fixture_library.py docker/library     # synthetic library (gitignored)
+#   python3 -m build --wheel  (or: uv build)                    # dist/*.whl, served to MA's installer
+#   docker compose -f docker/compose.dev.yml --profile stable up -d      # MA 2.10.8 on :8095
+#   docker compose -f docker/compose.dev.yml --profile nightly up -d     # pinned nightly on :8096
+# Images are pinned by digest; bump them only after scripts/install-docker.sh --check passes.
+# PYTHONDEVMODE=1 makes MA load its demo player provider, the smoke test's dummy player.
+# UV_FIND_LINKS lets MA's requirement installer find the local wheel; PyPI stays reachable for other providers.
+
+x-ma: &ma
+  restart: "no"
+  environment:
+    PYTHONDEVMODE: "1"
+    UV_FIND_LINKS: /wheels
+    CLASSICAL_ALLOW_UNTESTED: "${CLASSICAL_ALLOW_UNTESTED:-0}"
+
+services:
+  ma-stable:
+    <<: *ma
+    profiles: [stable]
+    image: ghcr.io/music-assistant/server:2.10.8@sha256:661e88bea76a9e79f38feca791f6c7373376ab60766ee01f56b66418ca243b68
+    container_name: cma-ma-stable
+    ports: ["8095:8095"]
+    volumes:
+      - ../provider/classical:/app/venv/lib/python3.14/site-packages/music_assistant/providers/classical:ro
+      - ../dist:/wheels:ro
+      - ./library:/media/classical:ro
+      - ./data-stable:/data
+
+  ma-nightly:
+    <<: *ma
+    profiles: [nightly]
+    image: ghcr.io/music-assistant/server:nightly@sha256:a5b1879e898e52f837b6673e946c4c0954843a6b41d285e05b176ea8a08a02ca
+    container_name: cma-ma-nightly
+    ports: ["8096:8095"]
+    volumes:
+      - ../provider/classical:/app/venv/lib/python3.14/site-packages/music_assistant/providers/classical:ro
+      - ../dist:/wheels:ro
+      - ./library:/media/classical:ro
+      - ./data-nightly:/data
