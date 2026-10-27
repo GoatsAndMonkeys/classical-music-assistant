@@ -859,13 +859,21 @@ class Index:
         """A composer for a track whose tags name none: the title's composer prefix, the album name's
         ('Beethoven/Fidelio'), else the track or album artist unless that is a performer (a conductor
         credited on the track, or a composer best known as a performer: Bernstein)."""
-        for raw in (hint, album_name_prefix(album.name)):
+        conductors = {norm_key(p.name) for p in f.credits if p.role == "conductor"}
+        artists = " ".join(norm_key(a) for a in (f.track["artist"], album.artist) if a)
+        for raw, from_album in ((hint, False), (album_name_prefix(album.name), True)):
             c = parse_one(raw) if raw else None
             if c is not None:
                 k = authority_match(c, self._name_ctx)[0]
-                if k is not None:
-                    return k.name
-        conductors = {norm_key(p.name) for p in f.credits if p.role == "conductor"}
+                if k is None:
+                    continue
+                # 'Bernstein: Mahler Symphony No. 2' names the conductor, not the composer: an album prefix
+                # that is a credited conductor, or a performing composer in the artist credit, is skipped
+                sk = norm_key(surname(k.name, particles=False))
+                if from_album and (norm_key(k.name) in conductors or (
+                        k.name in PERFORMING and sk and re.search(rf"\b{re.escape(sk)}\b", artists))):
+                    continue
+                return k.name
         for artist in (f.track["artist"], album.artist):
             k = find_in_credit(artist)
             if k is not None and k.name not in PERFORMING and norm_key(k.name) not in conductors:

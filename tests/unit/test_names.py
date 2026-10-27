@@ -401,3 +401,22 @@ def test_respelling_fits():
     assert not respelling_fits(p("Johann Q. Nobody")[0], "Ludwig van Beethoven")
     assert not respelling_fits(p("Clara Schumann")[0], "Robert Schumann")
     assert not respelling_fits(p("Joseph Haydn (1737-1806)")[0], "Joseph Haydn", 1732, 1809)
+
+
+def test_album_prefix_naming_the_performer_is_not_the_composer(tmp_path):
+    idx, r = make_index(tmp_path)
+    add_album(idx, r, "B", "Bernstein: Mahler Symphony No. 2", [("Symphony No. 2: I. Allegro maestoso", None, None, None),
+                                                               ("Symphony No. 2: II. Andante", None, None, None)],
+              artist="Leonard Bernstein; New York Philharmonic")
+    assert "Leonard Bernstein" not in composer_names(idx)
+    # a conductor credit vetoes the prefix for any composer
+    add_album(idx, r, "C", "Britten: Mozart Symphonies", [("Symphony No. 40: I. Allegro", None, None,
+                                                          [Person("Benjamin Britten", "conductor", "person")]),
+                                                         ("Symphony No. 40: II. Andante", None, None,
+                                                          [Person("Benjamin Britten", "conductor", "person")])])
+    assert "Benjamin Britten" not in composer_names(idx)
+    # the prefix still names the composer when the performer is someone else
+    add_album(idx, r, "M", "Mahler: Symphony No. 5", [("Symphony No. 5: I. Trauermarsch", None, None, None),
+                                                     ("Symphony No. 5: II. Stürmisch bewegt", None, None, None)],
+              artist="Leonard Bernstein")
+    assert "Gustav Mahler" in composer_names(idx)
