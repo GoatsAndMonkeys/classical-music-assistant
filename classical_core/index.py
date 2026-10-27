@@ -1126,7 +1126,9 @@ class Index:
             c = fs[0].cand
             assert c is not None
             parts = [x.cand.movement_name for x in fs if x.cand and x.cand.movement_name]
-            wid, src = work_cache.get(c.key) or self._work_ids(c, fam, reviews, parts)
+            # an arranger credit makes the album's work an arrangement: its own work, never merged (§5.5)
+            arranged = any(x.tags is not None and x.tags.arrangers for x in fs)
+            wid, src = work_cache.get(c.key) or self._work_ids(c, fam, reviews, parts, arranged)
             work_cache[c.key] = (wid, src)
             wid = self.resolve("work", wid)      # a later work of this album may have absorbed it
             rid = old_rec.get(fs[0].occ_id)
@@ -1644,7 +1646,7 @@ class Index:
         return self._work_ids(c, family, reviews, part_names)[0]
 
     def _work_ids(self, c: Cand, family: str, reviews: list,
-                  part_names: list[str] | None = None) -> tuple[str, str]:
+                  part_names: list[str] | None = None, arranged: bool = False) -> tuple[str, str]:
         """(work id, the album's own work id before a cross-album merge). `family` scopes works without a
         shared identity: the discs of one set (separate MA albums 'Fidelio [Disc 1]' and '[Disc 2]') share
         them; other albums share one only on strong evidence (`_cross_album`)."""
@@ -1700,7 +1702,8 @@ class Index:
         if cids:
             row = self._one("SELECT name FROM composer WHERE id=?", (cids[0],))
             composer = row[0] if row else None
-        wid = self._cross_album(c, cids[0] if cids else None, composer, wid, reviews, blocked)
+        if not arranged:
+            wid = self._cross_album(c, cids[0] if cids else None, composer, wid, reviews, blocked)
         if mb_only_conflict and self.resolve("work", mb_only_conflict) != wid:
             reviews.append(("merge candidate with a conflict", "work", mb_only_conflict, {"title": c.title}))
         # cross-album candidates by title alone are listed, never merged (§5.5). Each work lists the older
@@ -1774,6 +1777,9 @@ class Index:
         keys = wi.cross_keys(composer, c.title, c.catalogues)
         if not keys:
             return wid
+        mw = self._mb_work(c.mbid) if c.mbid else None
+        if mw is not None and mw.arrangement_of:
+            return wid          # MusicBrainz says it is an arrangement: its own work
         act = wi.has_act_suffix(c.title)
         mine = self._mbids(wid)
         if act and mine:

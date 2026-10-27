@@ -526,3 +526,31 @@ def test_transient_mb_failure_leaves_album_for_retry(tmp_path, library):
     assert st is not None and st.mb_failures == 0 and st.mb_requests > 0
     assert idx.album_signature(kertesz.library_album_id) is not None
     assert run(idx.index_album(kertesz)) is None
+
+
+def test_schema_2_upgrades_a_version_1_index_in_place(tmp_path):
+    """0002 on an index made by 0001: rows and user corrections survive, the new columns get their defaults,
+    and migrating again changes nothing."""
+    from importlib import resources
+
+    from classical_core.store import _split_sql, connect, migrate
+
+    con = connect(tmp_path / "old.db")
+    con.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    for stmt in _split_sql(resources.files("classical_core.migrations").joinpath("0001_core.sql").read_text()):
+        con.execute(stmt)
+    con.execute("INSERT INTO meta VALUES ('schema_version', '1')")
+    con.execute("INSERT INTO work(id, title, sort_title, work_type, created_at) VALUES ('w1', 'Fidelio', 'fidelio', "
+                "'Opera & Stage', 1)")
+    con.execute("INSERT INTO override(entity, entity_id, op, payload_json, created_at, by_user) "
+                "VALUES ('composer', 'c1', 'name', '{}', 1, 'seth')")
+    con.execute("INSERT INTO redirect(entity, old_id, new_id, reason, at) VALUES ('composer', 'c2', 'c1', 'user', 1)")
+    assert migrate(con) == 2
+    assert migrate(con) == 2
+    w = con.execute("SELECT work_type, work_type_rank FROM work WHERE id='w1'").fetchone()
+    assert tuple(w) == ("Opera & Stage", -1)
+    assert con.execute("SELECT COUNT(*) FROM override").fetchone()[0] == 1
+    assert con.execute("SELECT new_id FROM redirect WHERE old_id='c2'").fetchone()[0] == "c1"
+    cols = {r[1] for r in con.execute("PRAGMA table_info(recording)")}
+    assert "source_work_id" in cols
+    assert "detail" in {r[1] for r in con.execute("PRAGMA table_info(track_credit)")}

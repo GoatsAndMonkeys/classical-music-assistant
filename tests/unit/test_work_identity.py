@@ -68,6 +68,33 @@ def test_titles_must_agree_beyond_the_catalogue():
     assert wi.titles_agree("Leonore Overture No. 3, Op. 72", "Leonore Overture No. 2, Op. 72") is not None
 
 
+def test_suites_excerpts_and_arrangements_are_not_the_stage_work():
+    """Brackets that name another piece keep it apart; 'orch.' marks an arrangement even before a name."""
+    assert wi.known_work("Igor Stravinsky", "The Firebird (1919 Suite)") is None
+    assert wi.known_work("Igor Stravinsky", "The Firebird [Suite]") is None
+    assert wi.known_work("Georges Bizet", "Carmen (Suite)") is None
+    assert wi.known_work("Ludwig van Beethoven", "Fidelio [Excerpts]") is None
+    assert wi.known_work("Richard Wagner", "Der fliegende Holländer (The Flying Dutchman)") is not None
+    for t in ("Pictures at an Exhibition (orch. Ravel)", "Wesendonck Lieder, WWV 91 (orch. Mottl)",
+              "Boris Godunov (orch Rimsky-Korsakov)", "Symphony No. 5 (arr. Liszt)", "Orchestration by Ravel"):
+        assert wi.is_arrangement(t), t
+        assert wi.cross_keys("Modest Mussorgsky", t, parse_catalogues(t)) == [], t
+    for t in ("Pictures at an Exhibition", "Concerto for Orchestra", "Afternoon of a Faun", "Arrival"):
+        assert not wi.is_arrangement(t), t
+
+
+def test_extra_name_words_on_one_side_are_another_piece():
+    assert wi.titles_agree("Tristan und Isolde: Prelude, WWV 90",
+                           "Tristan und Isolde: Prelude and Liebestod, WWV 90") == "different names"
+    assert wi.titles_agree("Tannhäuser: Overture, WWV 70",
+                           "Tannhäuser: Overture and Venusberg Music, WWV 70") == "different names"
+    assert wi.titles_agree("Die Zauberflöte, K. 620", "Die Zauberflöte, K. 620: Der Hölle Rache") is not None
+    # a translation in brackets or a missing nickname still agrees
+    assert wi.titles_agree("Der fliegende Holländer (The Flying Dutchman), WWV 63",
+                           "Der fliegende Holländer, WWV 63") is None
+    assert wi.titles_agree("Symphony No. 9 'Choral', Op. 125", "Symphony No. 9 in D minor, Op. 125") is None
+
+
 # ---- cross-album merging in the index --------------------------------------------------------------------
 
 
@@ -156,6 +183,16 @@ def test_keep_separate_undoes_the_merge_and_sticks(tmp_path):
     assert len(works_like(idx, "Fidelio")) == 2       # later derivations keep them apart
     assert idx._one("SELECT COUNT(*) FROM review_item WHERE reason LIKE 'possible same work%' "
                     "AND entity_id IN (?, ?)", tuple(x["id"] for x in ws))[0] == 0
+
+
+def test_an_arranger_credit_keeps_the_album_work_apart(tmp_path):
+    idx, r = new_index(tmp_path)
+    mus = ["Modest Mussorgsky"]
+    add(idx, r, "Mussorgsky: Pictures (piano)", [("Pictures at an Exhibition: Promenade", {"composers": mus})] * 2)
+    add(idx, r, "Mussorgsky/Ravel: Pictures",
+        [("Pictures at an Exhibition: Promenade", {"composers": mus, "arrangers": ["Maurice Ravel"]})] * 2)
+    add(idx, r, "Pictures (orch.)", [("Pictures at an Exhibition (orch. Ravel): Gnomus", {"composers": mus})] * 2)
+    assert len(works_like(idx, "Pictures")) == 3
 
 
 # ---- movement names ----------------------------------------------------------------------------------------
@@ -255,3 +292,19 @@ def test_review_view_titles(tmp_path):
             assert it["title"] != g["reason"]
             assert it["subtitle"] != it["title"]
 
+
+
+def test_title_word_correction_needs_a_listed_work_and_a_unique_surname(tmp_path):
+    """Siegfried Wagner on a Siegfried album, Leopold Mozart, or the full name written in a title stay as
+    they are: only 'Alexander' from 'Alexander Nevsky' (a listed Prokofiev work) is a copied title word."""
+    idx, r = new_index(tmp_path)
+    add(idx, r, "Wagner Family: Siegfried and more",
+        [("Siegfried Idyll", {"composers": ["Siegfried Wagner"], "work": "Siegfried Idyll"}),
+         ("Siegfried: Waldweben", {"composers": WAGNER, "work": "Siegfried, WWV 86C"})])
+    add(idx, r, "Leopold: Toy Symphony",
+        [("Cassation in G 'Leopold'", {"composers": ["Leopold Mozart"], "work": "Cassation in G 'Leopold'"})])
+    add(idx, r, "Alexander Nevsky / Alexander Prokofiev plays",
+        [("Alexander Nevsky, Op. 78: Russia under the Mongolian Yoke", {"composers": ["Alexander Prokofiev"]})])
+    names = {c["name"] for c in idx.composers()}
+    assert {"Siegfried Wagner", "Leopold Mozart", "Alexander Prokofiev"} <= names, names
+    assert "Sergei Prokofiev" not in names

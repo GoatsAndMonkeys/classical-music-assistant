@@ -155,6 +155,9 @@ Each entry says what the plan asked for, what was built instead, and why.
     (numbers, form, key) and the keys do not conflict; or
   - both titles name the same entry of a short list of distinctive works (`work_identity.py`: Fidelio,
     Der fliegende Holländer, Leonore, Alexander Nevsky…). Generic titles ('Violin Concerto') never merge.
+    Brackets naming another piece ('The Firebird (1919 Suite)', 'Fidelio [Excerpts]') keep it apart, every
+    name word must match on both sides ('Prelude' is not 'Prelude and Liebestod'), and an arrangement
+    (an arranger tag, 'orch. Ravel' in the title, a MusicBrainz arrangement) never merges.
 
   Two different MusicBrainz works never merge, and a MusicBrainz work keeps its own title. A tag-catalogue
   match against a MusicBrainz work now merges when the titles agree, instead of always being a conflict.
@@ -164,9 +167,11 @@ Each entry says what the plan asked for, what was built instead, and why.
   album's merge and keeps it apart on every later scan. The work type takes the best evidence of the merged
   works (MusicBrainz or the list, then title words, then act names).
 - **A given name copied from the work title is corrected (2026-10, changes §5.11 d).** §5.11 (d) keeps
-  'Alexander Prokofiev' for review only. When the single given name is a word of a title on the same album
-  ('Alexander Nevsky, Op. 78') and not followed there by the surname, the surname is unique in the list and
-  the life dates agree, the credit resolves to the listed composer (Sergei Prokofiev). The review item
+  'Alexander Prokofiev' for review only. When the single given name is a word
+  of a listed work of that composer ('Alexander Nevsky, Op. 78') named in a title on the same album, the
+  name is never followed there by the surname, the surname is unique in the list and not shared by other
+  notable composers (Mozart, Haydn), the person is not a known namesake (Siegfried Wagner) and the life dates
+  agree, the credit resolves to the listed composer (Sergei Prokofiev). The review item
   "composer name corrected from the work title" records it. Otherwise the review item is "suspicious composer
   name" and nothing changes.
 - **Nested performer credits keep the person once (2026-10).** 'Ain Anger (bass (Pater Profundus))' is the

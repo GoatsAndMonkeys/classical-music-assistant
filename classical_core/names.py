@@ -269,21 +269,37 @@ def given_name_conflict(c: NameCandidate) -> KnownComposer | None:
     return hits[0] if compatible(c.name, hits[0].name) is None else None
 
 
+# real composers whose given name is also a famous work of the listed bearer of their surname
+_TITLE_NAMESAKES = {"siegfried wagner"}
+
+
 def given_name_from_title(c: NameCandidate, k: KnownComposer, ctx: NameContext | None) -> bool:
-    """'Alexander Prokofiev' on 'Alexander Nevsky, Op. 78': the one given name is a word of a title on the
-    album (and not followed there by the surname, which would make it a real credit), the surname is unique in
-    the list (given_name_conflict) and the life dates agree. The tag copied a word of the work title."""
+    """'Alexander Prokofiev' on 'Alexander Nevsky, Op. 78': the one given name is a word of a listed work of
+    the known composer ('Alexander Nevsky', work_identity) that a title on the album names, the name never
+    appears there followed by the surname (that would make it a real credit), the surname is unique in the
+    list (given_name_conflict) and not shared by other notable composers (WORLD_AMBIGUOUS: Leopold Mozart),
+    and the life dates agree. The tag copied a word of the work title."""
     if ctx is None or not dates_agree(c, k.born, k.died):
         return False
     given = _given(c.name)
     if len(given) != 1 or len(given[0]) < 4:
         return False
     g, sk = given[0], norm_key(surname(c.name, particles=False))
+    if sk in WORLD_AMBIGUOUS or norm_key(c.name) in _TITLE_NAMESAKES:
+        return False
+    from .work_identity import known_names
+
+    word = re.compile(rf"\b{re.escape(g)}\b")
+    works = [n for n in known_names(k.name) if word.search(n)]
+    if not works:
+        return False
+    named = False
     for t in ctx.titles:
-        for m in re.finditer(rf"\b{re.escape(g)}\b", t):
-            if not t[m.end():].lstrip().startswith(sk):
-                return True
-    return False
+        for m in word.finditer(t):
+            if t[m.end():].lstrip().startswith(sk):
+                return False        # 'Alexander Prokofiev' written out in a title: a real name
+        named = named or any(re.search(rf"\b{re.escape(n)}\b", t) for n in works)
+    return named
 
 
 # ---- (c) MusicBrainz artist search ---------------------------------------------------------------------

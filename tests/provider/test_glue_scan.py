@@ -242,3 +242,43 @@ def test_separate_work_command_rescans_and_rejects_unmerged_recordings(glue, tmp
     p._write = refuse
     with pytest.raises(glue.InvalidDataError):
         asyncio.run(p.cmd_separate_work("r-1"))
+
+
+def test_separate_work_refuses_a_recording_the_caller_cannot_see(glue, tmp_path, monkeypatch):
+    """A hidden recording answers the same 'Not found' as an unknown one, and nothing is changed."""
+    p, _con, _ = _provider(glue, tmp_path)
+    p._user_name = staticmethod(lambda: "seth")
+    p._vis = lambda: ["filesystem--other"]
+    ix = p.index = MagicMock()
+
+    async def write(fn, *args):
+        return fn(*args)
+
+    def hidden(_ix, rid, vis):
+        assert vis == ["filesystem--other"]
+        raise glue.views.NotFound(rid)
+
+    monkeypatch.setattr(glue.views, "recording", hidden)
+    p._write = write
+    p._enqueue = MagicMock()
+    with pytest.raises(glue.InvalidDataError, match="Not found"):
+        asyncio.run(p.cmd_separate_work("r-1"))
+    ix.separate_work.assert_not_called()
+    p._enqueue.assert_not_called()
+
+
+def test_write_commands_need_library_manage(glue, tmp_path):
+    p, _con, _ = _provider(glue, tmp_path)
+    p.mass, p._unsub = MagicMock(), []
+    p._register_ui = MagicMock(return_value=[])
+    p._enqueue = MagicMock()
+
+    async def idle():
+        return None
+
+    p._worker = idle
+    asyncio.run(p.loaded_in_mass())
+    scopes = {c.args[0]: c.kwargs["required_scope"] for c in p.mass.register_api_command.call_args_list}
+    for name in ("classical/reindex", "classical/merge_composers", "classical/composer_name",
+                 "classical/separate_work"):
+        assert scopes[name] == glue.Scope.LIBRARY_MANAGE, name

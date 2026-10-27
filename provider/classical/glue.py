@@ -34,12 +34,13 @@ from music_assistant_models.media_items import (
 
 from classical_core import __version__ as CORE_VERSION
 from classical_core import browse as tree
+from classical_core import views
 from classical_core.index import AlbumIn, Index, MappingIn, TrackIn
 from classical_core.mb import MBClient
 from classical_core.names import LLMClient
 from classical_core.store import Database, SqliteMBCache
 
-from .ui import CompanionUI
+from .ui import NOT_FOUND, CompanionUI
 
 if TYPE_CHECKING:
     from music_assistant_models.event import MassEvent
@@ -705,12 +706,15 @@ class ClassicalProvider(CompanionUI, PluginProvider):
         return {"albums": len(albums), "queued": list(self._jobs)}
 
     async def cmd_separate_work(self, recording_id: str) -> dict[str, Any]:
-        """A user correction: this recording's work was wrongly merged with another album's; keep them apart."""
+        """A user correction: this recording's work was wrongly merged with another album's; keep them apart.
+        Only a recording the caller can see: a hidden or unknown id answers the same 'Not found'."""
         user = self._user_name()
+        vis = self._vis()  # on the loop: the current user is a context variable
 
         def apply(ix: Index) -> list[str]:
             ix.con.execute("BEGIN IMMEDIATE")
             try:
+                views.recording(ix, recording_id, vis)      # NotFound when hidden
                 out = ix.separate_work(recording_id, user)
                 ix.con.execute("COMMIT")
                 return out
@@ -720,6 +724,8 @@ class ClassicalProvider(CompanionUI, PluginProvider):
 
         try:
             albums = await self._write(apply, self.index)
+        except views.NotFound:
+            raise InvalidDataError(NOT_FOUND) from None
         except ValueError as err:
             raise InvalidDataError(str(err)) from err
         self._enqueue("scan")

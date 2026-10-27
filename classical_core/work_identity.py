@@ -158,12 +158,20 @@ _KNOWN: dict[str, list[tuple[str, str, str | None, tuple[str, ...]]]] = {
 }
 
 
+_PAREN_KEEP = re.compile(r"\b(?:suites?|overtures?|ouvertures?|preludes?|vorspiel|excerpts?|highlights|auszuge|"
+                         r"selections?|scenes?|fantas(?:y|ia|ie)|variations?|paraphrase|potpourri|dances?|"
+                         r"intermezzo|interlude|music from|concert|arias?)\b")
+
+
 def core_name(title: str | None) -> str:
     """'Der fliegende Holländer (The Flying Dutchman), opera, WWV 63' -> 'der fliegende hollander';
     'FIDELIO' -> 'fidelio'. The work's own name with its catalogue, genre label and parentheses removed."""
     s = fold(strip_track_number(title or ""))
     s = cat.strip_catalogues(s)
-    s = re.sub(r"\([^()]*\)|\[[^\]]*\]", " ", s)
+    # a translation or a label in brackets goes; one that names a different piece stays ('The Firebird
+    # (1919 Suite)', 'Carmen (Suite)', 'Fidelio [Excerpts]' are not the stage work itself)
+    s = re.sub(r"\(([^()]*)\)|\[([^\]]*)\]", lambda m: f" {m.group(0)[1:-1]} " if _PAREN_KEEP.search(
+        m.group(0)) else " ", s)
     s = re.sub(r"[\"'“”‘’«»]", "", s)
     s = re.sub(r"\b(?:(?:grand|comic|romantic|romantische|komische)\s+)?(?:opera|oper|opéra|singspiel|"
                r"music drama|musikdrama|dramma giocoso|dramma per musica|opera (?:seria|buffa)|oratorio|ballet)\b"
@@ -180,6 +188,14 @@ for _comp, _entries in _KNOWN.items():
             if _k is None:          # every listed composer is in composers._DATA (a test checks it)
                 continue
             _KNOWN_INDEX[(norm_key(_k.name), core_name(_n))] = (_eid, _type, _cat)
+
+
+def known_names(composer: str | None) -> list[str]:
+    """The listed works' names of a composer, as norm_key text ('alexander nevsky')."""
+    k = lookup(composer)
+    if k is None:
+        return []
+    return [norm_key(n) for _eid, _t, _c, names in _KNOWN.get(k.name, []) for n in names]
 
 
 def known_work(composer: str | None, title: str | None) -> tuple[str, str] | None:
@@ -226,8 +242,9 @@ _STOP = {"no", "nr", "n", "num", "in", "op", "opus", "the", "der", "die", "das",
          "le", "les", "il", "lo", "a", "an", "of", "for", "fur", "pour", "per", "und", "and", "et", "e", "y",
          "major", "minor", "dur", "moll", "flat", "sharp", "opera", "oper", "with", "mit", "von", "zu",
          "from", "aus", "live", "complete", "version", "original", "edition", "nos", "mvt", "mvmt"}
+# 'orch.' needs its own ending: '\b' after the period would demand a letter next ('(orch. Ravel)')
 _ARRANGED = re.compile(r"\b(?:arr|arranged|arrangement|transcr|transcribed|transcription|bearb|bearbeitung|"
-                       r"orchestrated|orch\.|version for|after)\b", re.IGNORECASE)
+                       r"orch|orchestrated|orchestration|version for|after)(?![a-z])", re.IGNORECASE)
 _KEY_TEXT = re.compile(r"\bin\s+[a-g](?:[\s-]*(?:flat|sharp|♭|♯))?(?:\s+(?:major|minor))?\b|"
                        r"\b[a-h](?:is|es|s)?[\s-](?:dur|moll)\b", re.IGNORECASE)
 _ROMAN_NO = {"i": 1, "ii": 2, "iii": 3, "iv": 4, "v": 5, "vi": 6, "vii": 7, "viii": 8, "ix": 9, "x": 10}
@@ -257,12 +274,14 @@ def title_sig(title: str) -> TitleSig:
     forms: set[str] = set()
     scoring: set[str] = set()
     names: set[str] = set()
+    # name words in brackets are mostly translations ('(The Flying Dutchman)'): they never decide
+    outer = set(re.findall(r"[a-z]+", re.sub(r"\([^()]*\)|\[[^\]]*\]", " ", s)))
     for w in re.findall(r"[a-z]+", s):
         if w in _FORMS:
             forms.add(_FORMS[w])
         elif w in _SCORING:
             scoring.add(w)
-        elif w not in _STOP and len(w) >= 3:
+        elif w not in _STOP and len(w) >= 3 and w in outer:
             names.add(w)
     return TitleSig(key, frozenset(nums), frozenset(forms), frozenset(scoring), frozenset(names))
 
@@ -282,7 +301,10 @@ def titles_agree(a: str, b: str) -> str | None:
         return "different form"
     if x.scoring and y.scoring and x.scoring != y.scoring:
         return "different instruments"
-    if x.names and y.names and not any(_word_match(p, q) for p in x.names for q in y.names):
+    # every name word must have its match on the other side: 'Prelude' is not 'Prelude and Liebestod', the
+    # opera is not 'Die Zauberflöte: Der Hölle Rache' (one side naming nothing, 'Symphony No. 9', still fits)
+    if x.names and y.names and not (all(any(_word_match(p, q) for q in y.names) for p in x.names)
+                                    and all(any(_word_match(q, p) for p in x.names) for q in y.names)):
         return "different names"
     return None
 
