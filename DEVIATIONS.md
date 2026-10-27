@@ -69,6 +69,24 @@ Each entry says what the plan asked for, what was built instead, and why.
   need movement evidence, so two whole takes with an announcer between them stay two recordings.
 - **A forced reindex starts from the first album.** The scan job row records whether it was forced, so an
   interrupted forced scan resumes forced; a normal scan never resumes a forced one as normal.
+- **Generic track titles are never works (2026-10).** "Nr. 1", "Act 1", "Track 7", "Rezitativ", "Duett",
+  "Arie", "Erster Aufzug", "Overture", bare numbers and the like name a place in a work, not a work. Such a
+  track inherits the album's work: the work named in the album title (for one composer, at most four words,
+  for example "Fidelio" from "Beethoven: Fidelio Disc 1"), or else the album's single tagged or catalogued
+  work. With no such work it gets none, so a mixed-composer album with "01".."06" titles stays raw.
+  - On a stage-work album (two or more generic titles, or a stage work in the template), aria incipits with no
+    work of their own join the album work too. A lone odd title between two tracks of one opera joins it.
+  - Runs of identical titles ("Fidelio, opera, Op. 72" x20) and repeated vague tails ("Continuation" x2)
+    are numbered by position, so they are parts of one performance instead of repeated movements.
+  - Planned evidence rules are kept: two complete takes of a symphony still split.
+- **Local works are keyed per album family.** A work with no MB id or catalogue number is keyed by the album
+  title with disc marks removed ("Disc 2", "CD2", "(1)", "Akt II", a trailing digit) plus album artist and
+  year. The discs of one set therefore share one work, while each disc album is still its own recording.
+  Joining a recording across separate MA albums is not done.
+- **Talk tails on tagged tracks.** A track whose work tag is set but whose title tail is broadcast talk
+  ("Announcer introduction ...", "host wrap-up") is treated as talk, unless the tail also names music
+  ("performance", "end of", "segment", "movement N", ...).
+- `DERIVE_VERSION` is 3, so every album re-derives once after this change.
 - **MusicBrainz canonical titles** replace tag titles once a work is matched.
 - **Name resolution (§5.11) is an addition to the plan.** Composer credits go through a tiered resolver:
   parsing, the authority list, MB artist search, an optional LLM, and review-only clustering, with user

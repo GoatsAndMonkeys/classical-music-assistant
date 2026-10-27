@@ -21,7 +21,7 @@ _ROMAN = {"i": 1, "ii": 2, "iii": 3, "iv": 4, "v": 5, "vi": 6, "vii": 7, "viii":
 # "I. Allegro", "1. Allegro", "IV - Finale", "3) Presto", "No. 2: Andante" (a bare "No. 2" is a number,
 # not a movement, in a work title like "Symphony No. 2")
 _MOVEMENT = re.compile(
-    r"^\s*(?:(?:mvt\.?|movement|satz)\s*)?(?P<num>[ivxlc]{1,6}|\d{1,2})\s*(?:[.)]|\s-\s|:)\s*(?P<name>\S.*)$",
+    r"^\s*(?:(?:mvt\.?|movement|satz)\s*)?(?P<num>[ivxlc]{1,6}|\d{1,2})\s*(?:[.)]|\s[-–—]\s|:)\s*(?P<name>\S.*)$",
     re.IGNORECASE,
 )
 # separators between work and movement, strongest first. ": " needs the space so "Hob. I:104" survives.
@@ -144,6 +144,7 @@ _ACT_WORD = r"(?:act|acts|akt|aufzug|atto|acte|acto|aufz\.)"
 _NUM = r"(?:[ivx]{1,4}|\d{1,2}|" + "|".join(_ORDINAL) + r")"
 _TAIL = r"(?:\b|(?=[\s.,:;–—-]|$))[\s.,:;–—-]*(?P<rest>.*)$"
 _ACT = (re.compile(rf"^{_ACT_WORD}\s+(?P<n>{_NUM}){_TAIL}", re.IGNORECASE),          # Act II, Akt 3, Act One
+        re.compile(rf"^{_ACT_WORD}(?P<n>\d{{1,2}}){_TAIL}", re.IGNORECASE),                # Act1, Akt2
         re.compile(rf"^(?P<n>{_NUM})\.?\s+{_ACT_WORD}{_TAIL}", re.IGNORECASE),        # Erster Aufzug, 2. Akt
         re.compile(rf"^(?P<n>prolog(?:ue|o)?){_TAIL}", re.IGNORECASE))
 _SEGMENT = re.compile(r"(?:^|[:;,–—]\s*|\s-\s)")
@@ -177,6 +178,8 @@ def find_act(text: str | None) -> tuple[int | None, str]:
 _TALK = re.compile(
     r"\b(?:intermission|interval (?:feature|talk)|interview(?:ed)?|commentary|announc(?:er|ement|ements)|quiz|"
     r"synopsis|backstage|conversation with|in conversation|discussion|podcast|applause|curtain calls?|"
+    r"host|wrap-?up|short gap|silence|pre-?concert|broadcast (?:opening|intro(?:duction)?|close|closing|outro)|"
+    r"spoken (?:introduction|intro)|lead-?in|station id|sponsor credits|"
     r"program(?:me)? notes?|introduced by|introduction by|speaks? (?:about|with)|talks? (?:about|with))\b"
     r"|^\s*(?:intro(?:duction)?|interval|welcome|preview|outro|closing(?: remarks)?|sign[- ]off|news|"
     r"announcer|host)\s*$",
@@ -185,3 +188,144 @@ _TALK = re.compile(
 
 def is_talk(title: str | None) -> bool:
     return bool(title and _TALK.search(title))
+
+
+# music is in the track even if talk is mentioned ('End of the opera, then the announcer names the cast')
+_MUSIC_TOO = re.compile(r"\b(?:performance|recording|complete|end of|close of|conclusion|encore|opening of|"
+                        r"movement [ivx\d]+|mvts?\.? ?[ivx\d]+|segment|part [ivx\d]+)\b", re.IGNORECASE)
+
+
+def is_talk_tail(tail: str | None) -> bool:
+    """A title tail past a work tag that describes only talk: 'Announcer introduction and interview
+    excerpt', 'Applause, then host wrap-up'. The first clause must be talk, and nothing may say the music
+    is there too."""
+    if not tail:
+        return False
+    first = re.split(r"[,;:(]|\s(?:and|then|with)\s", tail, maxsplit=1)[0]
+    return is_talk(first) and not _MUSIC_TOO.search(tail)
+
+
+# ---- generic track titles (opera numbers, "Track 3") ----------------------------------------------------
+
+# a title that names only its place in a larger work: never a work of its own (§5.4)
+_NUMBER_PREFIX = re.compile(r"^\s*\d{1,3}\.?\s+(?=\D)")
+_GENERIC_FULL = re.compile(
+    r"^(?:track|titel|title|piste|pista|traccia|tr|cd|disc|disk|side|part|teil|parte|nummer|number)\s*\.?\s*"
+    r"(?:\d{1,3}|[ivx]{1,4})$", re.IGNORECASE)
+_GENERIC_NO = re.compile(r"^(?:nr|no|n°|num)\.?\s*\d{1,2}[a-z]?(?=$|[\s.,:;()\-–—])", re.IGNORECASE)
+# vocal-number and stage forms: as the first word, the title names a number of an opera or oratorio
+_NUMBER_FORMS = frozenset(["rezitativ", "recitativo", "recitative", "recitatif", "récitatif", "recit", "accompagnato", "duett", "duetto", "duet", "duo", "arie", "aria", "arietta", "arioso", "terzett", "terzetto", "quartett", "quartetto", "quintett", "quintetto", "sextett", "sestetto", "septett", "finale", "introduktion", "introduzione", "einleitung", "chor", "coro", "szene", "scena", "cavatina", "cabaletta", "melodram", "melodrama", "marsch", "marcia", "ensemble", "stretta", "romanze", "romanza", "lied", "couplet", "couplets", "kanon"])
+# orchestral numbers that are generic only on their own ("Overture", "Ouvertüre (Orchester)")
+_BARE_FORMS = frozenset(["overture", "ouverture", "ouvertüre", "ouvert", "vorspiel", "preludio", "prelude", "prologue", "prolog", "sinfonia", "intermezzo", "entracte", "zwischenspiel"])
+
+
+def strip_track_number(title: str) -> str:
+    """'001 Overture' -> 'Overture' (a leading track number, not a movement number)."""
+    return _NUMBER_PREFIX.sub("", title or "").strip()
+
+
+def is_generic_title(title: str | None) -> bool:
+    """'Nr.1', 'Act 2', 'Act1 - No. 1 Aria', 'Duett Jaquino', 'Track 7', 'Overture': a title that only
+    places the track inside a larger work. Catalogue numbers make a title specific ('Aria, BWV 988')."""
+    t = strip_track_number(title or "")
+    if not t or parse_catalogues(t):
+        return False
+    if _GENERIC_FULL.match(t) or _GENERIC_NO.match(t) or parse_act(t)[0] is not None:
+        return True
+    words = re.findall(r"[^\W\d_]+", t.lower())
+    if not words:
+        return True
+    if words[0] in _NUMBER_FORMS:
+        return True
+    bare = re.sub(r"\([^)]*\)", "", t).strip(" .:-–—")
+    bare_words = re.findall(r"[^\W\d_]+", bare.lower())
+    return len(bare_words) == 1 and bare_words[0] in _BARE_FORMS or (
+        bool(bare_words) and bare_words[0].startswith("ouvert") and len(bare_words) <= 2)
+
+
+_SEGMENT_OF = re.compile(r"\b(?:segment|part|section|teil)\s+(\d{1,2})\s+(?:of|von)\s+\d{1,2}\b", re.IGNORECASE)
+_TAIL_SEP = re.compile(r"^\s*(?::|[-–—/]|,)\s*")
+
+
+def title_tail(title: str | None, work: str) -> str | None:
+    """What a track title says past its work tag: 'War Requiem: Continuous segment 1 of 6' -> 'Continuous
+    segment 1 of 6'. None when the title is just the work, or does not start with it."""
+    t = (title or "").strip()
+    if not t or not work:
+        return None
+    if t.lower().startswith(work.lower()):
+        rest = t[len(work):]
+        m = _TAIL_SEP.match(rest)
+        if m and rest[m.end():].strip():
+            return rest[m.end():].strip()
+        if not rest.strip():
+            return None
+    p = parse_title(t)
+    if p and p.movement_name:
+        a, b = norm_key(p.work), norm_key(work)
+        if a and b and (a.startswith(b) or b.startswith(a)):
+            return (f"{p.movement_no}. " if p.movement_no else "") + p.movement_name
+    return None
+
+
+def tail_number(tail: str) -> int | None:
+    """'Movement I – Andante mosso' -> 1; 'Continuous segment 3 of 6' -> 3."""
+    m = _SEGMENT_OF.search(tail)
+    if m:
+        return int(m.group(1))
+    return parse_movement(tail)[0]
+
+
+# "Fidelio, Op. 72 - Act 1": an act designation at the end of a work title is a section, not a new work
+_ACT_SUFFIX = re.compile(r"^(?P<work>.+?)\s*(?:[-–—:,/]\s*|\s)\(?(?P<act>" + _ACT_WORD + r"\s*" + _NUM + r")\)?\s*$",
+                         re.IGNORECASE)
+
+
+def split_act_suffix(work: str) -> tuple[str, int | None]:
+    m = _ACT_SUFFIX.match(work or "")
+    if m and len(m.group("work")) >= 3:
+        n, _ = parse_act(m.group("act"))
+        if n is not None:
+            return m.group("work").strip(" ,:-–—"), n
+    return work, None
+
+
+# ---- album names -----------------------------------------------------------------------------------------
+
+_DISC_MARKS = (
+    re.compile(r"[\[(]\s*(?:disc|disk|cd|part|teil|akt|act)\s*(?:\d{1,3}|[ivx]{1,4})\s*[\])]", re.IGNORECASE),
+    re.compile(r"\b(?:disc|disk|cd|teil|part|akt|act)\s*(?:\d{1,3}|[ivx]{1,4})\b", re.IGNORECASE),
+    re.compile(r"\(\s*\d{1,2}\s*\)"),
+    re.compile(r"(?<=[^\W\d_])\d$"),                    # "Fidelio1", "Hollander2"
+)
+
+
+def strip_disc_marks(name: str | None) -> str:
+    """'Beethoven: Fidelio [Disc 1]' / 'Fidelio (Klemperer, disc 2)' / 'Fidelio1' -> without the disc."""
+    s = name or ""
+    for rx in _DISC_MARKS:
+        s = rx.sub("", s)
+    return re.sub(r"\s+", " ", s).strip(" ,;:-–—")
+
+
+_ALBUM_JUNK = re.compile(r"^(?:opera|oper|op[ée]ra|complete works?|complete|works|werke|live|stereo|mono|highlights|"
+                         r"excerpts|auszüge|various(?: artists)?|unknown(?: album)?|untitled|título desconocido|"
+                         r"met|recital|collection|edition|box|remastered)$", re.IGNORECASE)
+_COLLECTION = re.compile(r"\b(?:arias|overtures|symphonies|concertos|sonatas|songs|lieder|works|duets|choruses|"
+                         r"preludes|excerpts|highlights|scenes|collection|best of|greatest)\b", re.IGNORECASE)
+
+
+def album_work_segments(name: str | None) -> list[str]:
+    """Candidate work titles in an album name, in order: 'Beethoven: Fidelio; Furtwangler/VPO' ->
+    ['Beethoven', 'Fidelio', 'Furtwangler', 'VPO']. The caller drops composer names."""
+    s = re.sub(r"[\[(][^\])]*[\])]", " ", strip_disc_marks(name))
+    out = []
+    for seg in re.split(r"\s*(?::|/|;|\||—|\s[-–]\s)\s*", s):
+        seg = strip_disc_marks(seg.split(",")[0])
+        seg = re.sub(r"\s+\d{1,3}$", "", seg).strip(" .'\"")
+        if len(seg) < 3 or not re.search(r"[^\W\d_]{3}", seg) or _ALBUM_JUNK.match(seg):
+            continue
+        if _COLLECTION.search(seg) or is_generic_title(seg):
+            continue
+        out.append(seg)
+    return out

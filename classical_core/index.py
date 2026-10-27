@@ -22,8 +22,9 @@ import logging
 import re
 import sqlite3
 import time
+from collections import Counter
 from collections.abc import Callable, Iterable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
 from . import catalogue as cat
@@ -49,7 +50,22 @@ from .names import (
 from .sethster_canonical import _CAT_RE, CATALOGUE_COMPOSER, form_key
 from .tags import Person, TagInfo, read_tags, year_of
 from .text import fold, norm_key, sort_name, surname
-from .titles import find_act, is_talk, parse_act, parse_movement, parse_title, shared_prefix_runs
+from .titles import (
+    album_work_segments,
+    find_act,
+    is_generic_title,
+    is_talk,
+    is_talk_tail,
+    parse_act,
+    parse_movement,
+    parse_title,
+    shared_prefix_runs,
+    split_act_suffix,
+    strip_disc_marks,
+    strip_track_number,
+    tail_number,
+    title_tail,
+)
 
 log = logging.getLogger("classical.index")
 
@@ -57,7 +73,7 @@ FOLDER_CAP = 500
 MAX_PARENT_DEPTH = 3
 CUE_TRACK = "::track"                  # MA's CUE-sheet track item_id delimiter (file.cue::trackNN)
 # bumped when derivation changes, so every album re-derives once (tags are not re-read)
-DERIVE_VERSION = 2
+DERIVE_VERSION = 3
 
 
 # ---- inputs from the glue ------------------------------------------------------------------------------
@@ -126,6 +142,7 @@ class Cand:
     mb_parts: int | None = None
     movement_total: int | None = None
     section: int | None = None                   # opera act (0 = prologue), from the movement or title
+    inherited: bool = False                      # a generic track given the album's work (§5.4)
 
 
 @dataclass(slots=True)
@@ -916,7 +933,8 @@ class Index:
                 orchestras={norm_key(p.name) for p in f.credits if p.role == "orchestra"},
                 choirs={norm_key(p.name) for p in f.credits if p.role == "chorus"},
                 recorded=f.recorded, multi=bool(f.extra_works), partial=f.partial,
-                section=c.section if c else None, gap=f.talk and c is None))
+                section=c.section if c else None, gap=f.talk and c is None,
+                continued=bool(c and c.inherited)))
         result = group_album(slots, ambiguous=ambiguous)
         for reason, idx in result.notes:
             reviews.append((reason, "occurrence", slots[idx[0]].occ_id if idx else None,
@@ -924,12 +942,13 @@ class Index:
 
         used_ids: set[str] = set()
         work_cache: dict[str, str] = {}
+        fam = album_family(album)
         for run in result.runs:
             fs = [facts[i] for i in run.slots]
             c = fs[0].cand
             assert c is not None
             parts = [x.cand.movement_name for x in fs if x.cand and x.cand.movement_name]
-            wid = work_cache.get(c.key) or self._work_for(c, aid, reviews, parts)
+            wid = work_cache.get(c.key) or self._work_for(c, fam, reviews, parts)
             work_cache[c.key] = wid
             rid = old_rec.get(fs[0].occ_id)
             if rid is None or rid in used_ids:
@@ -962,7 +981,7 @@ class Index:
             if not f.extra_works:
                 continue
             for ord_, wc in enumerate(f.extra_works):
-                wid = work_cache.get(wc.key) or self._work_for(wc, aid, reviews)
+                wid = work_cache.get(wc.key) or self._work_for(wc, fam, reviews)
                 work_cache[wc.key] = wid
                 self.con.execute("INSERT OR IGNORE INTO work_link(occurrence_id, work_id, ord, partial, live, medley, "
                                  "source, source_ref) VALUES (?,?,?,?,?,?,?,?)",
@@ -1067,6 +1086,11 @@ class Index:
                     f.recorded = f.mb.recorded[0]
             if f.extra_works:
                 continue
+            if t and t.work and not chains[i] and not (t.movement_name or t.movement_no):
+                tail = title_tail(f.track["title"], t.work)
+                if is_talk_tail(t.work) or is_talk_tail(tail):
+                    f.talk = True       # "Mahler 6: Announcer introduction": broadcast talk under a work tag
+                    continue
             tag_cand = self._tag_cand(f, mb_cand) if t and t.work else None
             if tag_cand is not None:
                 f.cand = tag_cand
@@ -1079,6 +1103,94 @@ class Index:
                 f.cand = mb_cand
             else:
                 f.cand = self._title_cand(f, album, prefix_of.get(i))
+        self._album_work_pass(facts, album)
+        _number_identical_runs(facts)
+
+    # -- the album's own work: generic titles and operas (§5.4) --
+
+    @staticmethod
+    def _generic(f: OccFacts) -> bool:
+        if f.extra_works or f.talk or (f.cand is not None and f.cand.tier != "title"):
+            return False
+        title = f.track["title"] or ""
+        if is_generic_title(title):
+            return True
+        p = parse_title(strip_track_number(title))
+        return bool(p and is_generic_title(p.work))
+
+    def _album_composer(self, facts: list[OccFacts], album: AlbumIn) -> list[tuple[str, str | None]]:
+        counts = Counter(c for f in facts if f.cand for c in f.cand.composers[:1])
+        if counts:
+            return [counts.most_common(1)[0][0]]
+        raws = [n for f in facts if f.tags for n in f.tags.composers]
+        if raws:
+            return self._composers_from(raws)[:1]
+        for f in facts:
+            known = self._context_composer(f, album, None)
+            if known:
+                return self._composers_from([known])
+        return []
+
+    def _album_template(self, facts: list[OccFacts], album: AlbumIn) -> Cand | None:
+        """The work an album is a recording of, for tracks titled only 'Nr. 3' or 'Act 2': the work named
+        by the album ('Beethoven: Fidelio [Disc 1]') — as a track already identifies it when one does —
+        else the album's only specific work."""
+        segs = [s for s in album_work_segments(album.name) if not self._names_composer(s)]
+        cands = [f.cand for f in facts if f.cand and not self._generic(f)]
+        if segs:
+            tk = norm_key(segs[0])
+            hits = Counter(c.key for c in cands
+                           if (k := norm_key(split_act_suffix(c.title)[0])) and (k.startswith(tk) or tk.startswith(k)))
+            if hits:
+                key = hits.most_common(1)[0][0]
+                return next(c for c in cands if c.key == key)
+            if len(segs[0].split()) > 4:
+                return None     # a sentence, not a title ('solti fidelio disc 2 track listings wrong')
+            composers = self._album_composer(facts, album)
+            named = {self._composers_from([n])[0] for f in facts if f.tags for n in f.tags.composers[:1]}
+            if not composers or len(named) > 1:
+                return None     # 'Tanglewood 6': tracks by several composers are not one work
+            key = f"title:{norm_key(composers[0][0])}|{tk}"
+            return Cand(key=key, title=segs[0], tier="title", composers=composers, key_sig=cat.parse_key(segs[0]))
+        specific = {c.key: c for c in cands if c.tier != "title" or c.catalogues}
+        return next(iter(specific.values())) if len(specific) == 1 else None
+
+    def _names_composer(self, seg: str) -> bool:
+        c = parse_one(seg)
+        return c is not None and (lookup(seg) is not None or authority_match(c, self._name_ctx)[0] is not None)
+
+    def _album_work_pass(self, facts: list[OccFacts], album: AlbumIn) -> None:
+        _fill_sandwiches(facts)
+        generic = [self._generic(f) for f in facts]
+        if not any(generic):
+            return
+        tpl = self._album_template(facts, album)
+        if tpl is None:
+            for f, g in zip(facts, generic, strict=True):
+                if g:
+                    f.cand = None       # a number of an unknown work is never a work of its own
+            return
+        stage = sum(generic) >= 2 or cat.work_type(tpl.title, tpl.mb_type) == "Opera & Stage"
+        for f, g in zip(facts, generic, strict=True):
+            c = f.cand
+            # in an opera, numbers titled by their text ('Marzelline!', 'Mit Gewitter und Sturm') belong too
+            other = stage and not f.talk and not f.extra_works and (
+                c is None or (c.tier == "title" and not c.catalogues and c.key != tpl.key))
+            if not (g or other):
+                continue
+            own = self._composers_from(f.tags.composers[:1]) if f.tags and f.tags.composers else []
+            if own and tpl.composers and own[0] != tpl.composers[0]:
+                if g:
+                    f.cand = None
+                continue
+            title = strip_track_number(f.track["title"] or "")
+            act, _ = find_act(title)
+            if act is None and c is not None:
+                act = c.section
+            pos = f"{f.track['disc'] or 1}:{f.track['position']}"
+            f.cand = replace(tpl, part_key=f"generic:{pos}", movement_no=None, movement_name=title or None,
+                             parent_key=tpl.key, section=act, mb_parts=None, movement_total=None, part_aliases=[],
+                             inherited=True)
 
     def _mb_cand(self, chain: list[str], top: str, f: OccFacts) -> Cand:
         w = self._mb_work(top)
@@ -1137,6 +1249,7 @@ class Index:
         part_key = f"tagpart:{norm_key(part)}" if part else None
         parent_key = key
         movement_name = t.movement_name
+        t_no = None
         # opera acts: from the movement tag, else from the title past the work ("Tristan und Isolde: Act II")
         act, rest = parse_act(t.movement_name) if t.movement_name else (None, "")
         if act is None:
@@ -1147,6 +1260,13 @@ class Index:
                 movement_name = tail.lstrip(" :,;–—-") or None
                 rest_key = norm_key(rest)
                 part_key = f"tagpart:act{act}|{rest_key}" if rest_key else f"tagpart:act{act}"
+        if act is None and not part and not (mb_cand and mbid):
+            # no movement tags: the title past the work names the part ('War Requiem: Continuous segment 2 of 6')
+            tail = title_tail(f.track["title"] or t.title, t.work)
+            if tail:
+                movement_name = tail
+                part_key = f"tagtail:{norm_key(tail)}"
+                t_no = tail_number(tail)
         if act is not None:
             # parts restart in each act; a whole-act track is a part of the opera itself
             if part_key and part:
@@ -1157,7 +1277,7 @@ class Index:
             key=key, title=t.work, tier="tags", composers=composers, mbid=mbid,
             mb_type=mb_cand.mb_type if mb_cand and mbid else None, key_sig=cat.parse_key(t.work),
             catalogues=cats or (mb_cand.catalogues if mb_cand and mbid else []),
-            parent_key=parent_key, movement_no=t.movement_no,
+            parent_key=parent_key, movement_no=t.movement_no or t_no,
             # no movement in the tags: keep MB's whole-work part so complete performances still split
             part_key=part_key or (mb_cand.part_key if mb_cand and mbid else None),
             movement_name=movement_name, movement_total=t.movement_total,
@@ -1168,6 +1288,8 @@ class Index:
         t = f.tags
         if f.talk or is_talk(title):
             return None  # an interview or intermission feature is never a work, whatever the credits say
+        if is_generic_title(title):
+            return None  # 'Nr. 3', 'Act 2', 'Duett': a number of the album's work (`_album_work_pass`)
         parsed = parse_title(title)
         work = movement = None
         number = None
@@ -1189,8 +1311,14 @@ class Index:
             if not (cat.parse_catalogues(title) or cat.work_type(title) != "Other"):
                 return None
             work = title
+        if is_generic_title(work):
+            return None
+        # 'Fidelio, Op. 72 - Act 1: Jetzt, Schätzchen': the act is a section of Fidelio, not a work
+        work, act_sfx = split_act_suffix(work)
         key = f"title:{norm_key(composers[0][0])}|{norm_key(work)}"
         act, rest = find_act(movement) if movement else (None, "")
+        if act is None and act_sfx is not None:
+            act, rest = act_sfx, movement or ""
         return Cand(key=key, title=work, tier="title", composers=composers, key_sig=cat.parse_key(work),
                     catalogues=cat.parse_catalogues(work),
                     parent_key=f"{key}|act{act}" if act is not None and rest else key,
@@ -1229,7 +1357,9 @@ class Index:
             self._add_alias("person", pid, "name", norm_key(p.name))
         return pid
 
-    def _work_for(self, c: Cand, album_id: str, reviews: list, part_names: list[str] | None = None) -> str:
+    def _work_for(self, c: Cand, family: str, reviews: list, part_names: list[str] | None = None) -> str:
+        """`family` scopes works without a shared identity: the discs of one set (separate MA albums
+        'Fidelio [Disc 1]' and '[Disc 2]') share them; other albums never do (§5.5)."""
         cids = [self._composer_for(n, m) for n, m in c.composers]
         primary = c.catalogues[0] if c.catalogues else None
         wid = None
@@ -1254,14 +1384,15 @@ class Index:
                         reviews.append(("collection-level catalogue match", "work", r["entity_id"],
                                         {"title": c.title, "catalogue": primary.display}))
         if wid is None and not c.mbid and not (c.tier == "tags" and cids and primary):
-            wid = self._alias("work", "local", f"{album_id}|{c.key}")
+            wid = self._alias("work", "local", f"{family}|{c.key}")
         if wid is None:
             wid = new_id("w")
             self.con.execute("INSERT INTO work(id, title, sort_title, work_type, identity_tier, created_at) "
                              "VALUES (?,?,?,?,?,?)", (wid, c.title, norm_key(c.title), "Other", c.tier, time.time()))
             # cross-album candidates by title are listed, never merged (§5.5)
             for r in self._q("SELECT w.id FROM work w JOIN work_composer wc ON wc.work_id=w.id "
-                             "WHERE w.sort_title=? AND wc.composer_id=? AND w.id<>?",
+                             "WHERE w.sort_title=? AND wc.composer_id=? AND w.id<>? "
+                             "AND EXISTS (SELECT 1 FROM recording r WHERE r.work_id=w.id)",
                              (norm_key(c.title), cids[0] if cids else "", wid)):
                 reviews.append(("possible same work on another album", "work", wid, {"other": r[0], "title": c.title}))
         if c.mbid:
@@ -1269,7 +1400,7 @@ class Index:
         if c.tier == "tags" and cids and primary and not c.mbid:
             self._add_alias("work", wid, "tagcat", f"{cids[0]}|{primary.key}")
         if not c.mbid and not (c.tier == "tags" and cids and primary):
-            self._add_alias("work", wid, "local", f"{album_id}|{c.key}")
+            self._add_alias("work", wid, "local", f"{family}|{c.key}")
         for pa in c.part_aliases:
             self._add_alias("work", wid, "part_mbid", pa)
         # the composers of the current derivation replace earlier ones (a re-resolved name moves the work)
@@ -1510,6 +1641,92 @@ class Index:
             "mappings": {r[0]: r[1] for r in self._q("SELECT status, COUNT(*) FROM mapping_state GROUP BY status")},
             "evidence_live": n("SELECT COUNT(*) FROM evidence WHERE retracted_at IS NULL"),
         }
+
+
+def album_family(album: AlbumIn) -> str:
+    """The discs of one set released as separate albums share a family: name without disc marks, artist, year."""
+    return f"fam:{norm_key(strip_disc_marks(album.name))}|{norm_key(album.artist)}|{album.year or ''}"
+
+
+def _number_identical_runs(facts: list[OccFacts]) -> None:
+    """Consecutive tracks titled identically ('Fidelio, opera, Op. 72' ×19, 'Probably a movement' ×3) with
+    nothing else to tell them apart are successive parts: ≥3 of them, or ≥2 of a stage work. Two adjacent
+    identical tracks of a symphony may be two complete takes, so they stay apart (§5.1)."""
+    _vague_parts(facts)
+    i = 0
+    while i < len(facts):
+        c = facts[i].cand
+        if c is None or c.movement_no is not None or (c.part_key and not c.part_key.startswith(("tagtail:", "titlepart:"))):
+            i += 1
+            continue
+        title = norm_key(facts[i].track["title"] or "")
+        run = [i]
+        j = i + 1
+        while j < len(facts):
+            f = facts[j]
+            if f.cand is None and f.talk:
+                j += 1
+                continue
+            if (f.cand is None or f.cand.key != c.key or f.cand.part_key != c.part_key or f.cand.movement_no is not None
+                    or norm_key(f.track["title"] or "") != title):
+                break
+            run.append(j)
+            j += 1
+        stage = cat.work_type(c.title, c.mb_type) == "Opera & Stage"
+        if len(run) >= 3 or (len(run) == 2 and stage):
+            for n, k in enumerate(run, 1):
+                fc = facts[k].cand
+                assert fc is not None
+                fc.part_key = f"seq:{facts[k].track['disc'] or 1}:{facts[k].track['position']}"
+                fc.movement_no = None
+                if not fc.movement_name:
+                    fc.movement_name = f"Part {n}"
+        i = run[-1] + 1
+
+
+def _fill_sandwiches(facts: list[OccFacts]) -> None:
+    """A track no tier could place, between two tracks of the same stage work ('abscheulicher Norman
+    Haitink' amid 19 tracks titled 'Fidelio, opera, Op. 72'), is part of that performance."""
+    idx = [i for i, f in enumerate(facts) if not (f.cand is None and f.talk)]
+    for a, i, b in zip(idx, idx[1:], idx[2:], strict=False):
+        f, before, after = facts[i], facts[a].cand, facts[b].cand
+        if (f.cand is not None or f.extra_works or before is None or after is None or before.key != after.key
+                or cat.work_type(before.title, before.mb_type) != "Opera & Stage"):
+            continue
+        f.cand = replace(before, part_key=f"generic:{f.track['disc'] or 1}:{f.track['position']}", movement_no=None,
+                         movement_name=f.track["title"] or None, mb_parts=None, movement_total=None,
+                         part_aliases=[], inherited=True)
+
+
+def _vague_parts(facts: list[OccFacts]) -> None:
+    """A block of ≥3 adjacent tracks of one work told apart only by descriptive titles ('Part of Alexander
+    Nevsky', 'Continuation of …', 'Continuation of …', 'Conclusion of …'): a repeated description inside
+    the block is the next part, not a second performance."""
+    def vague(f: OccFacts, key: str | None) -> bool:
+        c = f.cand
+        return bool(c and c.key == key and c.movement_no is None and c.part_key and c.part_key.startswith("tagtail:"))
+
+    i = 0
+    while i < len(facts):
+        c = facts[i].cand
+        if c is None or not vague(facts[i], c.key):
+            i += 1
+            continue
+        block = [i]
+        j = i + 1
+        while j < len(facts) and (vague(facts[j], c.key) or (facts[j].cand is None and facts[j].talk)):
+            if facts[j].cand is not None:
+                block.append(j)
+            j += 1
+        if len(block) >= 3:
+            seen: Counter[str] = Counter()
+            for k in block:
+                fc = facts[k].cand
+                assert fc is not None and fc.part_key is not None
+                seen[fc.part_key] += 1
+                if seen[fc.part_key] > 1:
+                    fc.part_key = f"{fc.part_key}#{seen[fc.part_key]}"
+        i = j
 
 
 def album_signature(album: AlbumIn) -> str:

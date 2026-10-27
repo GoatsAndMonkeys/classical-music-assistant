@@ -32,6 +32,7 @@ class Slot:
     partial: bool = False                # MB says the track performs part of the work (positive evidence)
     section: int | None = None           # opera act (0 = prologue) from the movement or title
     gap: bool = False                    # broadcast talk (intermission, announcer): transparent between parts
+    continued: bool = False              # a generic number of the album's own work ('Nr. 11' opening disc 2)
 
 
 @dataclass(slots=True)
@@ -140,6 +141,7 @@ def group_album(slots: list[Slot], ambiguous: bool = False) -> GroupingResult:
                 reason = "movement numbers restart"
             elif (prev.disc != s.disc and not (s.section is not None and prev.section is not None
                                                and s.section > prev.section)
+                  and not (s.continued and prev.continued)
                   and (s.movement_no is None or prev.movement_no is None or s.movement_no <= prev.movement_no)
                   and prev.parent_key == s.parent_key):
                 reason = "no continuity across discs"
