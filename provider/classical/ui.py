@@ -89,6 +89,7 @@ class CompanionUI:
             ("classical/recording", self.cmd_recording),
             ("classical/boxes", self.cmd_boxes),
             ("classical/box", self.cmd_box),
+            ("classical/albums", self.cmd_albums),
             ("classical/performers", self.cmd_performers),
             ("classical/performer", self.cmd_performer),
             ("classical/review", self.cmd_review),
@@ -186,6 +187,11 @@ class CompanionUI:
     async def cmd_box(self, id: str) -> dict[str, Any]:
         """One box set: its discs with the works on each, and the same recordings by composer and work."""
         return await self._view(views.box, id)
+
+    async def cmd_albums(self, composer_id: str | None = None, sort: str = "composer", offset: int = 0,
+                         limit: int = 200) -> dict[str, Any]:
+        """Albums by composer: a compilation is listed under each of its composers (or `sort` by title, year)."""
+        return await self._view(views.albums, composer_id=composer_id, sort=sort, offset=offset, limit=limit)
 
     async def cmd_performers(self, role: str = "all", with_id: str | None = None,
                              q: str | None = None) -> dict[str, Any]:

@@ -5,6 +5,8 @@ converts nodes into MA `BrowseFolder`/`Track` objects. Paths nest, so MA's ".." 
 last segment) always leads back up:
 
     composers[/letter-x]/<cid>/<type-slug>[/pN]/<wid>/<rid>
+    composers[/letter-x]/<cid>/albums[/pN]/a-<album id>/<rid>   the composer's albums, compilations included
+    albums[/pN]                       every album under each of its composers, by composer (MA discussion #5481)
     works/<type-slug>[/pN]/<wid>/<rid>
     works/<wid>/<rid>                 the short form a recording folder's URI resolves to (play URI)
     review/<reason-slug>[/pN]
@@ -107,6 +109,11 @@ def browse(index: Index, sub_path: str, vis=None) -> list[Node]:
         if len([s for s in segs[2:] if not _PAGE.match(s)]):
             raise NotFound(sub_path)
         return works_nodes(index, None, wt, _join("works", segs[1]), vis, page, with_composer=True)
+    if head == "albums":
+        if len(segs) > (2 if page else 1):
+            raise NotFound(sub_path)
+        return _paged(index.composer_albums(vis=vis), "albums", page,
+                      lambda e: _album_node(e, _join("composers", e["composer_id"], "albums"), with_composer=True))
     if head == "review":
         return review_nodes(index, segs[1:], vis, page)
     raise NotFound(sub_path)
@@ -117,6 +124,7 @@ def root(index: Index, vis) -> list[Node]:
     return [
         Node("folder", "composers", "Composers"),
         Node("folder", "works", "Works"),
+        Node("folder", "albums", "Albums"),
         Node("folder", "review", "Review", version=f"{n_review} items" if n_review else "nothing to review"),
     ]
 
@@ -156,11 +164,45 @@ def composer_branch(index: Index, rest: list[str], base: str, vis, page: int | N
         nodes = type_folders(index, cid, cbase, vis)
         if not nodes:
             raise NotFound(cid)
-        return nodes
+        n = len(index.composer_albums(cid, vis))
+        return nodes + ([Node("folder", _join(cbase, "albums"), "Albums", version=f"{n} album{'s' if n != 1 else ''}")]
+                        if n else [])
+    if after[0] == "albums":
+        return album_branch(index, cid, after[1:], _join(cbase, "albums"), vis, page)
     wt = TYPE_BY_SLUG.get(after[0])
     if wt is None or len(after) > 1:
         raise NotFound(base)
     return works_nodes(index, cid, wt, _join(cbase, after[0]), vis, page, with_composer=False)
+
+
+def _album_node(e: dict, base: str, with_composer: bool) -> Node:
+    works = f"{e['works']} work{'s' if e['works'] != 1 else ''}"
+    parts = [e["composer"] if with_composer else None, str(e["year"]) if e.get("year") else None, works]
+    return Node("folder", _join(base, f"a-{e['id']}"), e["name"] or "Unknown album",
+                version=" · ".join(p for p in parts if p), image=e.get("image"),
+                sort_name=f"{e['composer_sort']} {e['name'] or ''}" if with_composer else None)
+
+
+def album_branch(index: Index, cid: str, rest: list[str], base: str, vis, page: int | None) -> list[Node]:
+    """A composer's albums, or the recordings of their works on one album (`a-<album id>`)."""
+    if not rest:
+        nbase = _join(base, f"p{page}" if page else "")
+        return _paged(index.composer_albums(cid, vis), base, page, lambda e: _album_node(e, nbase, False))
+    if len(rest) > 1 or not rest[0].startswith("a-"):
+        raise NotFound(base)
+    found = index.composer_albums(cid, vis, aid=rest[0][2:])
+    if not found:
+        raise NotFound(rest[0])
+    abase = _join(base, f"p{page}" if page else "", rest[0])
+    nodes = []
+    for rid in found[0]["recordings"]:
+        r = index.recording(rid, vis)
+        if r is None:
+            continue
+        w = index.work(r["work_id"]) or {}
+        nodes.append(Node("folder", _join(abase, rid), w.get("title") or "", version=r["label"],
+                          item_id=recording_item_id(r["work_id"], rid), playable=True, image=r.get("image")))
+    return nodes
 
 
 def type_folders(index: Index, cid: str | None, base: str, vis) -> list[Node]:

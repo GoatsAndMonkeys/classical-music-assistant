@@ -86,7 +86,7 @@ def test_register_ui_registers_commands_and_replaces_a_stale_route(mods):
     handles = p._register_ui()
     names = [c.args[0] for c in p.mass.register_api_command.call_args_list]
     assert names == ["classical/ui_info", "classical/composers", "classical/works", "classical/work",
-                     "classical/recording", "classical/boxes", "classical/box", "classical/performers", "classical/performer", "classical/review",
+                     "classical/recording", "classical/boxes", "classical/box", "classical/albums", "classical/performers", "classical/performer", "classical/review",
                      "classical/review_triage",
                      "classical/accolades", "classical/today", "classical/streaming", "classical/work_description",
                      "classical/performer_tracks", "classical/add_album"]
@@ -94,9 +94,10 @@ def test_register_ui_registers_commands_and_replaces_a_stale_route(mods):
     assert scopes["classical/add_album"] is mods.ui.Scope.LIBRARY_WRITE
     assert scopes["classical/streaming"] is mods.ui.Scope.LIBRARY_READ
     assert scopes["classical/box"] is mods.ui.Scope.LIBRARY_READ
+    assert scopes["classical/albums"] is mods.ui.Scope.LIBRARY_READ
     p.mass.webserver.unregister_dynamic_route.assert_called_once_with("/classical/*", "*")
     assert p.mass.webserver.register_dynamic_route.call_count == 2 and handles[-1] is unreg
-    assert len(handles) == 18
+    assert len(handles) == 19
     assert p._ui_url() == "http://ma.local:8095/classical/"
 
 

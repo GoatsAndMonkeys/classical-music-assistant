@@ -39,8 +39,12 @@ _SPLIT = re.compile(r"\s*(?:/|;|\x00|\s&\s)\s*")
 _ROLE_TAG = re.compile(r"\s*\[(?P<r>[^\]\d]{2,30})\]\s*")
 _DATES = re.compile(r"\s*[(\[]\s*(?:b\.\s*|c\.\s*|ca\.\s*)?(?P<b>\d{3,4})?\s*(?:[-–—]|\bto\b)\s*"
                     r"(?:c\.\s*)?(?P<d>\d{3,4})?\s*[)\]]\s*")
-_ARR = re.compile(r"\s*(?:,\s*|\(\s*|\s)(?:arr\.|arranged by|arr\b|orch\.|orchestrated by|transcr\.|"
-                  r"transcribed by|bearb\.)\s*(?P<who>[^)]*)\)?\s*$", re.IGNORECASE)
+_ARR_WORDS = (r"(?:arr\.|arranged by|arranger\b|arr\b|orch\.|orchestrated by|orchestrator\b|transcr\.|"
+              r"transcribed by|bearb\.)")
+_ARR = re.compile(r"\s*(?:,\s*|\(\s*|\s)" + _ARR_WORDS + r"\s*(?P<who>[^)]*)\)?\s*$", re.IGNORECASE)
+# a segment that is only an arranger's credit: 'arr. Busoni', 'Busoni (arr.)', 'Stokowski, arranger'
+_ARR_ONLY = re.compile(r"^" + _ARR_WORDS + r"|^[^(]+?(?:,\s*|\(\s*|\s)" + _ARR_WORDS + r"\s*\)?\s*$", re.IGNORECASE)
+_ARR_LEAD = re.compile(r"^" + _ARR_WORDS + r"\s*", re.IGNORECASE)
 # role tags that are not the composer ("Sonnleithner, Joseph von [Author]")
 NOT_COMPOSER = {"author", "lyricist", "librettist", "libretto", "text", "words", "writer", "poet", "translator",
                 "arranger", "arr", "orchestrator", "editor", "lyrics", "book", "adapter", "performer", "conductor"}
@@ -145,6 +149,9 @@ def parse_one(segment: str) -> NameCandidate | None:
         born = int(m.group("b")) if m.group("b") else None
         died = int(m.group("d")) if m.group("d") else None
         s = (s[: m.start()] + " " + s[m.end():]).strip()
+    if role is None and _ARR_ONLY.search(s):
+        role = "arranger"       # an arranger named in the composer field is not a composer (unless alone)
+        s = _ARR_LEAD.sub("", s)    # 'arr. Busoni' -> 'Busoni'
     m = _ARR.search(s)
     if m and m.start() > 0:
         s = s[: m.start()].strip()
@@ -170,7 +177,10 @@ def parse_names(raw: str | Iterable[str] | None, role: str = "composer") -> list
     if role == "composer":
         if any(c.role_tag in COMPOSER_TAGS for c in out):
             out = [c for c in out if c.role_tag in COMPOSER_TAGS]
-        out = [c for c in out if c.role_tag not in NOT_COMPOSER]
+        # a field of arranger credits only ('Liszt (transcr.)', 'Ravel, Maurice (orchestrator)') keeps them as
+        # the composer, as before arrangers were told apart; their role_tag still says 'arranger'
+        if not all(c.role_tag == "arranger" and not _ROLE_TAG.search(c.raw) for c in out):
+            out = [c for c in out if c.role_tag not in NOT_COMPOSER]
     merged: dict[str, NameCandidate] = {}
     for c in out:
         prev = merged.get(c.key)

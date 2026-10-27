@@ -21,8 +21,9 @@ import json
 import logging
 import re
 import sqlite3
+import threading
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any
@@ -76,7 +77,20 @@ from .titles import (
     title_tail,
 )
 
+# Index.composer_albums' whole list per connection: (connection, (vis, generation), entries)
+_ALBUMS_CACHE: dict[int, tuple[sqlite3.Connection, tuple, list[dict]]] = {}
+_ALBUMS_LOCK = threading.Lock()
+
 log = logging.getLogger("classical.index")
+
+
+def sort_key(name: str | None) -> str:
+    """The accent-folded key lists sort by ('Dvořák' with the Ds); ASCII skips the Unicode work."""
+    if not name:
+        return ""
+    if name.isascii():
+        return " ".join(name.lower().split())
+    return fold(name).lower()
 
 FOLDER_CAP = 500
 MAX_PARENT_DEPTH = 3
@@ -2158,16 +2172,22 @@ class Index:
                 "AND m.provider_instance NOT IN (SELECT provider_instance FROM provider_seen WHERE state<>'configured'))")
     _VIS_REC = ("r.joined_to IS NULL AND NOT EXISTS (SELECT 1 FROM recording_slot s2 JOIN occurrence o ON o.id=s2.occurrence_id "
                 "WHERE s2.recording_id=r.id AND NOT (" + _VIS_OCC + "))")
+    # the same test for every recording at once: the hidden ones are found in one pass over the occurrences
+    # (about twice as fast over a whole library; slower than _VIS_REC when only a few recordings are read)
+    _VIS_REC_ALL = ("r.joined_to IS NULL AND r.id NOT IN (SELECT s2.recording_id FROM recording_slot s2 "
+                    "JOIN occurrence o ON o.id=s2.occurrence_id WHERE NOT (" + _VIS_OCC + "))")
 
     @staticmethod
     def _vis(vis: Iterable[str] | None) -> dict:
         return {"vis": None if vis is None else json.dumps(sorted(vis))}
 
-    def composers(self, vis=None) -> list[dict]:
+    def composers(self, vis=None, cid: str | None = None) -> list[dict]:
+        """Composers with a visible recording, and their work counts (only `cid` when given)."""
         rows = self._q(
             "SELECT c.id, c.name, c.sort_name, c.born, c.died, COUNT(DISTINCT r.work_id) AS works "
             "FROM composer c JOIN work_composer wc ON wc.composer_id=c.id JOIN recording r ON r.work_id=wc.work_id "
-            f"WHERE {self._VIS_REC} GROUP BY c.id ORDER BY c.sort_name", self._vis(vis))
+            f"WHERE (:cid IS NULL OR c.id=:cid) AND {self._VIS_REC} GROUP BY c.id ORDER BY c.sort_name",
+            {"cid": cid, **self._vis(vis)})
         return [dict(r) for r in rows]
 
     def composer(self, cid: str) -> dict | None:
@@ -2199,6 +2219,88 @@ class Index:
             sql += " LIMIT :lim OFFSET :off"
             args.update(lim=limit, off=offset)
         return [dict(r) for r in self._q(sql, args)]
+
+    def composer_albums(self, cid: str | None = None, vis=None, aid: str | None = None) -> list[dict]:
+        """One entry per composer and album holding a visible recording of their work, by composer then album
+        title (accents folded, as the composer list sorts): a compilation is listed under each of its composers
+        (MA discussion #5481). Each entry has its recording ids, its work count and every composer on the album.
+        The recording ids are in album order but in the whole list (no `cid` or `aid`), which is cached until
+        the index changes; its entries are shared, so callers copy before changing one."""
+        if cid is None and aid is None:
+            key = (self._vis(vis)["vis"], *self.generation())
+            with _ALBUMS_LOCK:
+                hit = _ALBUMS_CACHE.get(id(self.con))
+            if hit is not None and hit[0] is self.con and hit[1] == key:
+                return list(hit[2])
+            out = self._composer_albums(None, vis, None)
+            with _ALBUMS_LOCK:
+                _ALBUMS_CACHE.pop(id(self.con), None)
+                _ALBUMS_CACHE[id(self.con)] = (self.con, key, out)   # the connection is held, so its id is not reused
+                while len(_ALBUMS_CACHE) > 8:
+                    _ALBUMS_CACHE.pop(next(iter(_ALBUMS_CACHE)))
+            return list(out)
+        return self._composer_albums(self.resolve("composer", cid) if cid else None, vis, aid)
+
+    def generation(self) -> tuple[int, int]:
+        """Changes on this connection or committed by another since: equal values mean the same index."""
+        return self.con.execute("PRAGMA data_version").fetchone()[0], self.con.total_changes
+
+    def _composer_albums(self, cid: str | None, vis, aid: str | None) -> list[dict]:
+        args = {"cid": cid, "aid": aid, **self._vis(vis)}
+        whole = cid is None and aid is None
+        # the visible recordings (all, of the composer's albums, or on one album) with each of their composers,
+        # and the first track of each but in the whole list (whose callers fetch the recordings they show)
+        first = ("NULL" if whole else "(SELECT MIN(COALESCE(o.disc,1)*10000+COALESCE(o.position,0)) "
+                 "FROM recording_slot s JOIN occurrence o ON o.id=s.occurrence_id WHERE s.recording_id=r.id)")
+        recs = self._q(
+            f"SELECT r.id, r.work_id, r.album_library_id AS aid, wc.composer_id AS cid, {first} AS first_pos "
+            "FROM recording r JOIN work_composer wc ON wc.work_id=r.work_id "
+            f"WHERE r.album_library_id IS NOT NULL AND {self._VIS_REC_ALL if whole else self._VIS_REC} "
+            "AND (:aid IS NULL OR r.album_library_id=:aid) "
+            "AND (:cid IS NULL OR r.album_library_id IN (SELECT r3.album_library_id FROM work_composer wc3 "
+            " JOIN recording r3 ON r3.work_id=wc3.work_id WHERE wc3.composer_id=:cid)) "
+            + ("" if whole else "ORDER BY r.album_library_id, first_pos, r.id, wc.ord"), args)
+        if not recs:
+            return []
+        if whole:
+            comp_sql = "SELECT id, name, sort_name FROM composer"
+            alb_sql = "SELECT album_library_id, name, artist, year, image_json FROM album_info"
+        else:
+            ids = {"c": json.dumps(sorted({r["cid"] for r in recs})), "a": json.dumps(sorted({r["aid"] for r in recs}))}
+            comp_sql = "SELECT id, name, sort_name FROM composer WHERE id IN (SELECT value FROM json_each(:c))"
+            alb_sql = ("SELECT album_library_id, name, artist, year, image_json FROM album_info "
+                       "WHERE album_library_id IN (SELECT value FROM json_each(:a))")
+        comp = {r[0]: (r[1], r[2], sort_key(r[2])) for r in self._q(comp_sql, {} if whole else ids)}
+        alb = {r[0]: r for r in self._q(alb_sql, {} if whole else ids)}
+        entries: dict[tuple[str, str], dict] = {}
+        on_album: dict[str, dict[str, None]] = defaultdict(dict)
+        for rid, wid, a_id, c, _ in recs:
+            on_album[a_id][c] = None
+            if cid is not None and c != cid:
+                continue
+            e = entries.get((c, a_id))
+            if e is None:
+                a = alb.get(a_id)
+                e = entries[(c, a_id)] = {
+                    "composer_id": c, "composer": comp[c][0], "composer_sort": comp[c][1],
+                    "id": a_id, "name": a["name"] if a else None, "artist": a["artist"] if a else None,
+                    "year": a["year"] if a else None, "image_json": a["image_json"] if a else None,
+                    "recordings": [], "wids": set()}
+            if rid not in e["recordings"]:
+                e["recordings"].append(rid)
+            e["wids"].add(wid)
+        album_key = {e["id"]: sort_key(e["name"]) for e in entries.values()}
+        composers_of = {k: [{"id": c, "name": comp[c][0]} for c in sorted(v, key=lambda c: (comp[c][2], c))]
+                        for k, v in on_album.items()}
+        out = []
+        for e in sorted(entries.values(), key=lambda e: (comp[e["composer_id"]][2], e["composer_id"],
+                                                         album_key[e["id"]], e["id"])):
+            ij = e.pop("image_json")
+            e["image"] = json.loads(ij) if ij else None
+            e["works"] = len(e.pop("wids"))
+            e["composers"] = composers_of[e["id"]]
+            out.append(e)
+        return out
 
     def count_works(self, cid: str | None, work_type: str | None, vis=None) -> int:
         return len(self.works(cid, work_type, vis))

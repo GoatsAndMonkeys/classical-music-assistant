@@ -20,12 +20,12 @@ def names(nodes):
 
 def test_root_and_composer_walk(idx):
     root = tree.browse(idx, "")
-    assert names(root) == ["Composers", "Works", "Review"]
+    assert names(root) == ["Composers", "Works", "Albums", "Review"]
     comps = tree.browse(idx, "composers")
     beet = next(n for n in comps if n.name == "Ludwig van Beethoven")
     assert beet.path.startswith("composers/c_") and "2 works" in beet.version
     types = tree.browse(idx, beet.path)
-    assert names(types) == ["Symphonies"]
+    assert names(types) == ["Symphonies", "Albums"]
     works = tree.browse(idx, types[0].path)
     assert [w.name for w in works] == ["Symphony No. 5 in C minor, Op. 67", "Symphony No. 7 in A major, Op. 92"]
     recs = tree.browse(idx, works[0].path)
