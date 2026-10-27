@@ -3,6 +3,7 @@ clustering, the optional LLM fallback (against a local fake server) and user cor
 
 import asyncio
 import json
+from urllib.parse import quote
 
 import pytest
 
@@ -22,6 +23,7 @@ from classical_core.names import (
 )
 from classical_core.store import connect, migrate
 from classical_core.tags import Person, TagInfo
+from classical_core.text import ident_key, norm_key
 
 BEETHOVEN_STRINGS = [
     "beethoven",
@@ -563,3 +565,32 @@ def test_mb_search_reads_aliases_and_an_old_or_stale_miss_is_asked_again(tmp_pat
                     (key,))
     add_album(idx, r, "A", "One", rows, force=True)
     assert len([u for u in calls if "/artist?" in u]) == 1
+
+
+def test_mb_names_in_another_script_keep_the_credit_and_stay_apart(tmp_path):
+    """Real shape (M1, 2026-10-27): MB answered Glinka and Glazunov in Cyrillic; both folded to the empty
+    name key and merged into one composer. The credited spelling is kept and each stays its own composer."""
+    people = {"Mikhail Glinka": (GLINKA_MBID, "Михаил Иванович Глинка", "Glinka, Mikhail"),
+              "Alexander Glazunov": ("9a1c3f2e-1b2c-4d3e-8f4a-5b6c7d8e9f01", "Александр Константинович Глазунов",
+                                     "Glazunov, Alexander")}
+
+    async def fetch(url, headers):
+        hit = [v for k, v in people.items() if quote(k) in url]
+        artists = [{"id": m, "type": "Person", "score": 100, "name": n, "sort-name": sn,
+                    "aliases": [{"name": k, "sort-name": sn}]} for k, (m, n, sn) in people.items()
+                   if (m, n, sn) in hit]
+        return 200, json.dumps({"artists": artists}).encode()
+
+    mb = MBClient("https://example.invalid/contact", fetch=fetch, interval=0)
+    idx, r = make_index(tmp_path, mb=mb)
+    add_album(idx, r, "A", "One", [("Kamarinskaya", "Mikhail Glinka", None, None),
+                                   ("Valse-fantaisie", "Mikhail Glinka", None, None)])
+    add_album(idx, r, "B", "Two", [("The Seasons: I. Winter", "Alexander Glazunov", None, None),
+                                   ("The Seasons: II. Spring", "Alexander Glazunov", None, None)])
+    assert composer_names(idx) == ["Alexander Glazunov", "Mikhail Glinka"]
+
+
+def test_ident_key_never_folds_another_script_to_nothing():
+    assert ident_key("Николай Метнер") == "николай метнер"
+    assert ident_key("武満徹") == "武満徹"
+    assert ident_key("Antonín Dvořák") == norm_key("Antonín Dvořák")

@@ -57,7 +57,7 @@ from .names import (
 from .sethster_canonical import _CAT_RE, CATALOGUE_COMPOSER, form_key
 from .streaming import domain_of, is_streaming, provider_facts
 from .tags import Person, TagInfo, normalize_person, read_tags, year_of
-from .text import fold, norm_key, sort_name, surname
+from .text import fold, ident_key, norm_key, sort_name, surname
 from .titles import (
     album_work_segments,
     find_act,
@@ -1101,6 +1101,8 @@ class Index:
         live = {r["field"]: r["value"] for r in self._live("name", c.key)}
         if "identity" in live:
             d = json.loads(live["identity"])
+            if not re.search("[a-z]", norm_key(d["name"])):
+                return c.name, d["mbid"]    # MB's name in another script: keep the credited spelling
             if lookup(d["name"]) is None or lookup(d["name"]).name == d["name"]:
                 return d["name"], d["mbid"]
             return lookup(d["name"]).name, d["mbid"]
@@ -1879,28 +1881,31 @@ class Index:
         known = lookup(name)
         canonical = known.name if known else name
         cid = self._alias("composer", "mbid", mbid) if mbid else None
-        cid = cid or self._alias("composer", "name", norm_key(canonical)) or self._alias("composer", "name",
-                                                                                         norm_key(name))
+        keys = [k for k in dict.fromkeys((ident_key(canonical), ident_key(name))) if k]
+        for k in keys:
+            cid = cid or self._alias("composer", "name", k)
         if cid is None:
             cid = new_id("c")
             self.con.execute("INSERT INTO composer(id, name, sort_name, born, died) VALUES (?,?,?,?,?)",
                              (cid, canonical, sort_name(canonical),
                               str(known.born) if known and known.born else None,
                               str(known.died) if known and known.died else None))
-        self._add_alias("composer", cid, "name", norm_key(canonical))
-        self._add_alias("composer", cid, "name", norm_key(name))
+        for k in keys:
+            self._add_alias("composer", cid, "name", k)
         if mbid:
             self._add_alias("composer", cid, "mbid", mbid)
         return cid
 
     def _person_for(self, p: Person) -> str:
-        pid = self._alias("person", "name", norm_key(p.name))
+        key = ident_key(p.name)
+        pid = self._alias("person", "name", key) if key else None
         if pid is None:
             pid = new_id("p")
             kind = "person" if p.kind == "person" else {"orchestra": "orchestra", "chorus": "choir"}.get(p.role, "other")
             self.con.execute("INSERT INTO person(id, name, sort_name, kind) VALUES (?,?,?,?)",
                              (pid, p.name, sort_name(p.name, "group" if p.kind == "group" else "person"), kind))
-            self._add_alias("person", pid, "name", norm_key(p.name))
+            if key:
+                self._add_alias("person", pid, "name", key)
         return pid
 
     def _work_for(self, c: Cand, family: str, reviews: list, part_names: list[str] | None = None) -> str:

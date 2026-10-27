@@ -31,6 +31,11 @@ def norm_key(s: str | None) -> str:
     return s.strip()
 
 
+def ident_key(s: str | None) -> str:
+    """norm_key, or for a name with no Latin letters or digits its casefolded words."""
+    return norm_key(s) or re.sub(r"\W+", " ", unicodedata.normalize("NFKC", s or "").casefold()).strip()
+
+
 def slugify(s: str, max_len: int = 80) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", fold(s).replace("'", "")).strip("-")
     if len(slug) > max_len:
