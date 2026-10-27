@@ -527,39 +527,59 @@ class LLMClient:
         return out
 
     async def _one_batch(self, batch: list[dict]) -> dict[str, LLMProposal]:
-        if is_anthropic_url(self.base_url):
-            return await self._one_batch_claude(batch)
-        body = json.dumps({
-            "model": self.model, "temperature": 0, "response_format": {"type": "json_object"},
-            "messages": [{"role": "system", "content": _SYSTEM},
-                         {"role": "user", "content": json.dumps({"items": batch}, ensure_ascii=False)}],
-        }).encode()
-        headers = {"Content-Type": "application/json"}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
-        status, raw = await self._fetch(f"{self.base_url}/chat/completions", headers, body)
-        if status != 200:
-            raise RuntimeError(f"HTTP {status}")
-        return parse_llm_reply(json.loads(raw), {b["id"] for b in batch})
-
-    async def _one_batch_claude(self, batch: list[dict]) -> dict[str, LLMProposal]:
-        base = self.base_url if self.base_url.endswith("/v1") else f"{self.base_url}/v1"
-        body = json.dumps({
-            "model": self.model, "max_tokens": 16000, "system": _SYSTEM,
-            "output_config": {"format": {"type": "json_schema", "schema": _REPLY_SCHEMA}},
-            "messages": [{"role": "user", "content": json.dumps({"items": batch}, ensure_ascii=False)}],
-        }).encode()
-        headers = {"Content-Type": "application/json", "anthropic-version": ANTHROPIC_VERSION}
-        if self.api_key:
-            headers["x-api-key"] = self.api_key
-        status, raw = await self._fetch(f"{base}/messages", headers, body)
-        if status != 200:
-            raise RuntimeError(f"HTTP {status}")
-        data = json.loads(raw)
-        if data.get("stop_reason") in ("refusal", "max_tokens"):
-            raise RuntimeError(f"stop_reason {data['stop_reason']}")
-        text = "".join(b.get("text", "") for b in data.get("content") or [] if b.get("type") == "text")
+        text = await self.complete(_SYSTEM, json.dumps({"items": batch}, ensure_ascii=False), schema=_REPLY_SCHEMA)
         return parse_llm_reply({"choices": [{"message": {"content": text}}]}, {b["id"] for b in batch})
+
+    async def complete(self, system: str, user: str, *, schema: dict | None = None,
+                       max_tokens: int = 16000) -> str:
+        """One system + user turn; the reply's text. With `schema` the reply is JSON (a json_schema output
+        format for Claude, json_object mode and temperature 0 elsewhere). RuntimeError on an HTTP error,
+        LLMRefused when the model refused, was cut off or filtered (asking again would not help)."""
+        claude = is_anthropic_url(self.base_url)
+        if claude:
+            base = self.base_url if self.base_url.endswith("/v1") else f"{self.base_url}/v1"
+            url = f"{base}/messages"
+            req: dict[str, Any] = {"model": self.model, "max_tokens": max_tokens, "system": system,
+                                   "messages": [{"role": "user", "content": user}]}
+            if schema is not None:
+                req["output_config"] = {"format": {"type": "json_schema", "schema": schema}}
+            headers = {"Content-Type": "application/json", "anthropic-version": ANTHROPIC_VERSION}
+            if self.api_key:
+                headers["x-api-key"] = self.api_key
+        else:
+            url = f"{self.base_url}/chat/completions"
+            req = {"model": self.model, "messages": [{"role": "system", "content": system},
+                                                     {"role": "user", "content": user}]}
+            if schema is not None:
+                req.update(temperature=0, response_format={"type": "json_object"})
+            headers = {"Content-Type": "application/json"}
+            if self.api_key:
+                headers["Authorization"] = f"Bearer {self.api_key}"
+        status, raw = await self._fetch(url, headers, json.dumps(req).encode())
+        if status != 200:
+            raise RuntimeError(f"HTTP {status}")
+        return reply_text(json.loads(raw), claude)
+
+
+class LLMRefused(RuntimeError):
+    """The model answered but gave no usable text: a refusal, a cut-off or a content filter."""
+
+
+def reply_text(data: dict, claude: bool) -> str:
+    """The text of a Claude Messages response (text blocks only, after any thinking) or of a chat completion."""
+    if claude:
+        if data.get("stop_reason") in ("refusal", "max_tokens"):
+            raise LLMRefused(f"stop_reason {data['stop_reason']}")
+        text = "".join(b.get("text", "") for b in data.get("content") or []
+                       if isinstance(b, dict) and b.get("type") == "text")
+    else:
+        choice = (data.get("choices") or [{}])[0]
+        if choice.get("finish_reason") in ("length", "content_filter"):
+            raise LLMRefused(f"finish_reason {choice['finish_reason']}")
+        text = (choice.get("message") or {}).get("content") or ""
+    if not text.strip():
+        raise LLMRefused("empty reply")
+    return text
 
 
 def parse_llm_reply(data: dict, ids: set[str]) -> dict[str, LLMProposal]:
