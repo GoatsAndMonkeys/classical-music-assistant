@@ -139,4 +139,12 @@ Each entry says what the plan asked for, what was built instead, and why.
   - An album with no recording gets the review item "no work identified on this album". Composer-tagged tracks
     left over get "tracks with a composer but no identifiable work".
   - "possible same work on another album" is one item per new work, listing every match, not one per pair.
+- **MusicBrainz release search for albums with no MBIDs (2026-10, beyond §5.11).** An album with a real
+  title and artist, and no recording or work MBID anywhere, is searched as a release (`release.py`). One
+  request per album, plus one release lookup on a match; all through the 1 req/s cached client. A release
+  counts only when it is the single result scoring 95 or more that fits: its title (without disc marker or
+  'Composer:' prefix), a credited artist, the per-disc track counts (or one medium for a 'Disc N' album), and
+  80 % of track lengths within max(5 s, 5 %). Its recording MBIDs then go through the usual recording →
+  work chain. Several fitting releases, or lengths that disagree, give the review item "MusicBrainz release
+  match uncertain" and no links.
 - **No license file yet.**

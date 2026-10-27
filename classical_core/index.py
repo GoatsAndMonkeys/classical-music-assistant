@@ -28,6 +28,7 @@ from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
 from . import catalogue as cat
+from . import release as mbrel
 from .composers import PERFORMING, KnownComposer, by_surname, find_in_credit, lookup
 from .grouping import Slot, group_album
 from .ids import new_id
@@ -562,9 +563,69 @@ class Index:
         for wid in sorted(work_ids):
             await self.refresh_mb_work_chain(wid, stats)
         await self.prefetch_names(album, tracks, stats)
+        await self.match_release(album, tracks, stats)
         # a transient MB failure leaves the signature unset, so the next scan retries the album
         await self._w(self._finish_album, album, tracks, stats, None if stats.mb_failures else sig)
         return stats
+
+    async def match_release(self, album: AlbumIn, tracks: list[TrackIn], stats: AlbumStats) -> None:
+        """Recording MBIDs for an album with none, from the one MB release it unambiguously is (`release.py`).
+        Stored as evidence of the search URL; an uncertain match is stored only as a review note."""
+        if self.mb is None or not mbrel.wanted(album.name, album.artist):
+            return
+        if not await self._w(self._release_wanted, tracks):
+            return
+        url = mbrel.search_url(self.mb.base_url, album.name, album.artist)
+        counts: dict[int, int] = {}
+        for t in tracks:
+            counts[t.disc or 1] = counts.get(t.disc or 1, 0) + 1
+        aid = album.library_album_id
+        try:
+            pick = mbrel.pick_release(await self.mb.get(url), album.name, album.artist, counts)
+            stats.mb_requests += 1
+            rows: list[tuple[str, str, str, str, str]] = []
+            if pick.mbid:
+                _, marker = mbrel.split_disc(album.name)
+                rel = await self.mb.get(mbrel.lookup_url(self.mb.base_url, pick.mbid))
+                stats.mb_requests += 1
+                recs, why = mbrel.track_recordings(
+                    rel, [(t.library_track_id, t.disc, t.position, t.duration) for t in tracks], marker)
+                rows = [("release_track", tid, "recording_mbid", json.dumps(rid), f"release:{pick.mbid}")
+                        for tid, rid in sorted(recs.items())]
+                if not recs:
+                    rows = [("release_album", aid, "uncertain", json.dumps({"release": pick.mbid, "why": why}),
+                             "uncertain")]
+                for rid in sorted(set(recs.values())):
+                    await self.refresh_mb_recording(rid, stats)
+            elif pick.why == "ambiguous":
+                rows = [("release_album", aid, "uncertain",
+                         json.dumps({"releases": pick.rivals, "why": "several releases match"}), "uncertain")]
+        except MBError as e:
+            log.debug("MB release search for %r: %s", album.name, e)
+            stats.mb_failures += isinstance(e, MBTransientError)
+            return
+        except Exception as e:  # noqa: BLE001 - malformed MB JSON abstains; it must not fail the album
+            log.warning("MB release search for %r: unparseable response: %r", album.name, e)
+            return
+        await self._w(self.replace_origin, url, "mb", rows)
+
+    def _release_wanted(self, tracks: list[TrackIn]) -> bool:
+        """Only an album with no MBID anywhere (no MA track MBID, no recording or work MBID tag)."""
+        for t in tracks:
+            if t.mbid:
+                return False
+            tags = self.track_tags(t.library_track_id)[0]
+            if tags and (tags.recording_mbid or tags.work_mbid):
+                return False
+        return True
+
+    def _release_recordings(self, tracks: list[TrackIn]) -> dict[str, str]:
+        out: dict[str, str] = {}
+        for t in tracks:
+            for r in self._live("release_track", t.library_track_id):
+                if r["field"] == "recording_mbid":
+                    out[t.library_track_id] = json.loads(r["value"])
+        return out
 
     def _plan_album(self, album: AlbumIn, tracks: list[TrackIn], sig: str, force: bool) -> list[MappingIn] | None:
         """None when the album is up to date; otherwise the mappings whose tags must be (re)read."""
@@ -984,12 +1045,17 @@ class Index:
         positions = [(t.disc or 1, t.position) for t in tracks]
         ambiguous = any(p[1] is None for p in positions) or len(set(positions)) != len(positions)
         self.con.execute("UPDATE album_info SET ambiguous=? WHERE album_library_id=?", (int(ambiguous), aid))
+        from_release = self._release_recordings(tracks)
+        for r in self._live("release_album", aid):
+            reviews.append(("MusicBrainz release match uncertain", "album", aid,
+                            {"album": album.name, **json.loads(r["value"])}))
         for t in tracks:
             tags, origin, conflict = self.track_tags(t.library_track_id)
             if conflict:
                 reviews.append(("conflicting tags on duplicate files", "occurrence", occ_ids[t.library_track_id],
                                 {"track": t.title}))
-            rec_mbid = next((m.lower() for m in (tags.recording_mbid if tags else None, t.mbid) if is_mbid(m)), None)
+            rec_mbid = next((m.lower() for m in (tags.recording_mbid if tags else None, t.mbid,
+                                                 from_release.get(t.library_track_id)) if is_mbid(m)), None)
             mb = self._mb_recording(rec_mbid) if rec_mbid else None
             facts.append(OccFacts(occ_ids[t.library_track_id], {"title": t.title, "artist": t.artist,
                                   "duration": t.duration, "disc": t.disc, "position": t.position}, tags, origin, mb))
