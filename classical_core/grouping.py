@@ -30,6 +30,8 @@ class Slot:
     together_with: str | None = None     # a `together` constraint id
     separate_from: frozenset[str] = frozenset()  # occurrences a `separate` constraint keeps apart
     partial: bool = False                # MB says the track performs part of the work (positive evidence)
+    section: int | None = None           # opera act (0 = prologue) from the movement or title
+    gap: bool = False                    # broadcast talk (intermission, announcer): transparent between parts
 
 
 @dataclass(slots=True)
@@ -94,7 +96,7 @@ def _evidence(s: Slot) -> bool:
     """Positive evidence that the track is one part of a longer performance: a movement identity, a
     movement number, or an MB partial-performance link. A bare work tag is not enough: two adjacent tracks
     tagged only "Symphony No. 5" may be two complete takes, so they are never joined (§5.1)."""
-    return s.part_key is not None or s.movement_no is not None or s.partial
+    return s.part_key is not None or s.movement_no is not None or s.partial or s.section is not None
 
 
 def group_album(slots: list[Slot], ambiguous: bool = False) -> GroupingResult:
@@ -116,7 +118,8 @@ def group_album(slots: list[Slot], ambiguous: bool = False) -> GroupingResult:
             notes.append(("track contains several works", [i]))
             continue
         if s.work_key is None:
-            close()
+            if not (s.gap and cur):    # talk between two acts does not end the performance
+                close()
             continue
         if cur:
             first = slots[cur[0]]
@@ -130,11 +133,15 @@ def group_album(slots: list[Slot], ambiguous: bool = False) -> GroupingResult:
                 reason = "repeated movement (alternate take or second performance)"
             elif _whole(s) or any(_whole(slots[j]) for j in cur):
                 reason = "complete performance of the whole work"
+            elif s.section is not None and prev.section is not None and s.section < prev.section:
+                reason = "acts go backwards"
             elif (s.movement_no is not None and prev.movement_no is not None and prev.parent_key == s.parent_key
                   and s.movement_no <= prev.movement_no):
                 reason = "movement numbers restart"
-            elif prev.disc != s.disc and (s.movement_no is None or prev.movement_no is None
-                                          or s.movement_no <= prev.movement_no) and prev.parent_key == s.parent_key:
+            elif (prev.disc != s.disc and not (s.section is not None and prev.section is not None
+                                               and s.section > prev.section)
+                  and (s.movement_no is None or prev.movement_no is None or s.movement_no <= prev.movement_no)
+                  and prev.parent_key == s.parent_key):
                 reason = "no continuity across discs"
             elif any(slots[j].occ_id in s.separate_from for j in cur):
                 reason = "separate constraint"

@@ -132,3 +132,56 @@ def _after_number(title: str, prefix: str) -> int | None:
 
 def same_work_title(a: str, b: str) -> bool:
     return norm_key(a) == norm_key(b)
+
+
+# ---- opera acts and broadcast talk tracks -------------------------------------------------------------
+
+_ORDINAL = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "first": 1, "second": 2, "third": 3,
+            "fourth": 4, "fifth": 5, "erster": 1, "zweiter": 2, "dritter": 3, "vierter": 4, "fünfter": 5,
+            "erste": 1, "zweite": 2, "dritte": 3, "primo": 1, "secondo": 2, "terzo": 3, "quarto": 4,
+            "premier": 1, "deuxième": 2, "troisième": 3, "quatrième": 4, "cinquième": 5}
+_ACT_WORD = r"(?:act|acts|akt|aufzug|atto|acte|acto|aufz\.)"
+_NUM = r"(?:[ivx]{1,4}|\d{1,2}|" + "|".join(_ORDINAL) + r")"
+_TAIL = r"(?:\b|(?=[\s.,:;–—-]|$))[\s.,:;–—-]*(?P<rest>.*)$"
+_ACT = (re.compile(rf"^{_ACT_WORD}\s+(?P<n>{_NUM}){_TAIL}", re.IGNORECASE),          # Act II, Akt 3, Act One
+        re.compile(rf"^(?P<n>{_NUM})\.?\s+{_ACT_WORD}{_TAIL}", re.IGNORECASE),        # Erster Aufzug, 2. Akt
+        re.compile(rf"^(?P<n>prolog(?:ue|o)?){_TAIL}", re.IGNORECASE))
+_SEGMENT = re.compile(r"(?:^|[:;,–—]\s*|\s-\s)")
+
+
+def parse_act(text: str | None) -> tuple[int | None, str]:
+    """'Act II: Scene 3' -> (2, 'Scene 3'); 'Prologue' -> (0, ''); 'Overture' -> (None, 'Overture')."""
+    t = (text or "").strip()
+    for rx in _ACT:
+        m = rx.match(t)
+        if not m:
+            continue
+        tok = m.group("n").lower().rstrip(".")
+        n = 0 if tok.startswith("prolog") else _ORDINAL.get(tok) or movement_number(tok)
+        if n is not None:
+            return n, m.group("rest").strip()
+    return None, t
+
+
+def find_act(text: str | None) -> tuple[int | None, str]:
+    """The first act designation that starts a segment of `text` ('Tristan und Isolde: Act I: Prelude')."""
+    t = text or ""
+    for m in _SEGMENT.finditer(t):
+        n, rest = parse_act(t[m.end():])
+        if n is not None:
+            return n, rest
+    return None, t.strip()
+
+
+# talk on broadcast recordings (§5.1): never a work, and transparent between two parts of one performance
+_TALK = re.compile(
+    r"\b(?:intermission|interval (?:feature|talk)|interview(?:ed)?|commentary|announc(?:er|ement|ements)|quiz|"
+    r"synopsis|backstage|conversation with|in conversation|discussion|podcast|applause|curtain calls?|"
+    r"program(?:me)? notes?|introduced by|introduction by|speaks? (?:about|with)|talks? (?:about|with))\b"
+    r"|^\s*(?:intro(?:duction)?|interval|welcome|preview|outro|closing(?: remarks)?|sign[- ]off|news|"
+    r"announcer|host)\s*$",
+    re.IGNORECASE)
+
+
+def is_talk(title: str | None) -> bool:
+    return bool(title and _TALK.search(title))

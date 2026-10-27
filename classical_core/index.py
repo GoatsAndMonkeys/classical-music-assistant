@@ -34,7 +34,7 @@ from .mb import MBClient, MBError, MBTransientError, RecordingInfo, WorkInfo, is
 from .sethster_canonical import form_key
 from .tags import Person, TagInfo, read_tags, year_of
 from .text import fold, norm_key, sort_name
-from .titles import parse_movement, parse_title, shared_prefix_runs
+from .titles import find_act, is_talk, parse_act, parse_movement, parse_title, shared_prefix_runs
 
 log = logging.getLogger("classical.index")
 
@@ -108,6 +108,7 @@ class Cand:
     part_aliases: list[str] = field(default_factory=list)
     mb_parts: int | None = None
     movement_total: int | None = None
+    section: int | None = None                   # opera act (0 = prologue), from the movement or title
 
 
 @dataclass(slots=True)
@@ -125,6 +126,7 @@ class OccFacts:
     partial: bool = False
     live: bool = False
     medley: bool = False
+    talk: bool = False             # broadcast talk track: never a work, transparent between acts
 
 
 def _tag_rows(info: TagInfo) -> list[tuple[str, str, str]]:
@@ -673,7 +675,8 @@ class Index:
                 conductors={norm_key(p.name) for p in f.credits if p.role == "conductor"},
                 orchestras={norm_key(p.name) for p in f.credits if p.role == "orchestra"},
                 choirs={norm_key(p.name) for p in f.credits if p.role == "chorus"},
-                recorded=f.recorded, multi=bool(f.extra_works), partial=f.partial))
+                recorded=f.recorded, multi=bool(f.extra_works), partial=f.partial,
+                section=c.section if c else None, gap=f.talk and c is None))
         result = group_album(slots, ambiguous=ambiguous)
         for reason, idx in result.notes:
             reviews.append((reason, "occurrence", slots[idx[0]].occ_id if idx else None,
@@ -768,7 +771,11 @@ class Index:
                     chain = next(iter(tops.values()))
             chains.append(chain)
 
-        # grouping boundary: maximal adjacent sequences sharing an ancestor; boundary = their lowest common one
+        for f, chain in zip(facts, chains, strict=True):
+            f.talk = chain is None and not f.extra_works and not (f.tags and f.tags.work) and is_talk(f.track["title"])
+
+        # grouping boundary: maximal adjacent sequences sharing an ancestor; boundary = their lowest common one.
+        # Talk tracks between them (an intermission between two acts) do not break the sequence.
         boundary: list[str | None] = [None] * len(facts)
         i = 0
         while i < len(facts):
@@ -776,14 +783,21 @@ class Index:
                 i += 1
                 continue
             common = set(chains[i])
+            seq = [i]
             j = i + 1
-            while j < len(facts) and chains[j] is not None and common & set(chains[j]):
+            while j < len(facts):
+                if chains[j] is None and facts[j].talk:
+                    j += 1
+                    continue
+                if chains[j] is None or not common & set(chains[j]):
+                    break
                 common &= set(chains[j])
+                seq.append(j)
                 j += 1
             low = next(w for w in chains[i] if w in common)
-            for k in range(i, j):
+            for k in seq:
                 boundary[k] = low
-            i = j
+            i = seq[-1] + 1
 
         # shared-prefix runs for Tier 3
         titles = [f.track["title"] or "" for f in facts]
@@ -872,19 +886,40 @@ class Index:
         ckey = norm_key(composers[0][0]) if composers else ""
         key = f"mb:{mbid}" if mbid else f"tag:{ckey}|{norm_key(t.work)}"
         part = t.movement_name or (str(t.movement_no) if t.movement_no else None)
+        part_key = f"tagpart:{norm_key(part)}" if part else None
+        parent_key = key
+        movement_name = t.movement_name
+        # opera acts: from the movement tag, else from the title past the work ("Tristan und Isolde: Act II")
+        act, rest = parse_act(t.movement_name) if t.movement_name else (None, "")
+        if act is None:
+            title = f.track["title"] or t.title or ""
+            tail = title[len(t.work):] if norm_key(title).startswith(norm_key(t.work)) else title
+            act, rest = find_act(tail)
+            if act is not None and not part:
+                movement_name = tail.lstrip(" :,;–—-") or None
+                rest_key = norm_key(rest)
+                part_key = f"tagpart:act{act}|{rest_key}" if rest_key else f"tagpart:act{act}"
+        if act is not None:
+            # parts restart in each act; a whole-act track is a part of the opera itself
+            if part_key and part:
+                part_key = f"tagpart:act{act}|{norm_key(rest)}" if norm_key(rest) else f"tagpart:act{act}"
+            if part_key != f"tagpart:act{act}":
+                parent_key = f"{key}|act{act}"
         return Cand(
             key=key, title=t.work, tier="tags", composers=composers, mbid=mbid,
             mb_type=mb_cand.mb_type if mb_cand and mbid else None, key_sig=cat.parse_key(t.work),
             catalogues=cats or (mb_cand.catalogues if mb_cand and mbid else []),
-            parent_key=key, movement_no=t.movement_no,
+            parent_key=parent_key, movement_no=t.movement_no,
             # no movement in the tags: keep MB's whole-work part so complete performances still split
-            part_key=f"tagpart:{norm_key(part)}" if part else (mb_cand.part_key if mb_cand and mbid else None),
-            movement_name=t.movement_name, movement_total=t.movement_total,
-            mb_parts=mb_cand.mb_parts if mb_cand and mbid else None)
+            part_key=part_key or (mb_cand.part_key if mb_cand and mbid else None),
+            movement_name=movement_name, movement_total=t.movement_total,
+            mb_parts=mb_cand.mb_parts if mb_cand and mbid else None, section=act)
 
     def _title_cand(self, f: OccFacts, album: AlbumIn, prefix: str | None) -> Cand | None:
         title = f.track["title"] or ""
         t = f.tags
+        if f.talk or is_talk(title):
+            return None  # an interview or intermission feature is never a work, whatever the credits say
         parsed = parse_title(title)
         work = movement = None
         number = None
@@ -908,10 +943,12 @@ class Index:
                 return None
             work = title
         key = f"title:{norm_key(composers[0][0])}|{norm_key(work)}"
+        act, rest = find_act(movement) if movement else (None, "")
         return Cand(key=key, title=work, tier="title", composers=composers, key_sig=cat.parse_key(work),
-                    catalogues=cat.parse_catalogues(work), parent_key=key,
+                    catalogues=cat.parse_catalogues(work),
+                    parent_key=f"{key}|act{act}" if act is not None and rest else key,
                     part_key=f"titlepart:{number}:{norm_key(movement)}" if (movement or number) else None,
-                    movement_no=number, movement_name=movement)
+                    movement_no=number, movement_name=movement, section=act)
 
     # -- identity --
 

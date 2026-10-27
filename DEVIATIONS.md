@@ -58,6 +58,15 @@ Each entry says what the plan asked for, what was built instead, and why.
 - **No movement evidence, no grouping (§5.1).** Adjacent tracks of the same work are joined only when each has a
   movement identity, a movement number or an MB partial-performance link; tracks tagged with the work alone
   stay separate recordings and are listed for review.
+- **Opera acts count as movement evidence (§5.1).** An act designation in the movement tag or in the title past
+  the work ("Tristan und Isolde: Act II", "Akt 3, Szene 1", "Prologue") is a part identity. A track per whole act
+  groups with the next act, also across discs; acts going backwards or the same act twice split. Movement
+  numbers and names restart per act without splitting ("Scene 1" in Act I and in Act II).
+- **Broadcast talk tracks are never works and do not break a performance.** A track without a work whose title
+  reads as talk (intermission, interview, commentary, announcer, quiz, synopsis, applause, ...) gets no work,
+  even when a composer is credited (Bernstein interviewed between acts), and it is transparent to grouping
+  and to the MB grouping boundary: Act I, intermission, Act II is one recording. The tracks either side still
+  need movement evidence, so two whole takes with an announcer between them stay two recordings.
 - **A forced reindex starts from the first album.** The scan job row records whether it was forced, so an
   interrupted forced scan resumes forced; a normal scan never resumes a forced one as normal.
 - **MusicBrainz canonical titles** replace tag titles once a work is matched.
