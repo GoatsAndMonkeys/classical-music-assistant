@@ -36,6 +36,7 @@ from .ids import new_id
 from .mb import MBClient, MBError, MBTransientError, RecordingInfo, WorkInfo, is_mbid, parse_recording, parse_work
 from .names import (
     LLM_AUTO_CONFIDENCE,
+    NON_PERSON_NAMES,
     LLMClient,
     NameCandidate,
     NameContext,
@@ -79,7 +80,7 @@ FOLDER_CAP = 500
 MAX_PARENT_DEPTH = 3
 CUE_TRACK = "::track"                  # MA's CUE-sheet track item_id delimiter (file.cue::trackNN)
 # bumped when derivation changes, so every album re-derives once (tags are not re-read)
-DERIVE_VERSION = 7
+DERIVE_VERSION = 8
 _MB_FIELD = {"arrangement_of": "arranged_from"}          # WorkInfo field -> evidence field
 _MB_FIELD_BACK = {v: k for k, v in _MB_FIELD.items()}
 DATED = "dated:"                       # composer 'mbid' slot for an unlisted name with conflicting life dates
@@ -974,7 +975,8 @@ class Index:
         ctx = self.name_context(titles, raws)
         out: dict[str, NameCandidate] = {}
         for c in parse_names(raws):
-            if is_lone_surname(c.name) or self._name_override(c.key) or authority_match(c, ctx)[0]:
+            if (is_lone_surname(c.name) or c.name in NON_PERSON_NAMES or self._name_override(c.key)
+                    or authority_match(c, ctx)[0]):
                 continue
             out[c.key] = c
         return list(out.values())
@@ -1061,6 +1063,8 @@ class Index:
         ov = self._name_override(c.key)
         if ov:
             return ov
+        if c.name in NON_PERSON_NAMES:
+            return c.name, None     # 'Anonymous', 'Traditional': no person to look up or propose merges with
         k, how = authority_match(c, self._name_ctx)
         if k is not None:
             return k.name, k.mbid

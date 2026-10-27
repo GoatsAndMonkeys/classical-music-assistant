@@ -45,6 +45,22 @@ _ARR = re.compile(r"\s*(?:,\s*|\(\s*|\s)(?:arr\.|arranged by|arr\b|orch\.|orches
 NOT_COMPOSER = {"author", "lyricist", "librettist", "libretto", "text", "words", "writer", "poet", "translator",
                 "arranger", "arr", "orchestrator", "editor", "lyrics", "book", "adapter", "performer", "conductor"}
 COMPOSER_TAGS = {"composer", "music", "komponist", "compositeur", "compositore"}
+# credits that name nobody ('Unknown', 'Various Artists', 'N/A'): no composer at all, so the track takes the
+# usual no-composer path (context composer, else not classical) instead of creating a composer 'Unknown'.
+# A parenthetical qualifier does not change that: 'Various (traditional carols and hymns, with readings)'.
+PLACEHOLDER_NAMES = frozenset({
+    "various", "various artists", "various artist", "various composers", "various composer", "va", "v a",
+    "unknown", "unknown artist", "unknown artists", "unknown composer", "unknown composers", "unknown author",
+    "n a", "na", "none", "no artist", "not applicable", "tba", "tbc", "tbd", "unidentified",
+    "artista desconocido", "compositeur inconnu", "unbekannt",
+})
+# credits for real but unnamed authorship: one shared non-person composer each, never looked up or merged
+# as a person ('Anon.', '[anonymous]', 'Anonymous (plainsong)' -> 'Anonymous'; 'Trad.' -> 'Traditional')
+NON_PERSON = {"anonymous": "Anonymous", "anon": "Anonymous", "anonym": "Anonymous", "anonyme": "Anonymous",
+              "anonimo": "Anonymous", "anonymus": "Anonymous", "traditional": "Traditional", "trad": "Traditional",
+              "traditionnel": "Traditional", "tradicional": "Traditional", "traditionell": "Traditional",
+              "tradizionale": "Traditional"}
+NON_PERSON_NAMES = frozenset(NON_PERSON.values())
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,12 +82,44 @@ def _display(name: str) -> str:
     return " ".join(out)
 
 
+def _depths(s: str) -> list[int]:
+    """Bracket depth before each character of `s` (round and square brackets); [] when they do not balance,
+    so callers fall back to the bracket-blind reading rather than swallowing the rest of the string."""
+    out, d = [], 0
+    for ch in s:
+        out.append(d)
+        if ch in "([":
+            d += 1
+        elif ch in ")]":
+            d -= 1
+            if d < 0:
+                return []
+    return out if d == 0 else []
+
+
+def split_names(value: str) -> list[str]:
+    """A multi-value field's segments, split on '/', ';', NUL and ' & ' outside brackets only:
+    'Various (carols / hymns)' is one segment."""
+    depth = _depths(value)
+    out, start = [], 0
+    for m in _SPLIT.finditer(value):
+        if depth and depth[m.start()]:
+            continue
+        out.append(value[start:m.start()])
+        start = m.end()
+    out.append(value[start:])
+    return out
+
+
 def _invert(name: str) -> str:
     """'Beethoven, Ludwig van' -> 'Ludwig van Beethoven'; 'Strauss II, Johann' -> 'Johann Strauss II'.
-    Only one comma, and not before a suffix ('Sammy Davis, Jr.')."""
-    if name.count(",") != 1:
+    Only one comma outside brackets, and not before a suffix ('Sammy Davis, Jr.'); a comma inside a
+    parenthetical ('Various (carols and hymns, with readings)') is not a name separator."""
+    depth = _depths(name)
+    commas = [i for i, ch in enumerate(name) if ch == "," and (not depth or not depth[i])]
+    if len(commas) != 1 or (not depth and "(" in name):
         return name
-    last, first = (x.strip() for x in name.split(","))
+    last, first = name[:commas[0]].strip(), name[commas[0] + 1:].strip()
     if not last or not first or first.lower().rstrip(".") in {s.rstrip(".") for s in _SUFFIXES}:
         return name
     if any(ch.isdigit() for ch in first) or len(first.split()) > 4:
@@ -83,6 +131,9 @@ def parse_one(segment: str) -> NameCandidate | None:
     s = segment.strip()
     if not s:
         return None
+    if norm_key(s) in NON_PERSON:       # '[anonymous]', '[traditional]' (MusicBrainz's spellings): not role tags
+        name = NON_PERSON[norm_key(s)]
+        return NameCandidate(s, name, norm_key(name))
     role = None
     m = _ROLE_TAG.search(s)
     if m:
@@ -100,7 +151,8 @@ def parse_one(segment: str) -> NameCandidate | None:
     s = re.sub(r"\s+", " ", _invert(s.strip(" ,;"))).strip()
     if not s:
         return None
-    name = _display(s)
+    head = norm_key(re.sub(r"\s*[(\[].*$", "", s)) or norm_key(s)   # 'Anonymous (plainsong)' -> 'anonymous'
+    name = NON_PERSON.get(head) or _display(s)
     return NameCandidate(segment.strip(), name, norm_key(name), born, died, role)
 
 
@@ -109,9 +161,11 @@ def parse_names(raw: str | Iterable[str] | None, role: str = "composer") -> list
     values = [raw] if isinstance(raw, str) else list(raw or [])
     out: list[NameCandidate] = []
     for v in values:
-        for seg in _SPLIT.split(v or ""):
+        if is_placeholder(v):
+            continue        # 'N/A' is one placeholder, not the names 'N' and 'A'
+        for seg in split_names(v or ""):
             c = parse_one(seg)
-            if c is not None and c.key:
+            if c is not None and c.key and not is_placeholder(c.name):
                 out.append(c)
     if role == "composer":
         if any(c.role_tag in COMPOSER_TAGS for c in out):
@@ -128,6 +182,15 @@ def parse_names(raw: str | Iterable[str] | None, role: str = "composer") -> list
     return list(merged.values())
 
 
+def is_placeholder(name: str | None) -> bool:
+    """'Unknown', '[unknown]', 'Various Artists', 'N/A', 'Various (traditional carols, with readings)'."""
+    s = (name or "").strip()
+    if not norm_key(s):
+        return bool(s)      # '?', '-', '[]'
+    head = re.sub(r"\s*[(\[].*$", "", s) if not s.startswith(("(", "[")) else s
+    return norm_key(s) in PLACEHOLDER_NAMES or norm_key(head) in PLACEHOLDER_NAMES
+
+
 _ALBUM_PREFIX = re.compile(r"^\s*(?P<c>[^:/]+?)\s*(?::|/|\s-\s|-\s)\s*\S")
 
 
@@ -138,6 +201,8 @@ def album_name_prefix(album_name: str | None) -> str | None:
     if not m:
         return None
     c = m.group("c").strip()
+    if not _depths(c) and any(ch in c for ch in "()[]"):
+        return None     # 'readings): A Festival…' — the tail of a parenthetical cut off upstream, not a name
     return c if 0 < len(c.split()) <= 4 and not any(ch.isdigit() for ch in c) else None
 
 

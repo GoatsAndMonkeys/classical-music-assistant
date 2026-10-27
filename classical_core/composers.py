@@ -81,7 +81,7 @@ _DATA: list[tuple[str, int, int | None, tuple[str, ...]]] = [
     ("Edvard Grieg", 1843, 1907, ()),
     ("Carl Nielsen", 1865, 1931, ()),
     ("Edward Elgar", 1857, 1934, ("Sir Edward Elgar",)),
-    ("Ralph Vaughan Williams", 1872, 1958, ()),
+    ("Ralph Vaughan Williams", 1872, 1958, ("Vaughan Williams",)),   # the compound surname alone
     ("Benjamin Britten", 1913, 1976, ()),
     ("Gustav Holst", 1874, 1934, ()),
     ("Henry Purcell", 1659, 1695, ()),

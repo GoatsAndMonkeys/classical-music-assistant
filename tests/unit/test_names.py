@@ -15,7 +15,9 @@ from classical_core.names import (
     authority_match,
     compatible,
     given_name_conflict,
+    is_placeholder,
     parse_names,
+    parse_one,
     pick_mb_artist,
 )
 from classical_core.store import connect, migrate
@@ -97,6 +99,43 @@ def test_album_name_prefix():
     assert album_name_prefix("Beethoven- Fidelio Disc 2") == "Beethoven"
     assert album_name_prefix("Beethoven : Fidelio1") == "Beethoven"
     assert album_name_prefix("Complete Beethoven Edition Vol.4-Opera-CD 3") is None
+
+
+def test_comma_inside_parentheses_is_not_last_first():
+    """Real tag (King's College 2005 Lessons and Carols): the comma is inside the qualifier, and 'Various' names
+    nobody — it once became the composer 'with readings) Various (traditional carols and hymns'."""
+    assert parse_names("Various (traditional carols and hymns, with readings)") == []
+    assert parse_one("Smith (b. Leeds, 1950)").name == "Smith (b. Leeds, 1950)"
+    assert parse_one("Beethoven, Ludwig van (1770-1827)").name == "Ludwig van Beethoven"
+    assert [c.name for c in parse_names("Holst (arr. one / two)")] == ["Holst"]
+    assert [c.name for c in parse_names("Brahms / Dvořák")] == ["Brahms", "Dvořák"]
+
+
+@pytest.mark.parametrize("raw", ["Unknown", "unknown", "Unknown Artist", "Unknown Composer", "[unknown]", "N/A",
+                                 "Various Artists", "Various", "Various Composers", "?"])
+def test_placeholder_credits_name_no_composer(raw):
+    assert is_placeholder(raw)
+    assert parse_names(raw) == []
+    assert [c.name for c in parse_names([raw, "Johannes Brahms"])] == ["Johannes Brahms"]
+
+
+@pytest.mark.parametrize("raw, name", [("Anonymous", "Anonymous"), ("Anon.", "Anonymous"),
+                                       ("[anonymous]", "Anonymous"), ("Anonymous (plainsong)", "Anonymous"),
+                                       ("Traditional", "Traditional"), ("Trad.", "Traditional"),
+                                       ("[traditional]", "Traditional")])
+def test_anonymous_and_traditional_are_one_non_person_each(raw, name):
+    assert not is_placeholder(raw)
+    assert [c.name for c in parse_names(raw)] == [name]
+
+
+def test_album_prefix_cut_inside_a_parenthetical_is_not_a_name():
+    assert album_name_prefix("readings): A Festival of Nine Lessons and Carols; Tavener: Away in a Manger") is None
+    assert album_name_prefix("Beethoven (arr. Liszt): Symphony No. 5") == "Beethoven (arr. Liszt)"
+
+
+def test_vaughan_williams_compound_surname_resolves():
+    k, how = authority_match(parse_one("Vaughan Williams"))
+    assert k is not None and k.name == "Ralph Vaughan Williams" and how == "exact"
 
 
 # ---- the index ------------------------------------------------------------------------------------------
@@ -432,3 +471,51 @@ def test_album_prefix_naming_the_performer_is_not_the_composer(tmp_path):
                                                      ("Symphony No. 5: II. Stürmisch bewegt", None, None, None)],
               artist="Leonard Bernstein")
     assert "Gustav Mahler" in composer_names(idx)
+
+
+def test_unknown_and_various_composer_tags_create_no_composer(tmp_path):
+    """Real shapes: Wigmore 2006 (TCOM 'unknown', TALB 'unknown: Unidentified string-quartet programme…') and
+    King's College 2005 (TCOM 'Various (traditional carols and hymns, with readings)')."""
+    idx, r = make_index(tmp_path)
+    add_album(idx, r, "W", "unknown: Unidentified string-quartet programme — Wigmore Hall, 2006-03-14",
+              [("String Quartet in D, Op. 20 No. 4", "unknown", None, None),
+               ("String Quartet in G, Op. 77 No. 1", "unknown", None, None)], artist="Aviv Quartet")
+    various = "Various (traditional carols and hymns, with readings)"
+    add_album(idx, r, "K", "readings): A Festival of Nine Lessons and Carols — King's College Chapel, 2005-12-24",
+              [("A Festival of Nine Lessons and Carols: Opening segment", various, None, None),
+               ("A Festival of Nine Lessons and Carols: Closing segment", various, None, None)],
+              artist="Choir of King's College, Cambridge")
+    assert composer_names(idx) == []
+
+
+def test_anonymous_spellings_are_one_composer_without_person_reviews(tmp_path):
+    idx, r = make_index(tmp_path)
+    add_album(idx, r, "A", "Chant", [("Mass for Easter Day: I. Kyrie", "Anonymous (plainsong)", None, None),
+                                     ("Mass for Easter Day: II. Gloria", "Anon.", None, None)])
+    add_album(idx, r, "B", "More chant", [("Mass for Pentecost: I. Kyrie", "[anonymous]", None, None),
+                                          ("Mass for Pentecost: II. Gloria", "Anonymous", None, None)])
+    assert composer_names(idx) == ["Anonymous"]
+    assert not [v for v in idx.review() if "composer" in v["reason"]]
+
+
+def test_bare_surnames_with_one_namesake_in_the_index_stay_in_review(tmp_path):
+    """'Knussen' next to an indexed 'Oliver Knussen' (and 'Schumann' next to Robert and Clara) is proposed,
+    not merged: a namesake elsewhere in the index is not context on this album."""
+    idx, r = make_index(tmp_path)
+    add_album(idx, r, "A", "One", [("Symphony No. 3: I. Allegro", "Oliver Knussen", None, None),
+                                   ("Symphony No. 3: II. Andante", "Oliver Knussen", None, None)])
+    add_album(idx, r, "B", "Two", [("Symphony No. 2: I. Allegro", "Knussen", None, None),
+                                   ("Symphony No. 2: II. Andante", "Knussen", None, None)])
+    assert composer_names(idx) == ["Knussen", "Oliver Knussen"]
+    assert any(v["reason"] == "possible same composer" for v in idx.review())
+
+
+def test_bare_vaughan_williams_is_the_listed_composer(tmp_path):
+    """Real shape: concert log '250124 Oramo Lark Ascending', title 'Vaughan Williams--Toward the Unknown Region'."""
+    idx, r = make_index(tmp_path)
+    add_album(idx, r, "A", "One", [("Symphony No. 5: I. Preludio", "Ralph Vaughan Williams", None, None),
+                                   ("Symphony No. 5: II. Scherzo", "Ralph Vaughan Williams", None, None)])
+    add_album(idx, r, "B", "Two", [("Symphony No. 4: I. Allegro", "Vaughan Williams", None, None),
+                                   ("Symphony No. 4: II. Andante", "Vaughan Williams", None, None)])
+    assert composer_names(idx) == ["Ralph Vaughan Williams"]
+    assert not [v for v in idx.review() if v["reason"] == "possible same composer"]
