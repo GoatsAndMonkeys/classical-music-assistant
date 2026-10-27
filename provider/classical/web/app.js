@@ -165,13 +165,13 @@
     return out.map(function (x) { return x[0]; });
   }
 
-  /** Credits grouped for display: [{group, title, people: [{id, name, role}]}] in bucket order. */
   /** A review card's second line: never a repeat of its title (an album item's title is the album). */
   function reviewSubtitle(it) {
     var sub = it.subtitle !== undefined ? it.subtitle : (it.album || "");
     return sub && sub !== it.title ? sub : "";
   }
 
+  /** Credits grouped for display: [{group, title, people: [{id, name, role}]}] in bucket order. */
   function creditGroups(credits) {
     var groups = {};
     (credits || []).forEach(function (c) {

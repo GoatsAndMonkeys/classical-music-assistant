@@ -314,3 +314,15 @@ def test_review_does_not_name_works_on_hidden_sources(tmp_path):
     visible = [it for g in views.review(lib.ix, vis=vis)["groups"] for it in g["items"]
                if it["reason"] == "possible same work on another album"]
     assert visible and all("other" not in it["detail"] and not it["detail"].get("others") for it in visible)
+
+
+def test_named_choirs_are_choirs_and_placeholder_artists_are_not_performers():
+    # "boys' chorus" / "children's choir" credits sat with the soloists on the Mahler 8 page
+    assert views.bucket("boys' chorus", "person") == "choirs"
+    assert views.bucket("children's choir", None) == "choirs"
+    assert views.bucket("soprano", "person") == "soloists"
+    from classical_core.index import recording_label
+    r = {"credits": [], "track_artist": "[unknown]", "album_artist": "Arturo Toscanini",
+         "composer_names": "Ludwig van Beethoven", "album": "Toscanini Collection 54"}
+    assert recording_label(r) == "Arturo Toscanini"
+    assert recording_label({**r, "album_artist": "Various Artists"}) == "Toscanini Collection 54"

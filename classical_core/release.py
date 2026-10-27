@@ -21,6 +21,7 @@ RIVAL_SCORE = 90        # another release this close that also fits makes the ma
 LENGTH_SLACK_S = 5      # per-track length tolerance: max(5 s, 5 %)
 LENGTH_SHARE = 0.8      # share of tracks (with lengths on both sides) that must agree
 _VARIOUS = {"various artists", "various", "unknown artist", "artista desconocido", "[unknown]", ""}
+PLACEHOLDER_ARTISTS = frozenset(norm_key(a) for a in _VARIOUS)     # as norm_key spells them
 _DISC = re.compile(r"[\s,:;–—-]*[(\[]?\s*\b(?:disc|disk|cd)\s*(\d{1,2})\s*(?:of\s*\d{1,2}\s*)?[)\]]?\s*$",
                    re.IGNORECASE)
 _COMPOSER_PREFIX = re.compile(r"^[^:]{2,40}:\s*(?=\S)")

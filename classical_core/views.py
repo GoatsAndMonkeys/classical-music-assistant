@@ -36,7 +36,7 @@ def bucket(role: str, kind: str | None) -> str:
         return "conductors"
     if role == "orchestra" or kind == "orchestra":
         return "orchestras"
-    if role == "chorus" or kind == "choir":
+    if role == "chorus" or kind == "choir" or re.search(r"\b(?:chorus|choir|chor|singers)\b", role):
         return "choirs"
     if role == "ensemble" or kind == "other":
         return "chamber"

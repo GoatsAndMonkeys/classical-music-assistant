@@ -2275,7 +2275,8 @@ def recording_label(r: dict) -> str:
         # no performer credits: the track or album artist, unless that is just the composer again
         composers = {norm_key(c) for c in (r.get("composer_names") or "").split(";") if c}
         for cand in (r.get("track_artist"), r.get("album_artist")):
-            if cand and norm_key(cand) not in composers and norm_key(cand) not in ("various artists", "various"):
+            # placeholders ('[unknown]', 'Various Artists') say nothing about who plays
+            if cand and norm_key(cand) not in composers and norm_key(cand) not in mbrel.PLACEHOLDER_ARTISTS:
                 who = cand
                 break
         who = who or r.get("album") or "Unknown performers"
