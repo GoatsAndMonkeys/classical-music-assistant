@@ -100,6 +100,10 @@ so artist photos show initials for now.
 Screenshots are from a synthetic test library and a real personal library, on desktop and iPhone.
 
 <p>
+  <img src="docs/screenshots/companion/desktop-light-work-fidelio-liner-notes.png" width="400" alt="Work page: Fidelio, with Play whole work, dates, a Grammy note and liner notes from Wikipedia">
+  <img src="docs/screenshots/companion/desktop-light-today.png" width="400" alt="Today: on this day and for the season, each row with a play button">
+</p>
+<p>
   <img src="docs/screenshots/companion/desktop-light-work-fidelio.png" width="400" alt="Work page: Fidelio, with Play whole work, filters and 29 recordings">
   <img src="docs/screenshots/companion/desktop-light-recording-klemperer-awards.png" width="400" alt="Recording page with movements, credits and a Grammy badge">
 </p>
@@ -112,6 +116,8 @@ Screenshots are from a synthetic test library and a real personal library, on de
   <img src="docs/screenshots/companion/desktop-ma-browse-classical.png" width="400" alt="MA Browse, Classical: Composers, Works and Review folders">
 </p>
 <p>
+  <img src="docs/screenshots/companion/iphone-light-work-fidelio-liner-notes.png" width="200" alt="Liner notes on iPhone: Fidelio">
+  <img src="docs/screenshots/companion/iphone-light-works.png" width="200" alt="Works on iPhone: dates folded under Period and dates, Curate button in the header">
   <img src="docs/screenshots/companion/iphone-dark-today.png" width="200" alt="Today tab on iPhone, dark theme: premieres on this day">
   <img src="docs/screenshots/companion/iphone-light-review-triage.png" width="200" alt="Review triage on iPhone: one card for an ambiguous composer credit">
 </p>
