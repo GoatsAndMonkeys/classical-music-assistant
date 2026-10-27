@@ -43,6 +43,8 @@ up your MA data directory before trying it.
   "Schumann" on several albums: Robert or Clara?), with filters, sorting by how many tracks are affected, bulk
   hide or reject, and undo. Corrections persist across rescans.
 - **Browse → Classical** in the normal MA interface, with Composers, Works and Review folders.
+- **Albums under every composer.** A compilation shows under each composer on it, and album lists can be
+  sorted by composer.
 - **A companion page** at `/classical/` on MA's web server, with Today, Composers, Works, Performers and Review
   tabs:
   - Work pages list every recording, with filters by performer and decade, sorting by acclaim, full credits,
@@ -65,6 +67,30 @@ up your MA data directory before trying it.
 
 ## Screenshots
 
+### Classical view inside MA (prototype)
+
+The layout follows the mockups in [#5481](https://github.com/orgs/music-assistant/discussions/5481): Composers,
+Works and Performers tabs; work pages whose recordings expand into playable movements; and a performer page
+that opens a work filtered to that performer, with **Show all**. It is built in a local branch of MA's own
+frontend and runs on this plugin's data. That frontend branch is not published yet, and a stock MA install
+won't show this view. The images below come from the real test library while it was still being imported,
+so artist photos show initials for now.
+
+<p>
+  <img src="docs/screenshots/ma-classical/desktop-work-fidelio.png" width="400" alt="Work page in MA: Fidelio, description, recordings expanding to movements">
+  <img src="docs/screenshots/ma-classical/desktop-performers.png" width="400" alt="Performers tab: filter chips for conductors, orchestras, chamber groups, choirs and soloists">
+</p>
+<p>
+  <img src="docs/screenshots/ma-classical/desktop-performer-haitink.png" width="400" alt="Performer page: Bernard Haitink, works performed">
+  <img src="docs/screenshots/ma-classical/desktop-work-scoped-haitink.png" width="400" alt="Work page reached from a performer: Showing 4 recordings by Bernard Haitink, Show all">
+</p>
+<p>
+  <img src="docs/screenshots/ma-classical/iphone-work-fidelio.png" width="200" alt="Work page on iPhone">
+  <img src="docs/screenshots/ma-classical/iphone-performers.png" width="200" alt="Performers tab on iPhone">
+</p>
+
+### Companion page (works with stock MA)
+
 Screenshots are from a synthetic test library and a real personal library, on desktop and iPhone.
 
 <p>
@@ -84,7 +110,8 @@ Screenshots are from a synthetic test library and a real personal library, on de
   <img src="docs/screenshots/companion/iphone-light-review-triage.png" width="200" alt="Review triage on iPhone: one card for an ambiguous composer credit">
 </p>
 
-More are in [`docs/screenshots/companion/`](docs/screenshots/companion/).
+More are in [`docs/screenshots/companion/`](docs/screenshots/companion/) and
+[`docs/screenshots/ma-classical/`](docs/screenshots/ma-classical/).
 
 ## Install
 
@@ -180,7 +207,8 @@ A plugin can only add things beside MA's existing views. Without changes to MA's
 
 - add composer, conductor or performer credits to MA's own track and album pages;
 - group movements by work on MA's album page;
-- add a Classical entry to MA's sidebar (it lives under Browse, on the home page rows and on its own page);
+- add a Classical entry to MA's sidebar (it lives under Browse, on the home page rows and on its own page).
+  The prototype above does this through a frontend change;
 - be installed from MA's settings. Installing it is manual, as above, and Home Assistant add-on users need
   privileged host access to copy the folder in, which an add-on update removes.
 
