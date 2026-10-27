@@ -326,7 +326,8 @@ def test_write_commands_need_library_manage(glue, tmp_path):
     asyncio.run(p.loaded_in_mass())
     scopes = {c.args[0]: c.kwargs["required_scope"] for c in p.mass.register_api_command.call_args_list}
     for name in ("classical/reindex", "classical/merge_composers", "classical/composer_name",
-                 "classical/separate_work", "classical/join_discs", "classical/separate_discs"):
+                 "classical/separate_work", "classical/join_discs", "classical/separate_discs",
+                 "classical/work_dates"):
         assert scopes[name] == glue.Scope.LIBRARY_MANAGE, name
 
 
@@ -339,6 +340,49 @@ def test_job_order_puts_accolades_after_albums_and_scans(glue):
     order = sorted(keys, key=glue.job_order)
     assert order.index("album:7") < order.index("scan") < order.index("accolades")
     assert order.index("scan") < order.index("accolades_net")
+
+
+def test_job_order_puts_the_dates_jobs_after_albums_and_scans(glue):
+    order = sorted(["dates_net", "dates", "album:7", "scan", "changes"], key=glue.job_order)
+    assert order.index("album:7") < order.index("scan") < order.index("dates")
+    assert order.index("scan") < order.index("dates_net")
+
+
+def test_work_dates_command_checks_visibility_and_reports_bad_dates(glue, tmp_path, monkeypatch):
+    """A hidden work answers 'Not found' with nothing written; an unreadable date is invalid data."""
+    p, _con, _ = _provider(glue, tmp_path)
+    p._user_name = staticmethod(lambda: "seth")
+    p._vis = lambda: ["filesystem--x"]
+    ix = p.index = MagicMock()
+    ix.work.return_value = {"composed_start": "1805", "composed_source": "user"}
+    calls = []
+
+    async def write(fn, *args):
+        return fn(*args)
+
+    p._write = write
+    monkeypatch.setattr(glue.work_dates, "set_user_dates", lambda con, wid, user, *a: calls.append((wid, user, a)))
+    monkeypatch.setattr(glue.views, "work", lambda _ix, wid, vis: {"work": {"id": wid + "-live"}})
+    out = asyncio.run(p.cmd_work_dates("w-1", composed="1805"))
+    assert out["work_id"] == "w-1-live" and out["dates"]["text"] == "composed 1805"
+    assert calls == [("w-1-live", "seth", ("1805", None, None))]
+
+    def hidden(_ix, wid, vis):
+        assert vis == ["filesystem--x"]
+        raise glue.views.NotFound(wid)
+
+    monkeypatch.setattr(glue.views, "work", hidden)
+    with pytest.raises(glue.InvalidDataError, match="Not found"):
+        asyncio.run(p.cmd_work_dates("w-2", composed="1805"))
+    assert len(calls) == 1
+
+    def bad(*_a):
+        raise ValueError("cannot read composed date 'soon'")
+
+    monkeypatch.setattr(glue.views, "work", lambda _ix, wid, vis: {"work": {"id": wid}})
+    monkeypatch.setattr(glue.work_dates, "set_user_dates", bad)
+    with pytest.raises(glue.InvalidDataError, match="cannot read"):
+        asyncio.run(p.cmd_work_dates("w-1", composed="soon"))
 
 
 def test_album_ids_reads_external_ids_and_label(glue):

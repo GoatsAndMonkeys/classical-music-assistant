@@ -216,3 +216,19 @@ test("provider badges: streaming services first, local only beside a streaming c
   assert.equal(app.anyStreaming([{ sources: [loc] }, { sources: [q] }]), true);
   assert.equal(app.anyStreaming([{ sources: [loc] }, {}]), false);
 });
+
+test("work dates: row date, dates line with sources, works query defaults drop out", () => {
+  assert.equal(app.rowDate({ composed_text: "1804–05", premiered: 1805 }), "1804–05");
+  assert.equal(app.rowDate({ composed_text: null, premiered: 1805 }), "premiered 1805");
+  assert.equal(app.rowDate({}), "");
+  assert.equal(app.datesLine(null), null);
+  assert.equal(app.datesLine({ text: null }), null);
+  assert.deepEqual(app.datesLine({ text: "composed 1804–05 · premiered 1805", sources: ["MusicBrainz", "premieres list"],
+    premiered: { place: "Theater an der Wien" } }),
+    { text: "composed 1804–05 · premiered 1805 (Theater an der Wien)", source: "from MusicBrainz and premieres list" });
+  assert.deepEqual(app.datesLine({ text: "composed 1830", sources: ["file tags"], premiered: null }),
+    { text: "composed 1830", source: "from file tags" });
+  assert.deepEqual(app.worksQuery({ composer: "c1", dk: "premiered", sort: "date" }, { dk: "composed", period: "romantic" }),
+    { composer: "c1", period: "romantic", sort: "date" });
+  assert.deepEqual(app.worksQuery({ sort: "date", decade: "1860" }, { sort: "catalogue", decade: "" }), {});
+});

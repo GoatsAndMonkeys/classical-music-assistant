@@ -41,6 +41,12 @@ _ALIASES = {
     "recordingdate": "recordingdate", "recording_date": "recordingdate", "recording date": "recordingdate",
     "recorded": "recordingdate", "recordeddate": "recordingdate", "date recorded": "recordingdate",
     "grouping": "grouping", "showmovement": "showmovement",
+    # the work's composition date, only under a name that says so: ORIGINALDATE / TDOR is the first
+    # release's date (Picard), never the work's, so it is not read as one (DEVIATIONS.md, "Work dates")
+    "compositiondate": "compositiondate", "composition date": "compositiondate",
+    "composition_date": "compositiondate", "compositionyear": "compositiondate",
+    "composition year": "compositiondate", "composeddate": "compositiondate", "datecomposed": "compositiondate",
+    "date composed": "compositiondate", "yearcomposed": "compositiondate", "year composed": "compositiondate",
 }
 _SPLIT = re.compile(r"\s*;\s*|\x00")
 _PERFORMER = re.compile(r"^(?P<name>.+?)\s*\((?P<role>[^()]+)\)\s*$")
@@ -83,6 +89,7 @@ class TagInfo:
     performers: list[Person] = field(default_factory=list)
     lyricists: list[str] = field(default_factory=list)
     arrangers: list[str] = field(default_factory=list)
+    composition_date: str | None = None   # an explicit COMPOSITIONDATE-style tag, as written
 
     @property
     def has_classical_tags(self) -> bool:
@@ -92,7 +99,7 @@ class TagInfo:
         """asdict, without the credit `detail` field when it is empty (hashes and stored evidence of tags
         without nested credits stay what they were before the field existed)."""
         d = asdict(self)
-        for k in ("disc_total", "release_mbid"):     # later fields: absent when empty, so old hashes stay
+        for k in ("disc_total", "release_mbid", "composition_date"):  # later fields: absent when empty, so old hashes stay
             if d[k] is None:
                 del d[k]
         d["performers"] = [{k: v for k, v in p.items() if not (k == "detail" and v is None)}
@@ -240,6 +247,7 @@ def parse(raw: dict[str, list[str]]) -> TagInfo:
         movement_no=_int(first("movement")), movement_total=_int(first("movementtotal")),
         disc=_int(first("discnumber")), track=_int(first("tracknumber")), recorded=first("recordingdate"),
         release_date=first("originaldate") or first("date"), lyricists=many("lyricist"), arrangers=many("arranger"),
+        composition_date=(first("compositiondate") or "").strip() or None,
     )
     wid = (first("musicbrainz_workid") or "").strip().lower()
     info.work_mbid = wid if is_mbid(wid) else None

@@ -124,6 +124,34 @@
     }).join(" · ");
   }
 
+  /** A work row's date: "1804–05", else "premiered 1805", else nothing. */
+  function rowDate(w) {
+    if (w.composed_text) return w.composed_text;
+    return w.premiered ? "premiered " + w.premiered : "";
+  }
+
+  /** The work page's dates line and its subtle provenance ("from MusicBrainz and file tags"). */
+  function datesLine(d) {
+    if (!d || !d.text) return null;
+    var src = (d.sources || []).filter(Boolean);
+    var place = d.premiered && d.premiered.place ? " (" + d.premiered.place + ")" : "";
+    return { text: d.text + place,
+      source: src.length ? "from " + (src.length > 1 ? src.slice(0, -1).join(", ") + " and " + src[src.length - 1] : src[0]) : "" };
+  }
+
+  /** The works list's query after a filter change; defaults drop out of the hash. */
+  function worksQuery(query, patch) {
+    var q = {};
+    ["composer", "type", "q", "dk", "from", "to", "performer", "period", "decade", "sort"].forEach(function (k) {
+      q[k] = query[k];
+    });
+    Object.assign(q, patch);
+    if (q.dk === "composed") q.dk = "";
+    if (q.sort === "catalogue") q.sort = "";
+    Object.keys(q).forEach(function (k) { if (q[k] === undefined || q[k] === null || q[k] === "") delete q[k]; });
+    return q;
+  }
+
   function words(q) {
     return String(q || "").toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").split(/\s+/)
       .filter(Boolean);
@@ -314,7 +342,8 @@
   var pure = {
     BUCKETS: BUCKETS, parseHash: parseHash, formatHash: formatHash, takeCode: takeCode, fmtDuration: fmtDuration,
     lifeDates: lifeDates, yearText: yearText, sourceLabels: sourceLabels, anyStreaming: anyStreaming,
-    workSubtitle: workSubtitle, recordingMatches: recordingMatches,
+    workSubtitle: workSubtitle, rowDate: rowDate, datesLine: datesLine, worksQuery: worksQuery,
+    recordingMatches: recordingMatches,
     filterRecordings: filterRecordings, sortRecordings: sortRecordings, creditGroups: creditGroups,
     reviewSubtitle: reviewSubtitle, badgeText: badgeText, anyAcclaim: anyAcclaim, safeHref: safeHref,
     byLetter: byLetter, playArgs: playArgs, loginReturnUrl: loginReturnUrl, choosePlayer: choosePlayer, errorText: errorText, imageSrc: imageSrc,
@@ -835,7 +864,7 @@
     return h("a", { class: "row", href: formatHash(["work", w.id], { scope: scope }) },
       h("span", { class: "row-main" },
         h("span", { class: "row-title", text: w.title }),
-        h("span", { class: "row-sub", text: [workSubtitle(sub), count].filter(Boolean).join(" · ") })),
+        h("span", { class: "row-sub", text: [workSubtitle(sub), rowDate(w), count].filter(Boolean).join(" · ") })),
       h("span", { class: "chev", "aria-hidden": "true", text: "›" }));
   }
 
@@ -844,16 +873,12 @@
   VIEWS.works = async function (args, query) {
     var f = { composer_id: query.composer || null, work_type: query.type || null, q: query.q || null,
       date_kind: query.dk || "composed", date_from: num(query.from), date_to: num(query.to),
-      performer_id: query.performer || null };
+      performer_id: query.performer || null, period: query.period || null, decade: num(query.decade),
+      sort: query.sort || null };
     var res = await call("classical/works", Object.assign({}, f, { limit: 200 }));
     var wrap = h("div", { class: "page" }, header("Works", plural(res.total, "work")));
 
-    function update(patch) {
-      var q = Object.assign({ composer: query.composer, type: query.type, q: query.q, dk: query.dk,
-        from: query.from, to: query.to, performer: query.performer }, patch);
-      if (q.dk === "composed") q.dk = "";
-      go(["works"], q, true);
-    }
+    function update(patch) { go(["works"], worksQuery(query, patch), true); }
 
     var search = h("input", { type: "search", class: "input", placeholder: "Title, catalogue or key",
       value: query.q || "", "aria-label": "Search works", autocomplete: "off",
@@ -868,7 +893,7 @@
     var dk = h("select", { class: "input", "aria-label": "Date kind", onchange: function () {
       update({ dk: dk.value });
     } });
-    [["composed", "Composed"], ["recorded", "Recorded"], ["released", "Released"]].forEach(function (o) {
+    [["composed", "Composed"], ["premiered", "Premiered"], ["recorded", "Recorded"], ["released", "Released"]].forEach(function (o) {
       dk.appendChild(h("option", { value: o[0], text: o[1], selected: f.date_kind === o[0] ? true : null }));
     });
     var from = h("input", { class: "input year", type: "text", inputmode: "numeric", pattern: "[0-9]*", maxlength: "4", placeholder: "From",
@@ -879,6 +904,28 @@
     from.addEventListener("input", years);
     to.addEventListener("input", years);
 
+    var periodSel = h("select", { class: "input", "aria-label": "Period", onchange: function () {
+      update({ period: periodSel.value, decade: "" });
+    } }, h("option", { value: "", text: "Any period" }));
+    (res.periods || []).forEach(function (p) {
+      periodSel.appendChild(h("option", { value: p.period, text: p.label + " (" + p.n + ")",
+        selected: f.period === p.period ? true : null }));
+    });
+    var decadeSel = h("select", { class: "input", "aria-label": "Decade", onchange: function () {
+      update({ decade: decadeSel.value });
+    } }, h("option", { value: "", text: "Any decade" }));
+    (res.decades || []).forEach(function (d) {
+      decadeSel.appendChild(h("option", { value: String(d.decade), text: d.decade + "s (" + d.n + ")",
+        selected: f.decade === d.decade ? true : null }));
+    });
+    var sortSel = h("select", { class: "input", "aria-label": "Sort works", onchange: function () {
+      update({ sort: sortSel.value });
+    } });
+    [["catalogue", "Sort: catalogue"], ["date", "Earliest first"], ["date_desc", "Latest first"]].forEach(function (o) {
+      sortSel.appendChild(h("option", { value: o[0], text: o[1],
+        selected: (f.sort || "catalogue") === o[0] ? true : null }));
+    });
+
     var cov = res.date_coverage || {};
     var covText = f.date_kind === "composed"
       ? (cov.composed || 0) + " of " + plural(cov.total || 0, "work") + " have a composition date"
@@ -886,7 +933,8 @@
 
     wrap.appendChild(h("div", { class: "filters" },
       search,
-      h("div", { class: "filter-row" }, typeSel),
+      h("div", { class: "filter-row" }, typeSel, sortSel),
+      h("div", { class: "filter-row" }, periodSel, decadeSel),
       h("div", { class: "filter-row" }, dk, from, h("span", { class: "dash", text: "–" }), to),
       covText && (f.date_from || f.date_to || f.date_kind === "composed") ? h("p", { class: "fine", text: covText }) : null));
 
@@ -959,6 +1007,15 @@
       actions.appendChild(h("p", { class: "fine acclaim", text: plural(res.acclaim.recordings, "recording") +
         " with awards: " + res.acclaim.awards.map(function (a) { return a.award + (a.n > 1 ? " (" + a.n + ")" : ""); })
         .join(", ") }));
+    }
+    var dl = datesLine(res.work.dates);
+    var canCorrect = (state.info || {}).can_correct;
+    if (dl || canCorrect) {
+      actions.appendChild(h("p", { class: "dates" },
+        dl ? h("span", { text: dl.text }) : null,
+        dl && dl.source ? h("span", { class: "dates-src", text: " · " + dl.source }) : null,
+        canCorrect ? h("button", { type: "button", class: "link-btn", text: dl ? "Edit dates" : "Add dates",
+          onclick: function () { datesSheet(w); } }) : null));
     }
     wrap.appendChild(actions);
 
@@ -1315,6 +1372,36 @@
         } }),
         h("button", { type: "button", class: "btn", text: "Cancel", onclick: function () { close(); } })));
     var close = sheet("Not one recording?", body);
+  }
+
+  /** A correction of a work's dates; it outlives re-indexing. Blank means "use the automatic value". */
+  function datesSheet(w) {
+    var d = w.dates || {};
+    var mine = function (part) { return part && part.source === "user"; };
+    var hidden = function (kind) { return (d.hidden || []).indexOf(kind) >= 0 ? "unknown" : ""; };
+    var composed = h("input", { class: "input", type: "text", "aria-label": "Composed",
+      placeholder: "e.g. 1804–05, c. 1805, 1860s", value: mine(d.composed) ? d.composed.text : hidden("composed") });
+    var premiered = h("input", { class: "input", type: "text", "aria-label": "Premiered",
+      placeholder: "e.g. 1805-11-20 or 1805", value: mine(d.premiered) ? d.premiered.date : hidden("premiered") });
+    var place = h("input", { class: "input", type: "text", "aria-label": "Premiere place",
+      placeholder: "Place (optional)", value: mine(d.premiered) ? d.premiered.place || "" : "" });
+    var now = h("p", { class: "fine", text: "Now: " + ((datesLine(d) || {}).text || "no dates") +
+      ". Leave a field blank to use the automatic value; type “unknown” to hide it." });
+    var body = h("div", null, now,
+      h("label", { class: "mini", text: "Composed" }), composed,
+      h("label", { class: "mini", text: "Premiered" }), premiered, place,
+      h("div", { class: "actions" },
+        h("button", { type: "button", class: "btn primary", text: "Save", onclick: async function () {
+          try {
+            await call("classical/work_dates", { work_id: w.id, composed: composed.value.trim(),
+              premiered: premiered.value.trim(), premiered_place: place.value.trim() });
+            close();
+            toast("Dates saved");
+            render();
+          } catch (e) { toast(e.message); }
+        } }),
+        h("button", { type: "button", class: "btn", text: "Cancel", onclick: function () { close(); } })));
+    var close = sheet("Dates of " + (w.title || "this work"), body);
   }
 
   function separateSheet(r, w) {

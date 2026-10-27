@@ -35,7 +35,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from importlib import resources
 
-from . import accolades, composers
+from . import accolades, composers, dates
 from .browse import play_uri
 from .text import norm_key, surname
 
@@ -181,6 +181,9 @@ class Cand:
     score: float                     # accolades.pick_score of the Play pick
     acclaim: float
     accolade: str | None             # the strongest counted accolade's text
+    premiered: str | None = None     # the stored premiere (dates.py): a full date makes an anniversary
+    premiered_place: str | None = None
+    premiered_source: str | None = None
 
 
 def _cand(w: dict, rec: dict, accs: list[dict]) -> Cand:
@@ -191,7 +194,9 @@ def _cand(w: dict, rec: dict, accs: list[dict]) -> Cand:
     k = accolades.work_key(w["title"])
     ident = f"{ckey}|{' '.join(sorted(k.tokens))}|{sorted(k.numbers)}|{k.key}"
     return Cand(w["id"], w["title"], w.get("composer"), kc, ckey, ident, w.get("work_type"), norm_key(f"{w['title']} {w.get('catalogue_display') or ''}"), rec,
-                accolades.pick_score(rec, accs), accolades.acclaim(accs), top["text"] if top else None)
+                accolades.pick_score(rec, accs), accolades.acclaim(accs), top["text"] if top else None,
+                w.get("premiered") if w.get("premiered_precision") == "day" else None, w.get("premiered_place"),
+                w.get("premiered_source"))
 
 
 def candidates(ix, vis=None) -> list[Cand]:
@@ -504,7 +509,7 @@ class Event:
             p = self.premiere
             assert p is not None
             head = f"Premiered on this day in {p.date.year}" if today else f"Premiered {fmt_day(p.date, True)}"
-            return f"{head}, {p.place} ({ago})"
+            return f"{head}, {p.place} ({ago})" if p.place else f"{head} ({ago})"
         verb = {"born": "Born", "baptised": "Baptised", "died": "Died"}[self.kind]
         name = surname(self.who, particles=False)
         when = f"on this day in {self.year}" if today else \
@@ -516,13 +521,27 @@ class Event:
 def events(day: dt.date, cands: list[Cand], window: int = 0) -> list[tuple[Event, Cand]]:
     """Anniversaries within `window` days of `day` that touch a work in the library."""
     out: list[tuple[Event, Cand]] = []
+    # a work whose premiere the dates job settled (a day from any source, or the user's 'unknown') uses
+    # that; the others keep the bundled list's own matching
+    settled = [c for c in cands if c.premiered or c.premiered_source]
+    for c in settled:
+        if not c.premiered:
+            continue
+        when = dt.date.fromisoformat(c.premiered)
+        md = when.strftime("%m-%d")
+        g = _gap(day, md)
+        if abs(g) <= window:
+            p = Premiere(c.kc.name if c.kc else c.composer or "", c.title, re.compile(r"(?!)"), when,
+                         c.premiered_place or "", "", None)
+            out.append((Event("premiere", g, _years(day, md, when.year), when, md, when.year, p.composer, p), c))
+    rest = [c for c in cands if not (c.premiered or c.premiered_source)]
     for p in premieres():
         md = p.date.strftime("%m-%d")
         g = _gap(day, md)
         if abs(g) > window:
             continue
         ev = Event("premiere", g, _years(day, md, p.date.year), p.date, md, p.date.year, p.composer, p)
-        out += [(ev, c) for c in cands if _is(c, p.composer) and p.match.search(c.text)]
+        out += [(ev, c) for c in rest if _is(c, p.composer) and dates.dataset_hit(c.title, c.text, c.work_type, p)]
     for kc in {c.kc for c in cands if c.kc}:
         for kind, md, year in (("baptised" if kc.baptised else "born", kc.born_md, kc.born),
                                ("died", kc.died_md, kc.died)):

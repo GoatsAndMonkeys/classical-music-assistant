@@ -17,6 +17,7 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable
 
 from . import accolades as acc
+from . import dates as wd
 from .browse import NotFound, letter_of, play_uri
 from .catalogue import WORK_TYPES
 from .discs import CONTINUATION
@@ -25,7 +26,8 @@ from .streaming import source
 from .text import fold, norm_key
 
 BUCKETS = ("conductors", "orchestras", "chamber", "choirs", "soloists", "other")
-DATE_KINDS = ("composed", "recorded", "released")
+DATE_KINDS = ("composed", "premiered", "recorded", "released")
+SORTS = ("catalogue", "date", "date_desc")
 MAX_LIMIT = 1000
 _TYPE_ORDER = {t: i for i, t in enumerate(WORK_TYPES)}
 
@@ -117,13 +119,24 @@ def _performer_work_ids(ix: Index, pid: str, vis) -> set[str]:
 
 def works(ix: Index, vis=None, composer_id: str | None = None, work_type: str | None = None, q: str | None = None,
           date_kind: str = "composed", date_from=None, date_to=None, performer_id: str | None = None,
-          offset: int = 0, limit: int = 200) -> dict:
+          period: str | None = None, decade=None, sort: str | None = None, offset: int = 0, limit: int = 200) -> dict:
     """The Works tab: filters by composer, type, text, performer and a date range of one kind (derobert).
 
     `types` counts every filter but the type; `date_coverage` says how many of the matching works carry a
-    date of each kind, so the UI can say "3 of 40 works have a composition date" instead of hiding works."""
+    date of each kind, so the UI can say "3 of 40 works have a composition date" instead of hiding works.
+    A composition range matches a year range it overlaps. `period` (dates.PERIODS) and `decade` (1800,
+    1810, ...) go by the work's year: its composition's first year, else a premiere in the composer's
+    lifetime (dates.sort_year);
+    `periods` and `decades` count every filter but those two. `sort`: catalogue (default), date, date_desc
+    (undated works last either way)."""
     if date_kind not in DATE_KINDS:
         raise ValueError(f"date_kind must be one of {', '.join(DATE_KINDS)}")
+    if period and period not in wd.PERIOD_IDS:
+        raise ValueError(f"period must be one of {', '.join(wd.PERIOD_IDS)}")
+    if sort and sort not in SORTS:
+        raise ValueError(f"sort must be one of {', '.join(SORTS)}")
+    dec = _year(decade)
+    dec = dec // 10 * 10 if dec is not None else None
     lo, hi = _year(date_from), _year(date_to)
     offset = max(0, int(offset or 0))
     limit = max(1, min(int(limit or 200), MAX_LIMIT))
@@ -146,14 +159,16 @@ def works(ix: Index, vis=None, composer_id: str | None = None, work_type: str | 
     if words:
         rows = [w for w in rows if _matches(words, w["title"], w["composer"], w["catalogue_display"], w["key"],
                                             w["work_type"])]
-    meta = {r["id"]: dict(r) for r in ix._q("SELECT id, composed_start, composed_end FROM work")} if rows else {}
+    meta = {r["id"]: dict(r) for r in ix._q(
+        "SELECT id, composed_start, composed_end, composed_precision, premiered FROM work")} if rows else {}
     years = _work_years(ix, vis) if rows else {}
 
     def dates(w: dict) -> dict[str, list[int]]:
         m = meta.get(w["id"], {})
         composed = [y for y in (_year(m.get("composed_start")), _year(m.get("composed_end"))) if y is not None]
+        premiered = [y] if (y := _year(m.get("premiered"))) is not None else []
         y = years.get(w["id"], {"recorded": [], "released": []})
-        return {"composed": composed, "recorded": y["recorded"], "released": y["released"]}
+        return {"composed": composed, "premiered": premiered, "recorded": y["recorded"], "released": y["released"]}
 
     coverage = Counter()
     by_id = {}
@@ -164,21 +179,44 @@ def works(ix: Index, vis=None, composer_id: str | None = None, work_type: str | 
             coverage[k] += bool(d[k])
     if lo is not None or hi is not None:
         def in_range(w: dict) -> bool:
-            return any((lo is None or y >= lo) and (hi is None or y <= hi) for y in by_id[w["id"]][date_kind])
+            ys = by_id[w["id"]][date_kind]
+            if date_kind == "composed" and ys:      # a span overlaps the range
+                return (lo is None or max(ys) >= lo) and (hi is None or min(ys) <= hi)
+            return any((lo is None or y >= lo) and (hi is None or y <= hi) for y in ys)
         rows = [w for w in rows if in_range(w)]
-    types = Counter(w["work_type"] for w in rows)
+    wyear = {w["id"]: wd.sort_year(meta.get(w["id"], {}), w["composer"]) for w in rows}
+
+    def in_era(w: dict) -> bool:
+        y = wyear[w["id"]]
+        return (not period or wd.period_of(y) == period) and (dec is None or (y is not None and y // 10 * 10 == dec))
+
+    types = Counter(w["work_type"] for w in rows if in_era(w))
     if work_type:
         rows = [w for w in rows if w["work_type"] == work_type]
+    periods = Counter(wd.period_of(wyear[w["id"]]) for w in rows)
+    decades = Counter(y // 10 * 10 for w in rows if (y := wyear[w["id"]]) is not None)
+    rows = [w for w in rows if in_era(w)]
+    if sort in ("date", "date_desc"):
+        dated = sorted((w for w in rows if wyear[w["id"]] is not None), key=lambda w: wyear[w["id"]],
+                       reverse=sort == "date_desc")
+        rows = dated + [w for w in rows if wyear[w["id"]] is None]
     items = []
     for w in rows[offset:offset + limit]:
-        d = by_id[w["id"]]
+        d, m = by_id[w["id"]], meta.get(w["id"], {})
         items.append({"id": w["id"], "title": w["title"], "composer": w["composer"], "work_type": w["work_type"],
                       "catalogue": w["catalogue_display"], "key": w["key"], "recordings": w["recordings"],
                       "composed": min(d["composed"]) if d["composed"] else None,
+                      "composed_text": wd.composed_text(m.get("composed_start"), m.get("composed_end"),
+                                                        m.get("composed_precision")),
+                      "premiered": d["premiered"][0] if d["premiered"] else None,
                       "recorded": [min(d["recorded"]), max(d["recorded"])] if d["recorded"] else None})
     return {
         "total": len(rows), "offset": offset, "limit": limit, "items": items, "composer": header,
         "types": [{"type": t, "n": n} for t, n in sorted(types.items(), key=lambda x: _TYPE_ORDER.get(x[0], 99))],
+        "periods": [{"period": pid, "label": label, "n": periods[pid]} for pid, label, *_ in wd.PERIODS
+                    if periods[pid]],
+        "decades": [{"decade": y, "n": n} for y, n in sorted(decades.items())],
+        "undated": periods[None],
         "date_coverage": {"total": len(by_id), **{k: coverage[k] for k in DATE_KINDS}},
     }
 
@@ -362,7 +400,7 @@ def work(ix: Index, wid: str, vis=None, scope: str | list[str] | None = None) ->
     return {
         "work": {"id": wid, "title": w["title"], "composers": w["composers"], "work_type": w["work_type"],
                  "catalogue": w["catalogue_display"], "key": w["key"], "composed": _year(w["composed_start"]),
-                 "composed_end": _year(w["composed_end"])},
+                 "composed_end": _year(w["composed_end"]), "dates": wd.describe(w)},
         "recordings": summaries,
         "facets": _facets(summaries),
         "best": {"recording_id": best[0]["id"], "reason": best[1], "label": best[0]["label"]} if best else None,
