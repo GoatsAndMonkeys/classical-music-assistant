@@ -226,3 +226,19 @@ def test_librettist_listed_first_neither_crashes_nor_hides_the_composer(tmp_path
     ws, sizes = recs(idx, "Fidelio")
     assert len(ws) == 1 and sizes == [3], titles(idx)
     assert [c["name"] for c in idx.composers()] == ["Ludwig van Beethoven"]
+
+
+def test_scored_or_keyed_form_titles_are_works_not_numbers(tmp_path):
+    """'Romanze für Violine und Orchester Nr. 2 F-Dur' after a tagged concerto is a work of its own, not part
+    of the album's concerto recording."""
+    for t in ("Romanze für Violine und Orchester Nr. 2 F-Dur", "Kanon in D", "Duo concertant: I. Cantilène",
+              "Romance for violin and orchestra"):
+        assert not is_generic_title(t), t
+    idx, r = new_index(tmp_path)
+    tg = {"work": "Violin Concerto in D major, Op. 61", "composers": BEETHOVEN}
+    rows = [(f"Violin Concerto in D major, Op. 61: {m}", {**tg, "movement_name": m, "movement_no": i})
+            for i, m in enumerate(("Allegro ma non troppo", "Larghetto", "Rondo"), 1)]
+    rows += [("Romanze für Violine und Orchester Nr. 1 G-Dur", {"composers": BEETHOVEN}),
+             ("Romanze für Violine und Orchester Nr. 2 F-Dur", {"composers": BEETHOVEN})]
+    add(idx, r, "Beethoven: Violin Concerto; Romances", rows)
+    assert recs(idx, "Violin Concerto")[1] == [3], titles(idx)

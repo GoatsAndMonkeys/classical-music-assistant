@@ -216,6 +216,9 @@ _GENERIC_NO = re.compile(r"^(?:nr|no|n°|num)\.?\s*\d{1,2}[a-z]?(?=$|[\s.,:;()\-
 # vocal-number and stage forms: as the first word, the title names a number of an opera or oratorio
 _NUMBER_FORMS = frozenset(["rezitativ", "recitativo", "recitative", "recitatif", "récitatif", "recit", "accompagnato", "duett", "duetto", "duet", "duo", "arie", "aria", "arietta", "arioso", "terzett", "terzetto", "quartett", "quartetto", "quintett", "quintetto", "sextett", "sestetto", "septett", "finale", "introduktion", "introduzione", "einleitung", "chor", "coro", "szene", "scena", "cavatina", "cabaletta", "melodram", "melodrama", "marsch", "marcia", "ensemble", "stretta", "romanze", "romanza", "lied", "couplet", "couplets", "kanon"])
 # orchestral numbers that are generic only on their own ("Overture", "Ouvertüre (Orchester)")
+# a form word with a key or a scoring names a work of its own: 'Romanze für Violine und Orchester Nr. 2 F-Dur',
+# 'Kanon in D', 'Duo concertant'
+_SCORED = re.compile(r"\b(?:for|für|fur|pour|concertante?)\b", re.IGNORECASE)
 _BARE_FORMS = frozenset(["overture", "ouverture", "ouvertüre", "ouvert", "vorspiel", "preludio", "prelude", "prologue", "prolog", "sinfonia", "intermezzo", "entracte", "zwischenspiel"])
 
 
@@ -236,7 +239,7 @@ def is_generic_title(title: str | None) -> bool:
     if not words:
         return True
     if words[0] in _NUMBER_FORMS:
-        return True
+        return not (parse_key(t) or _SCORED.search(t))
     bare = re.sub(r"\([^)]*\)", "", t).strip(" .:-–—")
     bare_words = re.findall(r"[^\W\d_]+", bare.lower())
     return len(bare_words) == 1 and bare_words[0] in _BARE_FORMS or (
