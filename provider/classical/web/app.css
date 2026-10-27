@@ -55,9 +55,7 @@ button, input, select { font: inherit; color: inherit; }
 
 .topbar {
   position: sticky; top: 0; z-index: 20;
-  background: var(--bg);
-  background: color-mix(in srgb, var(--bg) 94%, transparent);
-  -webkit-backdrop-filter: saturate(1.4) blur(14px); backdrop-filter: saturate(1.4) blur(14px);
+  background: var(--bg);              /* opaque, like the tab bar: list text must not show through */
   border-bottom: 1px solid var(--line);
   padding-top: env(safe-area-inset-top);
 }
