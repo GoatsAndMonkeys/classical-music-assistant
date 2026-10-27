@@ -305,6 +305,16 @@
     return typeof url === "string" && /^https:\/\/[^\s"'<>\\]+$/i.test(url) ? url : null;
   }
 
+  /** A "Link to MusicBrainz work?" item's candidates: the MusicBrainz title, why it matched, and its page. */
+  function mbWorkCandidates(it) {
+    var c = (it && it.detail && it.detail.candidates) || [];
+    return c.filter(function (x) { return x && typeof x.mbid === "string"; }).map(function (x) {
+      var ok = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(x.mbid);
+      return { title: String(x.title || x.mbid), why: String(x.why || ""), taken: !!x.taken_by,
+        href: ok ? "https://musicbrainz.org/work/" + x.mbid.toLowerCase() : null };
+    });
+  }
+
   /** A Today pick's lines: title, "composer · recording", and why it was chosen (never repeating the title). */
   function pickLines(p) {
     p = p || {};
@@ -345,7 +355,7 @@
     workSubtitle: workSubtitle, rowDate: rowDate, datesLine: datesLine, worksQuery: worksQuery,
     recordingMatches: recordingMatches,
     filterRecordings: filterRecordings, sortRecordings: sortRecordings, creditGroups: creditGroups,
-    reviewSubtitle: reviewSubtitle, badgeText: badgeText, anyAcclaim: anyAcclaim, safeHref: safeHref,
+    reviewSubtitle: reviewSubtitle, mbWorkCandidates: mbWorkCandidates, badgeText: badgeText, anyAcclaim: anyAcclaim, safeHref: safeHref,
     byLetter: byLetter, playArgs: playArgs, loginReturnUrl: loginReturnUrl, choosePlayer: choosePlayer, errorText: errorText, imageSrc: imageSrc,
     plural: plural, pickLines: pickLines, daySubtitle: daySubtitle, localDate: localDate, probeOrder: probeOrder,
   };
@@ -1524,6 +1534,7 @@
 
   function reasonTitle(reason) {
     if (reason === "accolade_match") return "Possible award: is this the awarded recording?";
+    if (reason === "Link to MusicBrainz work?") return "Link to a MusicBrainz work?";
     var s = String(reason || "").replace(/_/g, " ");
     return s.charAt(0).toUpperCase() + s.slice(1);
   }
@@ -1555,6 +1566,15 @@
         it.detail && it.detail.why) {
       box.appendChild(h("p", { class: "fine", text: it.detail.why }));
     }
+    if (it.reason === "Link to MusicBrainz work?") {
+      var cl = h("ul", { class: "detail" });
+      mbWorkCandidates(it).forEach(function (c) {
+        var label = c.title + (c.why ? " — " + c.why : "");
+        cl.appendChild(h("li", null, c.href ? h("a", { href: c.href, target: "_blank", rel: "noopener noreferrer",
+          text: label }) : h("span", { text: label })));
+      });
+      if (cl.childNodes.length) box.appendChild(cl);
+    }
     var acts = h("div", { class: "actions" });
     (it.actions || []).forEach(function (a) {
       if (!canCorrect) return;
@@ -1567,6 +1587,17 @@
             await call("classical/accolade_decide", { entry_ref: a.entry, recording_id: a.recording_id,
               decision: a.decision });
             toast(a.decision === "confirm" ? "Award shown on this recording" : "Award hidden for this recording");
+            render();
+          } catch (e) { toast(e.message); }
+        } }));
+      } else if (a.op === "work_mb_link") {
+        acts.appendChild(h("button", { type: "button", class: "btn", text: a.label, onclick: async function () {
+          try {
+            var args = { work_id: a.work_id, decision: a.decision };
+            if (a.mbid) args.mbid = a.mbid;
+            if (a.mbids) args.mbids = a.mbids;
+            await call("classical/work_mb_link", args);
+            toast(a.decision === "accept" ? "Linked to MusicBrainz" : "Not proposed again");
             render();
           } catch (e) { toast(e.message); }
         } }));

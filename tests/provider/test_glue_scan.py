@@ -327,7 +327,7 @@ def test_write_commands_need_library_manage(glue, tmp_path):
     scopes = {c.args[0]: c.kwargs["required_scope"] for c in p.mass.register_api_command.call_args_list}
     for name in ("classical/reindex", "classical/merge_composers", "classical/composer_name",
                  "classical/separate_work", "classical/join_discs", "classical/separate_discs",
-                 "classical/work_dates"):
+                 "classical/work_dates", "classical/work_mb_link"):
         assert scopes[name] == glue.Scope.LIBRARY_MANAGE, name
 
 
@@ -346,6 +346,72 @@ def test_job_order_puts_the_dates_jobs_after_albums_and_scans(glue):
     order = sorted(["dates_net", "dates", "album:7", "scan", "changes"], key=glue.job_order)
     assert order.index("album:7") < order.index("scan") < order.index("dates")
     assert order.index("scan") < order.index("dates_net")
+
+
+def test_job_order_puts_the_work_link_jobs_after_albums_scans_and_changes(glue):
+    order = sorted(["worklink_net", "worklink", "album:7", "scan", "changes"], key=glue.job_order)
+    assert order.index("album:7") < order.index("scan") < order.index("worklink")
+    assert order.index("changes") < order.index("worklink_net")
+
+
+def test_work_link_jobs_chain_and_stay_offline_without_musicbrainz(glue, tmp_path, monkeypatch):
+    """'dates' queues 'worklink'; requests due queue 'worklink_net' only with MusicBrainz on; a new link
+    queues 'dates'; a transient failure stops the chunk."""
+    p, _con, _ = _provider(glue, tmp_path)
+    p._mb = None
+
+    async def write(fn, *args):
+        return fn(*args)
+
+    p._write = write
+    monkeypatch.setattr(glue.work_dates, "refresh", lambda *a: {})
+    monkeypatch.setattr(glue.work_link, "refresh", lambda *a: ({"linked": 1}, ["https://mb/work?artist=x"]))
+    asyncio.run(p._run("dates"))
+    assert "worklink" in p._jobs and "dates_net" not in p._jobs
+    p._jobs.clear()
+    asyncio.run(p._run("worklink"))
+    assert set(p._jobs) == {"dates"}                    # MusicBrainz off: nothing to fetch
+    asyncio.run(p._run("worklink_net"))
+    assert set(p._jobs) == {"dates"}
+    p._jobs.clear()
+    p._mb = types.SimpleNamespace(base_url="https://mb")
+    got = []
+
+    async def fetch(mb, urls):
+        got.append(urls)
+        return 0, "503"
+
+    monkeypatch.setattr(glue.work_link, "fetch", fetch)
+    asyncio.run(p._run("worklink"))
+    assert set(p._jobs) == {"dates", "worklink_net"}
+    p._jobs.clear()
+    asyncio.run(p._run("worklink_net"))
+    assert got == [["https://mb/work?artist=x"]] and not p._jobs     # deferred: nothing re-queued
+
+
+def test_work_mb_link_command_checks_visibility(glue, tmp_path, monkeypatch):
+    p, _con, _ = _provider(glue, tmp_path)
+    p._user_name = staticmethod(lambda: "seth")
+    p._vis = lambda: ["filesystem--x"]
+    p.index = MagicMock()
+    calls = []
+
+    async def write(fn, *args):
+        return fn(*args)
+
+    p._write = write
+    monkeypatch.setattr(glue.work_link, "set_user_link", lambda con, wid, user, d, ids: calls.append((wid, user, d, ids)))
+    monkeypatch.setattr(glue.views, "work", lambda _ix, wid, vis: {"work": {"id": wid + "-live"}})
+    asyncio.run(p.cmd_work_mb_link("w-1", "reject", mbids=["a", "b"]))
+    assert calls == [("w-1-live", "seth", "reject", ["a", "b"])] and "dates" in p._jobs
+
+    def hidden(_ix, wid, vis):
+        raise glue.views.NotFound(wid)
+
+    monkeypatch.setattr(glue.views, "work", hidden)
+    with pytest.raises(glue.InvalidDataError, match="Not found"):
+        asyncio.run(p.cmd_work_mb_link("w-2", "accept", mbid="a"))
+    assert len(calls) == 1
 
 
 def test_work_dates_command_checks_visibility_and_reports_bad_dates(glue, tmp_path, monkeypatch):

@@ -34,7 +34,7 @@ from music_assistant_models.media_items import (
 )
 
 from classical_core import __version__ as CORE_VERSION
-from classical_core import accolades, curation, views
+from classical_core import accolades, curation, views, work_link
 from classical_core import browse as tree
 from classical_core import dates as work_dates
 from classical_core.index import AlbumIn, Index, MappingIn, TrackIn
@@ -274,6 +274,7 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             reg("classical/separate_discs", self.cmd_separate_discs, required_scope=Scope.LIBRARY_MANAGE),
             reg("classical/accolade_decide", self.cmd_accolade_decide, required_scope=Scope.LIBRARY_MANAGE),
             reg("classical/work_dates", self.cmd_work_dates, required_scope=Scope.LIBRARY_MANAGE),
+            reg("classical/work_mb_link", self.cmd_work_mb_link, required_scope=Scope.LIBRARY_MANAGE),
             self.mass.subscribe(self._on_sync_completed, EventType.MUSIC_SYNC_COMPLETED),
             self.mass.subscribe(self._on_providers_updated, EventType.PROVIDERS_UPDATED),
             self.mass.subscribe(
@@ -374,8 +375,19 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             self.logger.debug("Classical work dates: %s", stats)
             if self._mb is not None:
                 self._enqueue("dates_net")
+            self._enqueue("worklink")
         elif kind == "dates_net":
             await self._dates_net()
+        elif kind == "worklink":
+            stats, due = await self._write(work_link.refresh, self._con, self._mb_base(), work_link.CHUNK)
+            self.logger.debug("Classical work links: %s", stats)
+            if stats.get("linked"):
+                self._enqueue("dates")          # a new MusicBrainz work id: its dates
+            self._wl_due = due
+            if due and self._mb is not None:
+                self._enqueue("worklink_net")
+        elif kind == "worklink_net":
+            await self._worklink_net()
         elif kind == "changes":
             await self._changes()
         elif kind == "remove":
@@ -583,6 +595,21 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             if not n:
                 return
         self._enqueue("dates")
+
+    async def _worklink_net(self) -> None:
+        """One chunk of MusicBrainz requests for the work-linking job (MB on only): composer browse pages,
+        work searches and lookups, into the MB cache; the offline 'worklink' job then reads them. Every other
+        job runs first (job_order), so a long import is never held up by more than one chunk; a transient
+        failure leaves the rest for the next scan."""
+        due, self._wl_due = getattr(self, "_wl_due", None) or [], []
+        if self._mb is None or not due:
+            return
+        n, err = await work_link.fetch(self._mb, due)
+        if err:
+            self.logger.info("Classical work links: lookups deferred (%s)", err)
+            if not n:
+                return
+        self._enqueue("worklink")
 
     # ---- provider presence (§5.6) ------------------------------------------------------------------------
 
@@ -1007,6 +1034,35 @@ class ClassicalProvider(CompanionUI, PluginProvider):
         except ValueError as err:
             raise InvalidDataError(str(err)) from err
 
+    async def cmd_work_mb_link(self, work_id: str, decision: str, mbid: str | None = None,
+                               mbids: list[str] | None = None) -> dict[str, Any]:
+        """A user decision on a proposed MusicBrainz work link: 'accept' one `mbid`, or 'reject' `mbid` /
+        `mbids` (a rejected candidate is never proposed again). Survives re-index. Only a work the caller
+        can see, and only an id the linking job linked or proposed for it."""
+        user = self._user_name()
+        vis = self._vis()  # on the loop: the current user is a context variable
+        ids = list(mbids or []) + ([mbid] if mbid else [])
+
+        def apply(ix: Index) -> dict:
+            ix.con.execute("BEGIN IMMEDIATE")
+            try:
+                wid = views.work(ix, work_id, vis)["work"]["id"]      # NotFound when hidden
+                out = work_link.set_user_link(ix.con, wid, user, decision, ids)
+                ix.con.execute("COMMIT")
+            except BaseException:
+                ix.con.execute("ROLLBACK")
+                raise
+            return out
+
+        try:
+            out = await self._write(apply, self.index)
+        except views.NotFound:
+            raise InvalidDataError(NOT_FOUND) from None
+        except ValueError as err:
+            raise InvalidDataError(str(err)) from err
+        self._enqueue("dates")          # the link's dates, or the old link's gone; then 'worklink'
+        return out
+
     async def _disc_correction(self, rids: list[str], fn: Callable[[Index], Any]) -> Any:
         """Run a cross-disc correction on the writer, only on recordings the caller can see."""
         vis = self._vis()  # on the loop: the current user is a context variable
@@ -1050,9 +1106,10 @@ class ClassicalProvider(CompanionUI, PluginProvider):
 
 
 def job_order(key: str) -> tuple[bool, bool, bool]:
-    """The worker's order: removals and provider checks first, then single albums, then scans, then accolades
-    and work dates (the dataset refreshes and the network lookups wait until the library is indexed)."""
-    return (not key.startswith(("providers", "remove:")), key.startswith(("accolades", "dates")),
+    """The worker's order: removals and provider checks first, then single albums, then scans, then accolades,
+    work dates and work links (the dataset refreshes and the network lookups wait until the library is
+    indexed)."""
+    return (not key.startswith(("providers", "remove:")), key.startswith(("accolades", "dates", "worklink")),
             key.startswith("scan"))
 
 

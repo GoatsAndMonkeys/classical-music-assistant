@@ -393,3 +393,54 @@ filter by period (Early, Baroque, Classical, Romantic, 20th c., Contemporary) an
     above (an aria by its first line) can take the opera's premiere.
   - The dates job fetches no uncached parts.
   - A composition tag "1805-11" meant as November 1805 reads as 1805–1811.
+
+## MusicBrainz work links (2026-10-27)
+
+Most works are identified from titles alone, so nothing keyed on a MusicBrainz work id (dates, the
+cross-album rules) reaches them. A background job (`classical_core/work_link.py`, schema v6) proposes the
+link, conservatively.
+
+- **Candidates.** Only works whose first composer has a MusicBrainz artist id: the index's own, the
+  authority list's, or, for a listed composer without one, a cached Person artist search whose name and life
+  dates agree (`names.pick_mb_artist`). The candidates are that artist's works, read by browsing
+  `work?artist=` (100 a page, `aliases+artist-rels+work-rels`, cached). A composer with far more works than
+  the library asks about (more than 60 pages, or more pages than twice the works to decide) is searched work
+  by work instead (`arid:` plus the title's words), and each work the search would link or list is looked up
+  with the indexer's own work URL. Library titles that are parts, selections, arrangements or acts are not
+  looked up.
+- **Rules.** A MusicBrainz work that is a part (a `parts` relation, ": " in its title, "excerpt"), an
+  arrangement or orchestration, or not composed by the artist is never a candidate. A link needs one of:
+  the same catalogue number (all components; Köchel alternates count) with agreeing titles and no key
+  conflict; the same form, number and key, with both keys present; or a distinctive name (not a genre, no
+  number) that only one of the composer's works carries, on a complete browse, where that work's own title
+  is the name too (an alias "Leonore" on "Overture Leonore no. 3" does not make it the opera). Exactly one
+  strong match links. Several strong, or 1 to 6 weaker ones (a keyless "Symphony No. 4"), become a review item
+  "Link to MusicBrainz work?" listing each with why it matched, its MusicBrainz page and its disambiguation.
+  A MusicBrainz work another library work already carries is never linked or offered (the alias table holds
+  one work per id).
+- **A link** is an `alias(work, 'mbid')` row, the same as a file's MusicBrainz work tag, so the dates job and
+  the cross-album rules use it unchanged. A new link queues the `dates` job.
+- **People win.** `classical/work_mb_link` (library-manage scope, only on a visible work, only for an id the
+  job linked or proposed) accepts one id or rejects some. Each decision is an `override` row (op `mb_link`)
+  and a `correction_log` entry, so it survives re-index. A rejected id is never proposed again; rejecting an
+  automatic link removes it, and after any rejection the job only proposes. An accepted link whose alias row
+  is lost is put back. Review cards have "Link: …" and "None of these" buttons; a card for a work the caller
+  cannot see is not listed.
+- **The job.** `dates` queues `worklink`: offline, it decides every work whose answers are cached
+  (`mb_work_match` keeps the last decision and a signature of what it read, so a work is looked at again
+  only when its title, key, catalogue or composer id changes) and lists up to 10 requests still due, the
+  composers needing fewest first. If MusicBrainz is on, `worklink_net` fetches them at the shared client's 1
+  request a second and queues `worklink` again; it stops on a transient error. Both run after every album,
+  scan and changes job, so an import waits at most one 10-request chunk. With MusicBrainz off nothing is
+  fetched; cached answers are still used. No DERIVE_VERSION bump.
+- **Cost.** One browse page per 100 MusicBrainz works (about 210 KB each), or about two requests per work for
+  a searched composer, plus one artist search for a listed composer without an id. On the M1 library: about
+  200 requests for everything (Beethoven 31 pages, Brahms 21, Mahler 6; Mozart, Schubert and Britten
+  searched, about 50, 25 and 20).
+- **Not done or known gaps.**
+  - No work-page control to undo an automatic link; only review cards decide.
+  - Search mode cannot test uniqueness, so it never links by name alone.
+  - A composer whose cached artist search came back empty (Shostakovich, Bartók, Glinka, Glazunov,
+    Gubaidulina, Takemitsu on the M1) is skipped: the job reuses the cached answer.
+  - Bruckner-style version works (one MusicBrainz work per edition) mostly go to review; a link may name one
+    edition.

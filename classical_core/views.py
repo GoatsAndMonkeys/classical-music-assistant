@@ -24,6 +24,7 @@ from .discs import CONTINUATION
 from .index import Index, _fmt_duration, recording_label
 from .streaming import source
 from .text import fold, norm_key
+from .work_link import REASON as MB_LINK
 
 BUCKETS = ("conductors", "orchestras", "chamber", "choirs", "soloists", "other")
 DATE_KINDS = ("composed", "premiered", "recorded", "released")
@@ -682,6 +683,16 @@ def review(ix: Index, vis=None) -> dict:
                                         ("separate", "Different recordings")):
                     actions.append({"op": "join_discs", "first_recording_id": first,
                                     "second_recording_id": it["entity_id"], "decision": decision, "label": label})
+        elif it["reason"] == MB_LINK:
+            if not link:
+                continue                    # no album to hide it by: the work itself must be visible
+            cands = [c for c in d.get("candidates") or [] if isinstance(c, dict) and c.get("mbid")
+                     and not c.get("taken_by")]
+            actions += [{"op": "work_mb_link", "work_id": link["id"], "mbid": c["mbid"], "decision": "accept",
+                         "label": f"Link: {c.get('title') or c['mbid']}"} for c in cands]
+            if cands:
+                actions.append({"op": "work_mb_link", "work_id": link["id"], "mbids": [c["mbid"] for c in cands],
+                                "decision": "reject", "label": "None of these"})
         elif it["reason"] == "accolade_match":
             if link:
                 actions += [{"op": "accolade_decide", "entry": d.get("entry"), "recording_id": it["entity_id"],
@@ -704,5 +715,5 @@ def review(ix: Index, vis=None) -> dict:
             "title": title, "subtitle": _review_subtitle(title, album, d), "album": album,
             "album_id": it.get("album_library_id"), "detail": d, "link": link, "actions": actions, "hint": hint,
         })
-    return {"total": len(items),
+    return {"total": sum(len(v) for v in groups.values()),
             "groups": [{"reason": k, "n": len(v), "items": v} for k, v in sorted(groups.items())]}

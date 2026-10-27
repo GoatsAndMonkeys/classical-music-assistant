@@ -232,3 +232,16 @@ test("work dates: row date, dates line with sources, works query defaults drop o
     { composer: "c1", period: "romantic", sort: "date" });
   assert.deepEqual(app.worksQuery({ sort: "date", decade: "1860" }, { sort: "catalogue", decade: "" }), {});
 });
+
+test("MusicBrainz work candidates link only to a real work id on musicbrainz.org", () => {
+  const c = app.mbWorkCandidates({ detail: { candidates: [
+    { mbid: "C35B4956-0000-4000-8000-000000000001", title: "Symphony no. 9", why: "same catalogue number (Op. 125)" },
+    { mbid: "javascript:alert(1)", title: "x" },
+    { title: "no id" },
+  ] } });
+  assert.equal(c.length, 2);
+  assert.equal(c[0].href, "https://musicbrainz.org/work/c35b4956-0000-4000-8000-000000000001");
+  assert.equal(c[0].why, "same catalogue number (Op. 125)");
+  assert.equal(c[1].href, null);
+  assert.deepEqual(app.mbWorkCandidates({}), []);
+});
