@@ -29,6 +29,7 @@ from typing import Any
 
 from . import catalogue as cat
 from . import release as mbrel
+from . import work_identity as wi
 from .composers import PERFORMING, KnownComposer, by_surname, find_in_credit, lookup
 from .grouping import Slot, group_album
 from .ids import new_id
@@ -42,6 +43,7 @@ from .names import (
     authority_match,
     compatible,
     given_name_conflict,
+    given_name_from_title,
     is_lone_surname,
     mb_artist_confirms,
     parse_names,
@@ -50,7 +52,7 @@ from .names import (
     respelling_fits,
 )
 from .sethster_canonical import _CAT_RE, CATALOGUE_COMPOSER, form_key
-from .tags import Person, TagInfo, read_tags, year_of
+from .tags import Person, TagInfo, normalize_person, read_tags, year_of
 from .text import fold, norm_key, sort_name, surname
 from .titles import (
     album_work_segments,
@@ -76,7 +78,7 @@ FOLDER_CAP = 500
 MAX_PARENT_DEPTH = 3
 CUE_TRACK = "::track"                  # MA's CUE-sheet track item_id delimiter (file.cue::trackNN)
 # bumped when derivation changes, so every album re-derives once (tags are not re-read)
-DERIVE_VERSION = 3
+DERIVE_VERSION = 4
 DATED = "dated:"                       # composer 'mbid' slot for an unlisted name with conflicting life dates
 
 
@@ -165,12 +167,13 @@ class OccFacts:
     live: bool = False
     medley: bool = False
     talk: bool = False             # broadcast talk track: never a work, transparent between acts
+    file_name: str | None = None   # the local file's name, for parts whose tags name nothing (§5.4)
 
 
 def _tag_rows(info: TagInfo) -> list[tuple[str, str, str]]:
     """(field, value, edge) rows for one tag read."""
     rows: list[tuple[str, str, str]] = []
-    for k, v in asdict(info).items():
+    for k, v in info.as_dict().items():
         if v is None or v == []:
             continue
         if isinstance(v, list):
@@ -195,7 +198,7 @@ def _tags_from_rows(rows: Iterable[sqlite3.Row]) -> TagInfo:
     for f, items in lists.items():
         vals = [v for _, v in sorted(items)]
         if f == "performers":
-            vals = [Person(**v) for v in vals]
+            vals = [normalize_person(Person(**v)) for v in vals]
         setattr(info, f, vals)
     return info
 
@@ -776,6 +779,8 @@ class Index:
     @staticmethod
     def name_context(titles: Iterable[str], raws: Iterable[str]) -> NameContext:
         ctx = NameContext()
+        titles = list(titles)
+        ctx.titles = [k for k in (norm_key(t) for t in titles if t) if k]
         for t in titles:
             for m in _CAT_RE.finditer(fold(t or "")):
                 ns = m.group(1).lower()
@@ -920,7 +925,11 @@ class Index:
             return c.name, f"{DATED}{c.born or ''}-{c.died or ''}"
         g = given_name_conflict(c)
         if g is not None:
-            reviews.append(("composer name may be wrong", "name", c.key, {"name": c.name, "known": g.name}))
+            if given_name_from_title(c, g, self._name_ctx):
+                reviews.append(("composer name corrected from the work title", "name", c.key,
+                                {"name": c.name, "known": g.name}))
+                return g.name, g.mbid
+            reviews.append(("suspicious composer name", "name", c.key, {"name": c.name, "known": g.name}))
         sk = norm_key(surname(c.name, particles=False))
         if sk:
             for r in self._q("SELECT id, name FROM composer WHERE name LIKE ? LIMIT 50", (f"%{sk}%",)):
@@ -979,6 +988,20 @@ class Index:
             for part in reversed(r["item_id"].split(CUE_TRACK)[0].split("/")[:-1]):
                 out.setdefault(part)
         return list(out)
+
+    def _file_names(self, facts: list[OccFacts]) -> None:
+        """Each occurrence's local file name ('02-Hojoje! Hojoje! Hollojo! Ho!.mp3'); remote ids are not paths."""
+        if not facts:
+            return
+        marks = ",".join("?" * len(facts))
+        names: dict[str, str] = {}
+        for r in self._q(f"SELECT o.id, m.item_id FROM mapping_state m JOIN occurrence o ON o.library_track_id="
+                         f"m.library_track_id WHERE o.id IN ({marks}) AND m.provider_instance LIKE 'filesystem%' "
+                         f"AND m.status != 'gone' ORDER BY m.item_id", [f.occ_id for f in facts]):
+            if CUE_TRACK not in r["item_id"]:
+                names.setdefault(r["id"], r["item_id"].rsplit("/", 1)[-1])
+        for f in facts:
+            f.file_name = names.get(f.occ_id)
 
     def _shorthand_composer(self, hint: str | None) -> str | None:
         """The composer a concert-log shorthand starts with ('Mozart VC1'): a listed name, or the one listed
@@ -1074,6 +1097,7 @@ class Index:
             facts.append(OccFacts(occ_ids[t.library_track_id], {"title": t.title, "artist": t.artist,
                                   "duration": t.duration, "disc": t.disc, "position": t.position}, tags, origin, mb))
 
+        self._file_names(facts)
         self._assign_candidates(facts, album, reviews)
 
         slots = []
@@ -1095,15 +1119,16 @@ class Index:
                             {"tracks": [facts[i].track["title"] for i in idx]}))
 
         used_ids: set[str] = set()
-        work_cache: dict[str, str] = {}
+        work_cache: dict[str, tuple[str, str]] = {}
         fam = album_family(album)
         for run in result.runs:
             fs = [facts[i] for i in run.slots]
             c = fs[0].cand
             assert c is not None
             parts = [x.cand.movement_name for x in fs if x.cand and x.cand.movement_name]
-            wid = work_cache.get(c.key) or self._work_for(c, fam, reviews, parts)
-            work_cache[c.key] = wid
+            wid, src = work_cache.get(c.key) or self._work_ids(c, fam, reviews, parts)
+            work_cache[c.key] = (wid, src)
+            wid = self.resolve("work", wid)      # a later work of this album may have absorbed it
             rid = old_rec.get(fs[0].occ_id)
             if rid is None or rid in used_ids:
                 rid = new_id("r")
@@ -1116,16 +1141,19 @@ class Index:
             n_fields = sum(bool(v) for v in (recorded, rel, any(x.credits for x in fs), c.mbid, c.catalogues))
             self.con.execute(
                 "INSERT INTO recording(id, work_id, album_library_id, recorded_start, recorded_end, "
-                "recorded_precision, release_year, tier, complete, evidence_fields) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                "recorded_precision, release_year, tier, complete, evidence_fields, source_work_id) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (rid, wid, aid, recorded[0] if recorded else None, recorded[-1] if recorded else None,
                  ("day" if len(recorded[0]) >= 10 else "month" if len(recorded[0]) >= 7 else "year") if recorded
-                 else None, rel, c.tier, int(complete), n_fields))
+                 else None, rel, c.tier, int(complete), n_fields, src))
             for ord_, x in enumerate(fs):
                 xc = x.cand
                 self.con.execute("INSERT INTO recording_slot(recording_id, occurrence_id, movement_no, movement_name, "
                                  "ord) VALUES (?,?,?,?,?)",
                                  (rid, x.occ_id, xc.movement_no if xc else None,
-                                  (xc.movement_name if xc else None) or x.track["title"], ord_))
+                                  (xc.movement_name if xc else None)
+                                  or movement_from_title(x.track["title"], xc.title if xc else None)
+                                  or x.track["title"], ord_))
                 self.con.execute("INSERT OR IGNORE INTO work_link(occurrence_id, work_id, ord, partial, live, medley, "
                                  "source, source_ref) VALUES (?,?,?,?,?,?,?,?)",
                                  (x.occ_id, wid, 0, int(x.partial), int(x.live), int(x.medley), c.tier, x.tag_origin))
@@ -1135,8 +1163,9 @@ class Index:
             if not f.extra_works:
                 continue
             for ord_, wc in enumerate(f.extra_works):
-                wid = work_cache.get(wc.key) or self._work_for(wc, fam, reviews)
-                work_cache[wc.key] = wid
+                wid, src = work_cache.get(wc.key) or self._work_ids(wc, fam, reviews)
+                work_cache[wc.key] = (wid, src)
+                wid = self.resolve("work", wid)
                 self.con.execute("INSERT OR IGNORE INTO work_link(occurrence_id, work_id, ord, partial, live, medley, "
                                  "source, source_ref) VALUES (?,?,?,?,?,?,?,?)",
                                  (f.occ_id, wid, ord_, int(f.partial), int(f.live), int(f.medley), wc.tier, None))
@@ -1154,10 +1183,11 @@ class Index:
         for f in facts:
             for ord_, p in enumerate(f.credits):
                 pid = self._person_for(p)
-                self.con.execute("INSERT INTO track_credit(occurrence_id, person_id, role, instrument, ord) "
-                                 "VALUES (?,?,?,?,?)", (f.occ_id, pid, p.role,
-                                                        p.role if p.kind == "person" and p.role not in
-                                                        ("conductor", "performer") else None, ord_))
+                self.con.execute("INSERT INTO track_credit(occurrence_id, person_id, role, instrument, ord, detail) "
+                                 "VALUES (?,?,?,?,?,?)", (f.occ_id, pid, p.role,
+                                                          p.role if p.kind == "person" and p.role not in
+                                                          ("conductor", "performer") else None, ord_,
+                                                          p.detail))
         for reason, entity, entity_id, detail in reviews:
             self.con.execute("INSERT INTO review_item(id, reason, album_library_id, entity, entity_id, detail_json) "
                              "VALUES (?,?,?,?,?,?)", (new_id("v"), reason, aid, entity, entity_id,
@@ -1611,11 +1641,19 @@ class Index:
         return pid
 
     def _work_for(self, c: Cand, family: str, reviews: list, part_names: list[str] | None = None) -> str:
-        """`family` scopes works without a shared identity: the discs of one set (separate MA albums
-        'Fidelio [Disc 1]' and '[Disc 2]') share them; other albums never do (§5.5)."""
+        return self._work_ids(c, family, reviews, part_names)[0]
+
+    def _work_ids(self, c: Cand, family: str, reviews: list,
+                  part_names: list[str] | None = None) -> tuple[str, str]:
+        """(work id, the album's own work id before a cross-album merge). `family` scopes works without a
+        shared identity: the discs of one set (separate MA albums 'Fidelio [Disc 1]' and '[Disc 2]') share
+        them; other albums share one only on strong evidence (`_cross_album`)."""
         cids = [self._composer_for(n, m) for n, m in c.composers]
         primary = c.catalogues[0] if c.catalogues else None
         wid = None
+        src = None
+        mb_only_conflict = None     # a tag-rule match blocked only because it is MusicBrainz-identified
+        blocked: set[str] = set()
         if c.mbid:
             wid = self._alias("work", "mbid", c.mbid)                        # merge rule (1)
         elif c.tier == "tags" and cids and primary:
@@ -1623,10 +1661,14 @@ class Index:
             cand = self._alias("work", "tagcat", akey)                         # merge rule (2)
             if cand:
                 w = self._one("SELECT * FROM work WHERE id=?", (cand,))
-                has_mb = self._one("SELECT 1 FROM alias WHERE entity='work' AND entity_id=? AND kind='mbid'", (cand,))
+                has_mb = self._mbids(cand)
                 fk_a, fk_b = form_key(w["title"]), form_key(c.title)
-                if has_mb or (w["key"] and c.key_sig and w["key"] != c.key_sig) or (fk_a and fk_b and fk_a != fk_b):
+                if (w["key"] and c.key_sig and w["key"] != c.key_sig) or (fk_a and fk_b and fk_a != fk_b):
                     reviews.append(("merge candidate with a conflict", "work", cand, {"title": c.title}))
+                    blocked.add(self.resolve("work", cand))
+                elif has_mb:
+                    # the cross-album rule may still join them (agreeing titles); listed only if it does not
+                    mb_only_conflict = cand
                 else:
                     wid = cand
             if wid is None:
@@ -1637,44 +1679,193 @@ class Index:
                         reviews.append(("collection-level catalogue match", "work", r["entity_id"],
                                         {"title": c.title, "catalogue": primary.display}))
         if wid is None and not c.mbid and not (c.tier == "tags" and cids and primary):
-            wid = self._alias("work", "local", f"{family}|{c.key}")
+            r = self._one("SELECT entity_id FROM alias WHERE entity='work' AND kind='local' AND value=?",
+                          (f"{family}|{c.key}",))
+            if r:
+                src, wid = r[0], self.resolve("work", r[0])
         if wid is None:
             wid = new_id("w")
             self.con.execute("INSERT INTO work(id, title, sort_title, work_type, identity_tier, created_at) "
                              "VALUES (?,?,?,?,?,?)", (wid, c.title, norm_key(c.title), "Other", c.tier, time.time()))
-        # cross-album candidates by title are listed, never merged (§5.5). Each work lists the older ones
-        # (ids sort by creation), so ten Fidelios are nine items, not 45, and a reindex that finds the
-        # works again (no new work) still lists them.
-        others = [r[0] for r in self._q(
-            "SELECT w.id FROM work w JOIN work_composer wc ON wc.work_id=w.id "
-            "WHERE w.sort_title=? AND wc.composer_id=? AND w.id<? "
-            "AND EXISTS (SELECT 1 FROM recording r WHERE r.work_id=w.id) ORDER BY w.id",
-            (norm_key(c.title), cids[0] if cids else "", wid))]
-        if others:
-            reviews.append(("possible same work on another album", "work", wid,
-                            {"other": others[0], "others": others, "title": c.title}))
+        src = src or wid
         if c.mbid:
             self._add_alias("work", wid, "mbid", c.mbid)
         if c.tier == "tags" and cids and primary and not c.mbid:
             self._add_alias("work", wid, "tagcat", f"{cids[0]}|{primary.key}")
         if not c.mbid and not (c.tier == "tags" and cids and primary):
-            self._add_alias("work", wid, "local", f"{family}|{c.key}")
+            self._add_alias("work", src, "local", f"{family}|{c.key}")
         for pa in c.part_aliases:
             self._add_alias("work", wid, "part_mbid", pa)
+        composer = None
+        if cids:
+            row = self._one("SELECT name FROM composer WHERE id=?", (cids[0],))
+            composer = row[0] if row else None
+        wid = self._cross_album(c, cids[0] if cids else None, composer, wid, reviews, blocked)
+        if mb_only_conflict and self.resolve("work", mb_only_conflict) != wid:
+            reviews.append(("merge candidate with a conflict", "work", mb_only_conflict, {"title": c.title}))
+        # cross-album candidates by title alone are listed, never merged (§5.5). Each work lists the older
+        # ones (ids sort by creation), so ten Fidelios are nine items, not 45, and a reindex that finds the
+        # works again (no new work) still lists them.
+        others = [r[0] for r in self._q(
+            "SELECT w.id FROM work w JOIN work_composer wc ON wc.work_id=w.id "
+            "WHERE w.sort_title=? AND wc.composer_id=? AND w.id<? AND w.id<>? "
+            "AND EXISTS (SELECT 1 FROM recording r WHERE r.work_id=w.id) ORDER BY w.id",
+            (norm_key(c.title), cids[0] if cids else "", wid, wid))]
+        others = [o for o in others if not self._kept_apart(o, wid)]
+        if others:
+            reviews.append(("possible same work on another album", "work", wid,
+                            {"other": others[0], "others": others, "title": c.title}))
         # the composers of the current derivation replace earlier ones (a re-resolved name moves the work)
         self.con.execute("DELETE FROM work_composer WHERE work_id=?", (wid,))
         for ord_, cid in enumerate(dict.fromkeys(cids)):
             self.con.execute("INSERT OR IGNORE INTO work_composer(work_id, composer_id, ord) VALUES (?,?,?)",
                              (wid, cid, ord_))
-        # derived descriptive fields (never the display title: first spelling wins)
-        wtype = cat.work_type(c.title, c.mb_type, part_names)
+        # derived descriptive fields (never the display title: first spelling wins). The work type keeps
+        # the strongest evidence any album gave it: an opera stays an opera when a later album's title
+        # alone says nothing.
+        wtype, rank = self._work_type_evidence(c, composer, part_names)
         cat_sort = None
         if primary:
             cat_sort = primary.namespace + ":" + "/".join(x.zfill(6) for x in primary.components)
-        self.con.execute("UPDATE work SET work_type=?, key=COALESCE(?, key), catalogue_display=COALESCE(?, "
-                         "catalogue_display), catalogue_sort=COALESCE(?, catalogue_sort) WHERE id=?",
-                         (wtype, c.key_sig, primary.display if primary else None, cat_sort, wid))
+        self.con.execute("UPDATE work SET work_type=CASE WHEN work_type_rank<? THEN ? ELSE work_type END, "
+                         "work_type_rank=MAX(work_type_rank, ?), key=COALESCE(?, key), "
+                         "catalogue_display=COALESCE(?, catalogue_display), "
+                         "catalogue_sort=COALESCE(?, catalogue_sort) WHERE id=?",
+                         (rank, wtype, rank, c.key_sig, primary.display if primary else None, cat_sort, wid))
+        return wid, src
+
+    @staticmethod
+    def _work_type_evidence(c: Cand, composer: str | None, part_names: list[str] | None) -> tuple[str, int]:
+        """(work type, strength): MusicBrainz's type or the known-work list 3, a title keyword 2, act-named
+        parts 1, nothing 0."""
+        if cat.is_mb_type(c.mb_type):
+            return cat.work_type(c.title, c.mb_type), 3
+        kw = wi.known_work(composer, c.title)
+        if kw:
+            return kw[1], 3
+        t = cat.work_type(c.title)
+        if t != "Other":
+            return t, 2
+        t = cat.work_type(c.title, None, part_names)
+        return t, (1 if t != "Other" else 0)
+
+    def _mbids(self, wid: str) -> set[str]:
+        """MusicBrainz ids of a work, including those of works merged into it."""
+        return {r[0] for r in self._q(
+            "SELECT a.value FROM alias a LEFT JOIN redirect d ON d.entity='work' AND d.old_id=a.entity_id "
+            "WHERE a.entity='work' AND a.kind='mbid' AND (a.entity_id=? OR d.new_id=?)", (wid, wid))}
+
+    def _kept_apart(self, a: str, b: str) -> bool:
+        """A user said these two works are different (`separate_work`)."""
+        for r in self._q("SELECT entity_id, payload_json FROM override WHERE entity='work' AND op='separate'"):
+            x, y = self.resolve("work", r[0]), self.resolve("work", json.loads(r[1]).get("other", ""))
+            if {x, y} == {a, b}:
+                return True
+        return False
+
+    def _cross_album(self, c: Cand, cid: str | None, composer: str | None, wid: str, reviews: list,
+                     blocked: set[str] | None = None) -> str:
+        """Merge this album's work into the same work on another album when the evidence is strong
+        (`work_identity`): the known-work list, or the same full catalogue number with agreeing titles.
+        The merged work keeps its id as a redirect. Never across two MusicBrainz works, never against a
+        user's 'keep separate'; a same-number pair whose titles disagree is a review item."""
+        if cid is None:
+            return wid
+        keys = wi.cross_keys(composer, c.title, c.catalogues)
+        if not keys:
+            return wid
+        act = wi.has_act_suffix(c.title)
+        mine = self._mbids(wid)
+        if act and mine:
+            return wid          # 'Fidelio, op. 72: Akt II' as its own MB work: a part, not the opera
+        for kind, key in keys:
+            target = self._alias("work", "xwork", f"{cid}|{key}")
+            if target is None or target == wid or target in (blocked or ()) or self._kept_apart(wid, target):
+                continue
+            krow = self._one("SELECT key FROM work WHERE id=?", (target,))
+            if krow and krow[0] and c.key_sig and krow[0] != c.key_sig:
+                continue        # 'in C major' against 'in C minor': not the same work
+            theirs = self._mbids(target)
+            if mine and theirs and not mine & theirs:
+                continue        # two MusicBrainz works are two works
+            if kind == "cat":
+                row = self._one("SELECT title FROM work WHERE id=?", (target,))
+                why = wi.titles_agree(c.title, row[0]) if row else "no title"
+                if why:
+                    reviews.append(("same catalogue number, different title", "work", wid,
+                                    {"title": c.title, "other": target, "why": why}))
+                    continue
+            # the MusicBrainz-identified side survives; otherwise the work that was there first
+            src, dst = (target, wid) if mine and not theirs else (wid, target)
+            self._merge_work(src, dst, f"cross-album {kind}")
+            wid = dst
+            break
+        if not act:
+            for _, key in keys:
+                self._add_alias("work", wid, "xwork", f"{cid}|{key}")
         return wid
+
+    def _merge_work(self, src: str, dst: str, reason: str) -> None:
+        """`src` becomes `dst` for good (redirect); its recordings and links move now, the rest on re-derive."""
+        if src == dst:
+            return
+        self.con.execute("INSERT OR REPLACE INTO redirect(entity, old_id, new_id, reason, at) VALUES (?,?,?,?,?)",
+                         ("work", src, dst, reason, time.time()))
+        self.con.execute("UPDATE redirect SET new_id=? WHERE entity='work' AND new_id=?", (dst, src))
+        self.con.execute("UPDATE recording SET work_id=? WHERE work_id=?", (dst, src))
+        self.con.execute("UPDATE OR IGNORE work_link SET work_id=? WHERE work_id=?", (dst, src))
+        self.con.execute("DELETE FROM work_link WHERE work_id=?", (src,))
+        self.con.execute("INSERT OR IGNORE INTO work_composer(work_id, composer_id, ord) "
+                         "SELECT ?, composer_id, ord FROM work_composer WHERE work_id=?", (dst, src))
+        self.con.execute("DELETE FROM work_composer WHERE work_id=?", (src,))
+        a = self._one("SELECT * FROM work WHERE id=?", (src,))
+        b = self._one("SELECT * FROM work WHERE id=?", (dst,))
+        if a is None or b is None:
+            return
+        # the display title: a MusicBrainz work's own, else the first spelling unless a later one is
+        # plainly better (it has the catalogue number, or the first was all capitals)
+        title = b["title"]
+        if not self._mbids(dst) and ((a["catalogue_display"] and not b["catalogue_display"])
+                                     or (b["title"].isupper() and not a["title"].isupper())):
+            title = a["title"]
+        better = a["work_type_rank"] > b["work_type_rank"]
+        self.con.execute(
+            "UPDATE work SET title=?, sort_title=?, work_type=?, work_type_rank=?, key=COALESCE(key, ?), "
+            "catalogue_display=COALESCE(catalogue_display, ?), catalogue_sort=COALESCE(catalogue_sort, ?) "
+            "WHERE id=?", (title, norm_key(title), a["work_type"] if better else b["work_type"],
+                           max(a["work_type_rank"], b["work_type_rank"]), a["key"], a["catalogue_display"],
+                           a["catalogue_sort"], dst))
+
+    def merged_into(self, recording_id: str) -> bool:
+        """Was this recording's album work merged into another album's work (so 'keep separate' applies)?"""
+        r = self._one("SELECT r.work_id, r.source_work_id, d.reason FROM recording r LEFT JOIN redirect d "
+                      "ON d.entity='work' AND d.old_id=r.source_work_id WHERE r.id=?",
+                      (self.resolve("recording", recording_id),))
+        return bool(r and r["source_work_id"] and r["source_work_id"] != r["work_id"]
+                    and str(r["reason"] or "").startswith("cross-album"))
+
+    def separate_work(self, recording_id: str, user: str | None = None) -> list[str]:
+        """A user correction: this recording's album work is not the work it was merged into. Undoes that
+        cross-album merge and keeps the two apart on every later derivation. Returns the albums to re-derive."""
+        r = self._one("SELECT work_id, source_work_id FROM recording WHERE id=?",
+                      (self.resolve("recording", recording_id),))
+        if r is None:
+            raise ValueError(f"no recording {recording_id}")
+        src, cur = r["source_work_id"], self.resolve("work", r["work_id"])
+        d = self._one("SELECT reason FROM redirect WHERE entity='work' AND old_id=?", (src,)) if src else None
+        if not src or src == cur or d is None or not str(d[0]).startswith("cross-album"):
+            raise ValueError("this recording was not merged from another album's work")
+        now = time.time()
+        self.con.execute("DELETE FROM redirect WHERE entity='work' AND old_id=?", (src,))
+        self.con.execute("INSERT INTO override(entity, entity_id, op, payload_json, created_at, by_user) "
+                         "VALUES ('work', ?, 'separate', ?, ?, ?)", (src, json.dumps({"other": cur}), now, user))
+        self.con.execute("INSERT INTO correction_log(op, payload_json, user, at) VALUES (?,?,?,?)",
+                         ("separate_work", json.dumps({"work": src, "from": cur, "recording": recording_id}),
+                          user, now))
+        albums = [x[0] for x in self._q("SELECT DISTINCT album_library_id FROM recording WHERE source_work_id=?",
+                                        (src,))]
+        self.con.executemany("UPDATE album_info SET signature=NULL WHERE album_library_id=?", [(a,) for a in albums])
+        return albums
 
     # ---- reads (all filtered by visible provider instances) -------------------------------------------
 
@@ -1953,9 +2144,48 @@ def _number_identical_runs(facts: list[OccFacts]) -> None:
                 assert fc is not None
                 fc.part_key = f"seq:{facts[k].track['disc'] or 1}:{facts[k].track['position']}"
                 fc.movement_no = None
+            # the files often name the parts the tags do not ('01-Overture.mp3', '02-Hojoje! …mp3')
+            from_files = [_file_movement(facts[k], c.title) for k in run]
+            if not all(from_files) or len({norm_key(x or "") for x in from_files}) < len(run):
+                from_files = [None] * len(run)
+            for n, (k, name) in enumerate(zip(run, from_files, strict=True), 1):
+                fc = facts[k].cand
+                assert fc is not None
                 if not fc.movement_name:
-                    fc.movement_name = f"Part {n}"
+                    fc.movement_name = name or f"Part {n}"
         i = run[-1] + 1
+
+
+_FILE_NUMBER = re.compile(r"^\s*(?:(?:cd|disc|disk)?\s*\d{1,2}\s*[-._]\s*)?\d{1,3}\s*(?:[-._)]\s*|\s+)")
+_FILE_JUNK = re.compile(r"^(?:track|part|teil|title|piste|audio\s*track|untitled)?\s*\d*$", re.IGNORECASE)
+
+
+def movement_from_title(title: str | None, work: str | None) -> str | None:
+    """A track title without its work prefix ('Symphony No. 5: II. Andante' -> 'II. Andante'); None when the
+    title is only the work."""
+    t = (title or "").strip()
+    if not t:
+        return None
+    if work and norm_key(t) == norm_key(work):
+        return None
+    return (title_tail(t, work) if work else None) or t
+
+
+def _file_movement(f: OccFacts, work: str) -> str | None:
+    """'Dutchman 1/01-Overture.mp3' -> 'Overture'; None for 'Track 1.mp3' or a name that is just the work."""
+    if not f.file_name:
+        return None
+    stem = re.sub(r"\s+", " ", re.sub(r"\.[A-Za-z0-9]{2,5}$", "", f.file_name).replace("_", " ")).strip()
+    stem = _FILE_NUMBER.sub("", stem).strip(" -.")
+    if not stem or _FILE_JUNK.match(stem):
+        return None
+    for ref in (work, f.track["title"] or ""):
+        if norm_key(stem) == norm_key(ref) or wi.core_name(stem) == wi.core_name(ref):
+            return None
+        tail = title_tail(stem, ref) if ref else None
+        if tail:
+            stem = tail
+    return stem if norm_key(stem) else None
 
 
 def _fill_sandwiches(facts: list[OccFacts]) -> None:

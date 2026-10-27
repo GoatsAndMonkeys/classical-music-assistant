@@ -125,7 +125,9 @@ def tag(work=None, mov=None, no=None, composer="Frédéric Chopin", conductor=No
                    movement_no=no, composers=[composer] if composer else [], performers=perf, **kw)
 
 
-def test_tier3_never_merges_across_albums(tmp_path):
+def test_tier3_merges_across_albums_only_on_the_full_catalogue_number(tmp_path):
+    """Same resolved composer and the same full catalogue number join two albums' works (a redirect keeps
+    the second id); the same title without a catalogue number stays two works and one review item."""
     r = Reader()
     idx = new_index(tmp_path, mb=False, reader=r)
     titles = ["Symphony No. 1 in C minor, Op. 68: I. Allegro", "Symphony No. 1 in C minor, Op. 68: II. Andante"]
@@ -135,12 +137,21 @@ def test_tier3_never_merges_across_albums(tmp_path):
             r.tags[t.mappings[0].path] = TagInfo(title=t.title, artist="Johannes Brahms")
         run(idx.index_album(a))
     ws = by_title(idx, "Symphony No. 1")
+    assert len(ws) == 1 and len(idx.recordings(ws[0]["id"])) == 2
+    plain = ["Symphony No. 2: I. Allegro", "Symphony No. 2: II. Andante"]
+    for aid, base in (("C", 20), ("D", 30)):
+        a = album(aid, plain, base=base, artist="Johannes Brahms")
+        for t in a.tracks:
+            r.tags[t.mappings[0].path] = TagInfo(title=t.title, artist="Johannes Brahms")
+        run(idx.index_album(a))
+    ws = by_title(idx, "Symphony No. 2")
     assert len(ws) == 2 and all(w["identity_tier"] == "title" for w in ws)
     assert any(v["reason"] == "possible same work on another album" for v in idx.review())
     # a forced reindex finds the works again (no new work): the review item must survive, still once
-    for aid, base in (("A", 0), ("B", 10)):
-        run(idx.index_album(album(aid, titles, base=base, artist="Johannes Brahms"), force=True))
+    for aid, base in (("C", 20), ("D", 30)):
+        run(idx.index_album(album(aid, plain, base=base, artist="Johannes Brahms"), force=True))
     assert sum(v["reason"] == "possible same work on another album" for v in idx.review()) == 1
+    assert len(by_title(idx, "Symphony No. 1")) == 1
 
 
 def test_collection_level_opus_goes_to_review_not_merge(tmp_path):
@@ -184,7 +195,7 @@ def test_conflicting_mbids_never_merge(tmp_path):
     assert sorted(w["recordings"] for w in idx.works()) == [1, 2]          # A and C share rule (1)
 
 
-def test_mb_identified_work_blocks_tag_rule(tmp_path):
+def test_mb_identified_work_takes_the_same_catalogue_work_of_another_album(tmp_path):
     r = Reader()
     idx = new_index(tmp_path, mb=False, reader=r)
     x = album("A", ["t"])
@@ -195,6 +206,17 @@ def test_mb_identified_work_blocks_tag_rule(tmp_path):
     x = album("C", ["t"], base=20)
     r.tags["C/0"] = tag("Ballade No. 1 in G minor, Op. 23")
     run(idx.index_album(x))
+    assert len(idx.works()) == 1
+    assert not any(v["reason"] == "merge candidate with a conflict" for v in idx.review())
+
+
+def test_same_catalogue_other_key_is_a_conflict_not_a_merge(tmp_path):
+    r = Reader()
+    idx = new_index(tmp_path, mb=False, reader=r)
+    r.tags["A/0"] = tag("Ballade No. 1 in G minor, Op. 23")
+    run(idx.index_album(album("A", ["t"])))
+    r.tags["C/0"] = tag("Ballade No. 1 in F major, Op. 23")
+    run(idx.index_album(album("C", ["t"], base=20)))
     assert len(idx.works()) == 2
     assert any(v["reason"] == "merge candidate with a conflict" for v in idx.review())
 

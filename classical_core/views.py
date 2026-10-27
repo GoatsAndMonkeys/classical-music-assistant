@@ -187,7 +187,8 @@ def _credits_by_recording(ix: Index, wid: str, vis, rid: str | None = None) -> d
     """Full credits (with instrument) of a work's visible recordings, in track-and-tag order: one query."""
     rows = ix._q(
         f"WITH vr AS ({_visible_recordings('AND r.work_id=:wid AND (:rid IS NULL OR r.id=:rid)')}) "
-        "SELECT s.recording_id AS rid, p.id, p.name, p.kind, tc.role, tc.instrument, MIN(s.ord * 100 + tc.ord) AS o "
+        "SELECT s.recording_id AS rid, p.id, p.name, p.kind, tc.role, tc.instrument, MIN(tc.detail) AS detail, "
+        "MIN(s.ord * 100 + tc.ord) AS o "
         "FROM vr JOIN recording_slot s ON s.recording_id=vr.id JOIN track_credit tc ON tc.occurrence_id=s.occurrence_id "
         "JOIN person p ON p.id=tc.person_id GROUP BY s.recording_id, p.id, tc.role ORDER BY s.recording_id, o",
         {"wid": wid, "rid": rid, **_vis_args(vis)})
@@ -197,6 +198,8 @@ def _credits_by_recording(ix: Index, wid: str, vis, rid: str | None = None) -> d
         c = {"id": r["id"], "name": r["name"], "role": r["role"], "group": bucket(r["role"], r["kind"])}
         if r["instrument"]:
             c["instrument"] = r["instrument"]
+        if r["detail"]:         # the character sung, or the context of a credit ('Pater Profundus')
+            c["detail"] = r["detail"]
         out[r["rid"]].append(c)
     return out
 
@@ -346,6 +349,7 @@ def recording(ix: Index, rid: str, vis=None) -> dict:
                        "year": r.get("album_year"), "image": r.get("image")}
     s["work"] = {"id": r["work_id"], "title": w.get("title"), "composers": w.get("composers") or [],
                  "catalogue": w.get("catalogue_display"), "key": w.get("key"), "work_type": w.get("work_type")}
+    s["merged"] = ix.merged_into(r["id"])
     return s
 
 
@@ -463,14 +467,29 @@ _GROUPING_HINT = ("Grouping corrections (split, reassign, ignore) are not availa
                   "for a later correction.")
 
 
-def _review_title(it: dict) -> str:
+_ENTITY_LABEL = {"album": "Album", "occurrence": "Track", "work": "Work", "composer": "Composer", "name": "Name",
+                 "recording": "Recording", "person": "Performer"}
+
+
+def _review_title(it: dict, album: str | None = None) -> str:
+    """The specific thing the item is about (a track, work, name or album), never the group heading: the
+    review page already shows the reason above the cards."""
     d = it.get("detail") or {}
-    for k in ("title", "track", "work", "name"):
+    for k in ("title", "track", "work", "name", "album"):
         if d.get(k):
             return str(d[k])
     if d.get("tracks"):
         return " · ".join(str(t) for t in d["tracks"][:3]) + (" …" if len(d["tracks"]) > 3 else "")
-    return it["reason"]
+    if album:
+        return album
+    return _ENTITY_LABEL.get(it.get("entity") or "", "Item") + (f" {it['entity_id']}" if it.get("entity_id") else "")
+
+
+def _review_subtitle(title: str, album: str | None, d: dict) -> str:
+    """The album the item came from, unless that is already the title; then the item's own explanation."""
+    if album and album != title:
+        return album
+    return str(d.get("why") or "")
 
 
 def review(ix: Index, vis=None) -> dict:
@@ -531,9 +550,11 @@ def review(ix: Index, vis=None) -> dict:
             d = {k: v for k, v in d.items() if k != "other"}
         if it["entity"] == "work" and isinstance(d.get("others"), list):   # the same, for every match listed
             d = {**d, "others": [o for o in d["others"] if ix.resolve("work", str(o)) in visible_works]}
+        album = albums.get(it.get("album_library_id"))
+        title = _review_title({**it, "detail": d}, album)
         groups[it["reason"]].append({
             "id": it["id"], "reason": it["reason"], "entity": it["entity"], "entity_id": it.get("entity_id"),
-            "title": _review_title(it), "album": albums.get(it.get("album_library_id")),
+            "title": title, "subtitle": _review_subtitle(title, album, d), "album": album,
             "album_id": it.get("album_library_id"), "detail": d, "link": link, "actions": actions, "hint": hint,
         })
     return {"total": len(items),

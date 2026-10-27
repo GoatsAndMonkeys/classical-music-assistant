@@ -84,6 +84,21 @@ def parse_catalogues(text: str | None) -> list[Catalogue]:
     return out
 
 
+def strip_catalogues(text: str | None) -> str:
+    """The folded text with every catalogue reference parse_catalogues would find blanked out."""
+    s = fold(text or "")
+    out, last = [], 0
+    for m in _CAT.finditer(s):
+        raw_ns = m.group("ns").lower()
+        if len(raw_ns) == 1 and re.search(r"\bin$", s[: m.start()].rstrip()) and m.group(0)[1:2] != ".":
+            continue
+        out.append(s[last:m.start()])
+        out.append(" ")
+        last = m.end()
+    out.append(s[last:])
+    return "".join(out)
+
+
 def primary_catalogue(text: str | None) -> Catalogue | None:
     """The first catalogue reference, which is the one titles lead with."""
     cats = parse_catalogues(text)
@@ -153,6 +168,11 @@ _MB_TYPES = {
     "song-cycle": "Vocal", "aria": "Vocal", "quartet": "Chamber", "sonata": "Chamber", "suite": "Orchestral",
     "overture": "Orchestral", "symphonic poem": "Orchestral", "étude": "Keyboard", "prelude": "Keyboard",
 }
+
+
+def is_mb_type(mb_type: str | None) -> bool:
+    """A MusicBrainz work type that names a folder (an MB type outranks a title keyword)."""
+    return bool(mb_type) and mb_type.lower() in _MB_TYPES
 
 
 def work_type(title: str, mb_type: str | None = None, part_names: list[str] | None = None) -> str:

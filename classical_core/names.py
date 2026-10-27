@@ -150,6 +150,7 @@ class NameContext:
     names already resolved on it (a sibling track credited 'Ludwig van Beethoven')."""
     catalogue_surnames: set[str] = field(default_factory=set)
     siblings: set[str] = field(default_factory=set)       # KnownComposer names resolved by full name
+    titles: list[str] = field(default_factory=list)       # norm_key of the album, track and work titles
 
 
 def dates_agree(c: NameCandidate, born: int | None, died: int | None) -> bool:
@@ -266,6 +267,23 @@ def given_name_conflict(c: NameCandidate) -> KnownComposer | None:
     if len(hits) != 1:
         return None
     return hits[0] if compatible(c.name, hits[0].name) is None else None
+
+
+def given_name_from_title(c: NameCandidate, k: KnownComposer, ctx: NameContext | None) -> bool:
+    """'Alexander Prokofiev' on 'Alexander Nevsky, Op. 78': the one given name is a word of a title on the
+    album (and not followed there by the surname, which would make it a real credit), the surname is unique in
+    the list (given_name_conflict) and the life dates agree. The tag copied a word of the work title."""
+    if ctx is None or not dates_agree(c, k.born, k.died):
+        return False
+    given = _given(c.name)
+    if len(given) != 1 or len(given[0]) < 4:
+        return False
+    g, sk = given[0], norm_key(surname(c.name, particles=False))
+    for t in ctx.titles:
+        for m in re.finditer(rf"\b{re.escape(g)}\b", t):
+            if not t[m.end():].lstrip().startswith(sk):
+                return True
+    return False
 
 
 # ---- (c) MusicBrainz artist search ---------------------------------------------------------------------

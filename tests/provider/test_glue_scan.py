@@ -221,3 +221,24 @@ def test_merge_command_reads_nothing_on_the_loop_and_rejects_unknown_ids(glue, t
     p._write = refuse
     with pytest.raises(glue.InvalidDataError):
         asyncio.run(p.cmd_merge_composers("c-src", "c-dst"))
+
+
+def test_separate_work_command_rescans_and_rejects_unmerged_recordings(glue, tmp_path):
+    p, _con, _ = _provider(glue, tmp_path)
+    p._user_name = staticmethod(lambda: "seth")
+
+    async def write(fn, *args):
+        return ["album-1"]
+
+    p._write = write
+    p._enqueue = MagicMock()
+    p._jobs = {}
+    assert asyncio.run(p.cmd_separate_work("r-1"))["albums"] == 1
+    p._enqueue.assert_called_once_with("scan")
+
+    async def refuse(fn, *args):
+        raise ValueError("this recording was not merged from another album's work")
+
+    p._write = refuse
+    with pytest.raises(glue.InvalidDataError):
+        asyncio.run(p.cmd_separate_work("r-1"))

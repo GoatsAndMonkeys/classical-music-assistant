@@ -166,14 +166,22 @@
   }
 
   /** Credits grouped for display: [{group, title, people: [{id, name, role}]}] in bucket order. */
+  /** A review card's second line: never a repeat of its title (an album item's title is the album). */
+  function reviewSubtitle(it) {
+    var sub = it.subtitle !== undefined ? it.subtitle : (it.album || "");
+    return sub && sub !== it.title ? sub : "";
+  }
+
   function creditGroups(credits) {
     var groups = {};
     (credits || []).forEach(function (c) {
       var g = c.group || "other";
       var list = groups[g] || (groups[g] = []);
       var role = g === "soloists" ? (c.instrument || c.role) : (g === "other" ? c.role : "");
+      // the character sung or the context of the credit ("bass · Pater Profundus")
+      role = [role && role !== "performer" ? role : "", c.detail || ""].filter(Boolean).join(" · ");
       if (!list.some(function (p) { return p.id === c.id && p.role === role; })) {
-        list.push({ id: c.id, name: c.name, role: role && role !== "performer" ? role : "" });
+        list.push({ id: c.id, name: c.name, role: role });
       }
     });
     return BUCKETS.filter(function (b) { return groups[b]; }).map(function (b) {
@@ -236,6 +244,7 @@
     BUCKETS: BUCKETS, parseHash: parseHash, formatHash: formatHash, takeCode: takeCode, fmtDuration: fmtDuration,
     lifeDates: lifeDates, yearText: yearText, workSubtitle: workSubtitle, recordingMatches: recordingMatches,
     filterRecordings: filterRecordings, sortRecordings: sortRecordings, creditGroups: creditGroups,
+    reviewSubtitle: reviewSubtitle,
     byLetter: byLetter, playArgs: playArgs, loginReturnUrl: loginReturnUrl, choosePlayer: choosePlayer, errorText: errorText, imageSrc: imageSrc,
     plural: plural,
   };
@@ -1036,8 +1045,32 @@
         h("p", { class: "fine", text: [album.artist, album.year].filter(Boolean).join(" · ") }),
         r.accolades && r.accolades.length ? null : h("p", { class: "fine", text: "No awards recorded yet." }))));
     wrap.appendChild(recordingBody(r, false));
+    if (r.merged && (state.info || {}).can_correct) {
+      wrap.appendChild(h("section", { class: "section" },
+        h("p", { class: "fine", text: "This album's " + (w.title || "work") +
+          " was matched to the same work on other albums." }),
+        h("div", { class: "actions" }, h("button", { type: "button", class: "btn", text: "Keep separate",
+          onclick: function () { separateSheet(r, w); } }))));
+    }
     return wrap;
   };
+
+  function separateSheet(r, w) {
+    var body = h("div", null,
+      h("p", { text: "This recording will be listed under its own work instead of " + (w.title || "this work") +
+        ". Future scans keep this choice." }),
+      h("div", { class: "actions" },
+        h("button", { type: "button", class: "btn primary", text: "Keep separate", onclick: async function () {
+          try {
+            await call("classical/separate_work", { recording_id: r.id });
+            close();
+            toast("Kept separate; the album will be re-indexed");
+            render();
+          } catch (e) { toast(e.message); }
+        } }),
+        h("button", { type: "button", class: "btn", text: "Cancel", onclick: function () { close(); } })));
+    var close = sheet("Not the same work?", body);
+  }
 
   // ---- performers -----------------------------------------------------------------------------------------
 
@@ -1154,12 +1187,13 @@
   }
 
   function reviewItem(it, canCorrect) {
+    var sub = reviewSubtitle(it);
     var href = reviewLink(it.link);
     var box = h("div", { class: "review-item" });
     box.appendChild(h(href ? "a" : "div", { class: "row", href: href },
       h("span", { class: "row-main" },
         h("span", { class: "row-title", text: it.title || it.entity }),
-        h("span", { class: "row-sub", text: it.album || "" })),
+        sub ? h("span", { class: "row-sub", text: sub }) : null),
       href ? h("span", { class: "chev", "aria-hidden": "true", text: "›" }) : null));
     var tracks = it.detail && it.detail.tracks;
     if (tracks && tracks.length) {

@@ -43,6 +43,12 @@ _ALIASES = {
 _SPLIT = re.compile(r"\s*;\s*|\x00")
 _PERFORMER = re.compile(r"^(?P<name>.+?)\s*\((?P<role>[^()]+)\)\s*$")
 _GROUP_ROLES = {"orchestra", "ensemble", "choir", "chorus", "quartet", "band"}
+# 'Ain Anger (bass (Pater Profundus))', 'Gustáv Beláček (Duke Bluebeard (bass))': a role and a detail
+# (a character, the piece or concert, a section), nested either way round
+_NESTED = re.compile(r"^(?P<name>[^()]+?)\s*\((?P<a>[^()]+?)\s*\((?P<b>[^()]+)\)\s*\)\s*$")
+_ROLE_WORDS = frozenset(["soprano", "mezzo-soprano", "mezzo", "alto", "contralto", "countertenor", "tenor", "baritone", "bass", "bass-baritone", "treble", "boy-soprano", "voice", "vocals", "singer", "narrator", "speaker", "reciter", "actor", "piano", "fortepiano", "pianoforte", "harpsichord", "organ", "celesta", "keyboard", "keyboards", "violin", "viola", "cello", "violoncello", "double-bass", "contrabass", "bass-guitar", "harp", "guitar", "lute", "theorbo", "mandolin", "flute", "piccolo", "alto-flute", "recorder", "oboe", "english-horn", "cor-anglais", "clarinet", "bass-clarinet", "basset-horn", "saxophone", "bassoon", "contrabassoon", "horn", "french-horn", "trumpet", "cornet", "trombone", "bass-trombone", "tuba", "euphonium", "timpani", "percussion", "drums", "cymbals", "vibraphone", "marimba", "xylophone", "glockenspiel", "accordion", "bandoneon", "conductor", "chorus", "choir", "orchestra", "ensemble", "band", "quartet", "concertmaster", "leader", "chorus-master", "choirmaster", "announcer", "host", "presenter", "commentator", "soloist", "performer", "continuo"])
+_ROLE_PREFIX = re.compile(r"^(?:principal|solo|first|second|third|1st|2nd|3rd|assistant|associate|co|guest|"
+                          r"acting)[\s-]+", re.IGNORECASE)
 
 
 @dataclass(slots=True)
@@ -50,6 +56,7 @@ class Person:
     name: str
     role: str        # conductor | orchestra | chorus | ensemble | soprano | piano | performer ...
     kind: str        # person | group
+    detail: str | None = None   # what a nested credit adds: 'Pater Profundus', 'Symphony of Psalms'
 
 
 @dataclass(slots=True)
@@ -77,8 +84,16 @@ class TagInfo:
     def has_classical_tags(self) -> bool:
         return bool(self.work or self.work_mbid or self.movement_name or self.composers)
 
+    def as_dict(self) -> dict:
+        """asdict, without the credit `detail` field when it is empty (hashes and stored evidence of tags
+        without nested credits stay what they were before the field existed)."""
+        d = asdict(self)
+        d["performers"] = [{k: v for k, v in p.items() if not (k == "detail" and v is None)}
+                           for p in d["performers"]]
+        return d
+
     def tag_hash(self) -> str:
-        return hashlib.sha1(json.dumps(asdict(self), sort_keys=True, default=str).encode()).hexdigest()
+        return hashlib.sha1(json.dumps(self.as_dict(), sort_keys=True, default=str).encode()).hexdigest()
 
 
 def _vals(v) -> list[str]:
@@ -163,18 +178,41 @@ def read_raw(path: str | Path) -> dict[str, list[str]]:
     return out
 
 
+def is_role(text: str) -> bool:
+    """'bass', 'principal trumpet', 'announcer / host': a performing role, not a character or a piece."""
+    parts = [p for p in re.split(r"\s*(?:/|&|,|\band\b)\s*", text.strip().lower()) if p]
+    return bool(parts) and all(re.sub(r"\s+", "-", _ROLE_PREFIX.sub("", p)) in _ROLE_WORDS for p in parts)
+
+
 def _person(text: str, default_role: str) -> Person | None:
     s = text.strip()
     if not s:
         return None
-    m = _PERFORMER.match(s)
-    name, role = (m.group("name").strip(), m.group("role").strip().lower()) if m else (s, default_role)
+    detail = None
+    n = _NESTED.match(s)
+    m = None if n else _PERFORMER.match(s)
+    if n:
+        a, b = n.group("a").strip(), n.group("b").strip()
+        # the role is whichever half names one; the other half is detail (a character, a concert)
+        role_text, detail = (b, a) if is_role(b) and not is_role(a) else (a, b)
+        name, role = n.group("name").strip(), role_text.lower()
+    else:
+        name, role = (m.group("name").strip(), m.group("role").strip().lower()) if m else (s, default_role)
     if role in _GROUP_ROLES or (role in ("performer", "ensemble") and is_ensemble(name, role)):
         group_role = "chorus" if role in ("choir", "chorus") or re.search(r"chor|choir|coro", name, re.IGNORECASE) else (
             "orchestra" if role == "orchestra" or re.search(r"orch|philharm|symphon|sinfoni|kapelle", name, re.IGNORECASE)
             else "ensemble")
-        return Person(name, group_role, "group")
-    return Person(name, role, "person")
+        return Person(name, group_role, "group", detail)
+    return Person(name, role, "person", detail)
+
+
+def normalize_person(p: Person) -> Person:
+    """A credit stored before nested roles were parsed ('Ain Anger (bass (Pater Profundus))' as one name)
+    is parsed again on load, so old evidence reads the same as a fresh tag read."""
+    if p.detail is not None or "(" not in p.name:
+        return p
+    q = _person(p.name, p.role if p.role in ("conductor", "performer", "ensemble") else "performer")
+    return q if q is not None and q.name != p.name else p
 
 
 def parse(raw: dict[str, list[str]]) -> TagInfo:
@@ -200,7 +238,7 @@ def parse(raw: dict[str, list[str]]) -> TagInfo:
     rid = (first("musicbrainz_trackid") or "").strip().lower()
     info.recording_mbid = rid if is_mbid(rid) else None
     for c in many("conductor"):
-        info.performers.append(Person(c, "conductor", "person"))
+        info.performers.append(normalize_person(Person(c, "conductor", "person")))
     for e in many("ensemble"):
         p = _person(f"{e} (ensemble)" if "(" not in e else e, "ensemble")
         if p:

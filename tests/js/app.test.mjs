@@ -139,3 +139,19 @@ test("the script never parses data as HTML", () => {
   const src = readFileSync(APP, "utf8");
   assert.doesNotMatch(src, /innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function/);
 });
+
+test("credits show the character or context of a nested credit", () => {
+  const g = app.creditGroups([
+    { id: "a", name: "Ain Anger", role: "bass", group: "soloists", detail: "Pater Profundus" },
+    { id: "p", name: "Antonio Pappano", role: "conductor", group: "conductors", detail: "Brahms concert" },
+  ]);
+  assert.equal(g.find((x) => x.group === "soloists").people[0].role, "bass · Pater Profundus");
+  assert.equal(g.find((x) => x.group === "conductors").people[0].role, "Brahms concert");
+});
+
+test("review cards never repeat their title as the subtitle", () => {
+  assert.equal(app.reviewSubtitle({ title: "Beethoven: Fidelio", subtitle: "several releases match" }),
+    "several releases match");
+  assert.equal(app.reviewSubtitle({ title: "Beethoven: Fidelio", album: "Beethoven: Fidelio" }), "");
+  assert.equal(app.reviewSubtitle({ title: "Obertura", album: "FIDELIO" }), "FIDELIO");
+});

@@ -179,6 +179,7 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             reg("classical/reindex", self.cmd_reindex, required_scope=Scope.LIBRARY_MANAGE),
             reg("classical/merge_composers", self.cmd_merge_composers, required_scope=Scope.LIBRARY_MANAGE),
             reg("classical/composer_name", self.cmd_composer_name, required_scope=Scope.LIBRARY_MANAGE),
+            reg("classical/separate_work", self.cmd_separate_work, required_scope=Scope.LIBRARY_MANAGE),
             self.mass.subscribe(self._on_sync_completed, EventType.MUSIC_SYNC_COMPLETED),
             self.mass.subscribe(self._on_providers_updated, EventType.PROVIDERS_UPDATED),
             self.mass.subscribe(
@@ -690,6 +691,27 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             ix.con.execute("BEGIN IMMEDIATE")
             try:
                 out = ix.set_name_identity(name, composer_id, user)
+                ix.con.execute("COMMIT")
+                return out
+            except BaseException:
+                ix.con.execute("ROLLBACK")
+                raise
+
+        try:
+            albums = await self._write(apply, self.index)
+        except ValueError as err:
+            raise InvalidDataError(str(err)) from err
+        self._enqueue("scan")
+        return {"albums": len(albums), "queued": list(self._jobs)}
+
+    async def cmd_separate_work(self, recording_id: str) -> dict[str, Any]:
+        """A user correction: this recording's work was wrongly merged with another album's; keep them apart."""
+        user = self._user_name()
+
+        def apply(ix: Index) -> list[str]:
+            ix.con.execute("BEGIN IMMEDIATE")
+            try:
+                out = ix.separate_work(recording_id, user)
                 ix.con.execute("COMMIT")
                 return out
             except BaseException:

@@ -147,6 +147,35 @@ Each entry says what the plan asked for, what was built instead, and why.
   80 % of track lengths within max(5 s, 5 %). Its recording MBIDs then go through the usual recording →
   work chain. Several fitting releases, or lengths that disagree, give the review item "MusicBrainz release
   match uncertain" and no links.
+- **Works merge across albums on strong evidence (2026-10, changes §5.4/§5.5).** §5.5 lists title-derived
+  works of different albums as candidates and never joins them. On the test library that left 25 "Fidelio"
+  works. A title-derived work now joins the same work on another album when the composer resolves to the same
+  person and either:
+  - the full catalogue number matches (Op. 72a is not Op. 72; Op. 59 No. 1 is not No. 2), the titles agree
+    (numbers, form, key) and the keys do not conflict; or
+  - both titles name the same entry of a short list of distinctive works (`work_identity.py`: Fidelio,
+    Der fliegende Holländer, Leonore, Alexander Nevsky…). Generic titles ('Violin Concerto') never merge.
+
+  Two different MusicBrainz works never merge, and a MusicBrainz work keeps its own title. A tag-catalogue
+  match against a MusicBrainz work now merges when the titles agree, instead of always being a conflict.
+  The absorbed work's id redirects to the survivor. Same number with titles that disagree gives the review
+  item "same catalogue number, different title"; title-only pairs stay "possible same work on another album".
+  A recording page offers "Keep separate" (`classical/separate_work`, LIBRARY_MANAGE), which undoes that
+  album's merge and keeps it apart on every later scan. The work type takes the best evidence of the merged
+  works (MusicBrainz or the list, then title words, then act names).
+- **A given name copied from the work title is corrected (2026-10, changes §5.11 d).** §5.11 (d) keeps
+  'Alexander Prokofiev' for review only. When the single given name is a word of a title on the same album
+  ('Alexander Nevsky, Op. 78') and not followed there by the surname, the surname is unique in the list and
+  the life dates agree, the credit resolves to the listed composer (Sergei Prokofiev). The review item
+  "composer name corrected from the work title" records it. Otherwise the review item is "suspicious composer
+  name" and nothing changes.
+- **Nested performer credits keep the person once (2026-10).** 'Ain Anger (bass (Pater Profundus))' is the
+  person Ain Anger, role bass, detail 'Pater Profundus'. The detail is stored per track credit and shown after
+  the role. Stored tags from older scans are re-parsed the same way.
+- **Movement names prefer the file name over "Part n" (2026-10).** When every track of a work has the same
+  title and no movement tags, the file names give the movement names ('01-Overture.mp3' → 'Overture') if
+  they are all different. Otherwise a movement name is the movement tag, else the track title without the
+  work's name.
 - **No license file yet.**
 
 ## Companion UI (M3, 2026-10)
