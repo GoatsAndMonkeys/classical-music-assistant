@@ -46,6 +46,7 @@ from .names import (
     parse_names,
     parse_one,
     pick_mb_artist,
+    respelling_fits,
 )
 from .sethster_canonical import _CAT_RE, CATALOGUE_COMPOSER, form_key
 from .tags import Person, TagInfo, read_tags, year_of
@@ -777,16 +778,22 @@ class Index:
                 continue
             confirmed = None
             if p.canonical and p.confidence >= LLM_AUTO_CONFIDENCE:
-                if lookup(p.canonical) is not None:
-                    confirmed = "authority"
+                # the check is that the answer names the credited person, not merely that it names someone
+                known = lookup(p.canonical)
+                if known is not None:
+                    if respelling_fits(c, known.name, known.born, known.died):
+                        confirmed = "authority"
                 elif p.mbid and self.mb is not None:
                     try:
-                        if mb_artist_confirms(await self.mb.artist(p.mbid), p.canonical):
+                        if mb_artist_confirms(await self.mb.artist(p.mbid), p.canonical, c):
                             confirmed = "musicbrainz"
+                    except MBTransientError as e:
+                        log.info("MusicBrainz could not confirm %s yet: %s", p.mbid, e)
+                        continue        # not cached: asked again on the next index of the album
                     except MBError as e:
                         log.info("MusicBrainz could not confirm %s: %s", p.mbid, e)
             payload = json.dumps({"canonical": p.canonical, "mbid": p.mbid, "confidence": p.confidence,
-                                  "confirmed": confirmed}, sort_keys=True)
+                                  "confirmed": confirmed, "fits": confirmed is not None}, sort_keys=True)
             await self._w(self.replace_origin, f"llm:{self.llm.model}:{c.key}", "llm",
                           [("name", c.key, "llm_proposal", payload, "")])
 
@@ -818,8 +825,12 @@ class Index:
             return lookup(d["name"]).name, d["mbid"]
         if "llm_proposal" in live:
             d = json.loads(live["llm_proposal"])
-            if d.get("canonical") and d.get("confirmed") and (d.get("confidence") or 0) >= LLM_AUTO_CONFIDENCE:
-                known = lookup(d["canonical"])
+            known = lookup(d["canonical"]) if d.get("canonical") else None
+            # re-checked here too, so proposals cached before the fit rule cannot apply on their own
+            fits = (d.get("confirmed") == "musicbrainz" and d.get("fits")) or (
+                known is not None and respelling_fits(c, known.name, known.born, known.died))
+            if (d.get("canonical") and d.get("confirmed") and fits
+                    and (d.get("confidence") or 0) >= LLM_AUTO_CONFIDENCE):
                 return (known.name if known else d["canonical"]), d.get("mbid") or (known.mbid if known else None)
             if d.get("canonical"):
                 reviews.append(("composer name proposed by the language model", "name", c.key,

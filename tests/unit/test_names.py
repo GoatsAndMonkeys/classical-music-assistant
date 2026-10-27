@@ -353,3 +353,51 @@ def test_same_name_with_different_dates_on_one_album_is_not_memoised_as_one(tmp_
                                       ("Symphony No. 40: I. Allegro", "Wolfgang Amadeus Mozart (1756-1791)", None, None),
                                       ("Symphony No. 40: II. Andante", "Wolfgang Amadeus Mozart (1756-1791)", None, None)])
     assert len(idx.composers()) == 2
+
+
+def test_llm_answer_must_name_the_credited_person_not_just_a_listed_one(tmp_path):
+    """A confident answer naming a real, listed composer is still a proposal when it does not fit the credit:
+    'Alexander Prokofiev' -> 'Sergei Prokofiev' is the given-name conflict §5.11 (d) keeps for review, and a
+    date-conflicting credit is not the listed bearer either."""
+    def answer(it):
+        canon = {"Alexander Prokofiev": "Sergei Prokofiev", "Ludvig van Beethofen": "Ludwig van Beethoven",
+                 "Joseph Haydn (1737-1806)": "Joseph Haydn"}[it["name"]]
+        return {"id": it["id"], "canonical": canon, "mbid": None, "confidence": 0.99}
+
+    async def run():
+        runner, base = await _with_fake_llm(answer, [])
+        try:
+            idx, r = make_index(tmp_path, llm=LLMClient(base, "test-model"))
+            for aid, comp in (("A", "Alexander Prokofiev"), ("B", "Ludvig van Beethofen"),
+                              ("C", "Joseph Haydn (1737-1806)")):
+                tracks = []
+                for i in range(2):
+                    path = f"{aid}/{i}"
+                    tracks.append(TrackIn(f"{aid}{i}", 1, i + 1, f"Sonata No. 1: {'I' * (i + 1)}. Allegro", "", 1,
+                                          mappings=[MappingIn("filesystem_local", path, "f", path)]))
+                    r.tags[path] = TagInfo(title=tracks[-1].title, composers=[comp])
+                await idx.index_album(AlbumIn(aid, aid, "", None, None, tracks))
+            return idx
+        finally:
+            await runner.cleanup()
+
+    idx = asyncio.run(run())
+    names = composer_names(idx)
+    assert "Sergei Prokofiev" not in names and "Alexander Prokofiev" in names
+    assert "Ludwig van Beethoven" in names            # a typo of the listed name still applies
+    assert "Joseph Haydn" in names and len([c for c in idx.composers() if c["name"] == "Joseph Haydn"]) == 1
+    assert next(c for c in idx.composers() if c["name"] == "Joseph Haydn")["born"] == "1737"
+    proposals = [v for v in idx.review() if v["reason"] == "composer name proposed by the language model"]
+    assert len(proposals) == 2
+
+
+def test_respelling_fits():
+    from classical_core.names import respelling_fits
+    p = parse_names
+    assert respelling_fits(p("Ludvig van Beethofen")[0], "Ludwig van Beethoven")
+    assert respelling_fits(p("Franz Joseph Haydn")[0], "Joseph Haydn")
+    assert respelling_fits(p("C. P. E. Bach")[0], "Carl Philipp Emanuel Bach")
+    assert not respelling_fits(p("Alexander Prokofiev")[0], "Sergei Prokofiev")
+    assert not respelling_fits(p("Johann Q. Nobody")[0], "Ludwig van Beethoven")
+    assert not respelling_fits(p("Clara Schumann")[0], "Robert Schumann")
+    assert not respelling_fits(p("Joseph Haydn (1737-1806)")[0], "Joseph Haydn", 1732, 1809)

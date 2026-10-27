@@ -22,6 +22,7 @@ import json
 import logging
 import re
 import urllib.parse
+from difflib import SequenceMatcher
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
@@ -232,6 +233,30 @@ def compatible(a: str, b: str) -> str | None:
     return "same surname, compatible initials"
 
 
+def _alike(x: str, y: str) -> bool:
+    return x == y or (len(x) == 1 and y.startswith(x)) or (len(y) == 1 and x.startswith(y)) or (
+        min(len(x), len(y)) >= 4 and SequenceMatcher(None, x, y).ratio() >= 0.8)
+
+
+def respelling_fits(c: NameCandidate, canonical: str, born: int | None = None, died: int | None = None) -> bool:
+    """Could `canonical` be the person credited as `c`: the surname alike (a slip of a letter or two,
+    'Beethofen'), the given names alike or initials of them in order, the life dates agreeing? The guard on
+    language-model answers: 'Alexander Prokofiev' -> 'Sergei Prokofiev' does not fit (§5.11 d)."""
+    if not dates_agree(c, born, died):
+        return False
+    sa, sb = norm_key(surname(c.name, particles=False)), norm_key(surname(canonical, particles=False))
+    if not sa or not sb or not _alike(sa, sb):
+        return False
+    ga, gb = _given(c.name), _given(canonical)
+    if not ga:
+        return True
+    if not gb:
+        return False
+    short, long_ = (ga, gb) if len(ga) <= len(gb) else (gb, ga)
+    it = iter(long_)
+    return all(any(_alike(x, y) for y in it) for x in short)
+
+
 def given_name_conflict(c: NameCandidate) -> KnownComposer | None:
     """'Alexander Prokofiev': a full name whose surname is unique in the list but whose given name differs
     (Sergei). Proposed for review: tags sometimes copy a word of the work title into the name."""
@@ -306,9 +331,19 @@ def pick_mb_artist(c: NameCandidate, data: dict) -> tuple[MBArtist | None, str]:
     return found[0], "musicbrainz"
 
 
-def mb_artist_confirms(data: dict, canonical: str) -> bool:
-    """An artist lookup (artist/{mbid}?inc=aliases) whose name or an alias is `canonical`."""
-    return (data.get("type") or "").lower() == "person" and norm_key(canonical) in _artist_keys(data)
+def mb_artist_confirms(data: dict, canonical: str, c: NameCandidate | None = None) -> bool:
+    """An artist lookup (artist/{mbid}?inc=aliases) whose name or an alias is `canonical` and, given the
+    credit `c`, that is plausibly the person credited: an alias spelled like it, or a fitting respelling."""
+    if (data.get("type") or "").lower() != "person":
+        return False
+    keys = _artist_keys(data)
+    if norm_key(canonical) not in keys:
+        return False
+    if c is None:
+        return True
+    ls = data.get("life-span") or {}
+    born, died = _year(ls.get("begin")), _year(ls.get("end"))
+    return dates_agree(c, born, died) and (c.key in keys or respelling_fits(c, canonical))
 
 
 # ---- (e) optional LLM fallback -------------------------------------------------------------------------
