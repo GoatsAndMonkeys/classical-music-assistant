@@ -63,6 +63,17 @@ def test_a_name_credited_to_two_musicbrainz_artists_gets_no_id(lib):
     assert ln.performer_mbid(lib.ix, lib.pid("Herbert von Karajan"))[1] is None
 
 
+def test_the_recording_can_come_from_a_musicbrainz_release_match(lib):
+    with_mb_credits(lib, credit("Herbert von Karajan", KARAJAN_MB, "conductor", "person", 0))
+    lib.ix.con.execute("UPDATE mapping_state SET mbid=NULL")       # no recording id in the tags
+    tracks = [r[0] for r in lib.ix.con.execute("SELECT library_track_id FROM occurrence")]
+    for t in tracks:
+        lib.ix.con.execute("INSERT INTO evidence(entity, entity_id, field, value, source, source_ref, edge, "
+                           "observed_at) VALUES ('release_track', ?, 'recording_mbid', ?, 'mb', 'release:x', 'e', 1)",
+                           (t, json.dumps(REC_MB)))
+    assert ln.performer_mbid(lib.ix, lib.pid("Herbert von Karajan")) == ("Herbert von Karajan", KARAJAN_MB)
+
+
 def test_the_cache_expires_after_the_ttl_but_keeps_the_stale_value(lib):
     con = lib.ix.con
     assert ln.cached(con, "artist:x", 100.0) == (False, None)

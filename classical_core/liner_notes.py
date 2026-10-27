@@ -46,8 +46,16 @@ def _credit_mbids(ix: Index, track_ids: list[str]) -> dict[str, str]:
     if not track_ids:
         return {}
     marks = ",".join("?" * len(track_ids))
-    recs = [r[0] for r in ix._q(f"SELECT DISTINCT mbid FROM mapping_state WHERE library_track_id IN ({marks}) "
-                                "AND mbid IS NOT NULL", track_ids)]
+    recs = {r[0].lower() for r in ix._q(f"SELECT mbid FROM mapping_state WHERE library_track_id IN ({marks}) "
+                                        "AND mbid IS NOT NULL", track_ids)}
+    for r in ix._q(f"SELECT value FROM evidence WHERE entity='release_track' AND field='recording_mbid' "
+                   f"AND entity_id IN ({marks}) AND retracted_at IS NULL", track_ids):   # a strict release match
+        try:
+            v = json.loads(r[0])
+        except ValueError:
+            continue
+        if isinstance(v, str):
+            recs.add(v.lower())
     out: dict[str, str] = {}
     clash: set[str] = set()
     for rec in recs:
