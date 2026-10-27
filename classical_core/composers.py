@@ -52,7 +52,7 @@ _DATA: list[tuple[str, int, int | None, tuple[str, ...]]] = [
                                              "Pjotr Iljitsch Tschaikowski", "Peter Iljitsch Tschaikowsky")),
     ("Sergei Rachmaninoff", 1873, 1943, ("Sergei Rachmaninov", "Sergey Rachmaninov")),
     ("Sergei Prokofiev", 1891, 1953, ("Sergey Prokofiev",)),
-    ("Dmitri Shostakovich", 1906, 1975, ("Dmitry Shostakovich",)),
+    ("Dmitri Shostakovich", 1906, 1975, ("Dmitry Shostakovich", "DSCH")),
     ("Igor Stravinsky", 1882, 1971, ()),
     ("Nikolai Rimsky-Korsakov", 1844, 1908, ()),
     ("Modest Mussorgsky", 1839, 1881, ("Modest Musorgsky",)),

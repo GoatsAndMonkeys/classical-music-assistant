@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from classical_core.grouping import Slot, group_album
 
 
@@ -69,8 +71,20 @@ def test_non_adjacent_parts_listed_for_review():
 
 
 def test_ambiguous_album_not_grouped():
-    res = group_album([s(0, no=1), s(1, no=2)], ambiguous=True)
-    assert res.runs == [] and res.notes[0][0] == "ambiguous album positions"
+    """No order, no joins: each identified track stands alone (still listed for review)."""
+    res = group_album([s(0, no=1), s(1, no=2), s(2, None)], ambiguous=True)
+    assert [r.slots for r in res.runs] == [[0], [1]] and res.notes[0][0] == "ambiguous album positions"
+
+
+def test_ambiguous_album_keeps_the_album_work_together_in_act_order():
+    """FIDELIO / FURTWANGLER: two CUE discs, both disc 1, so positions repeat. The album's own work is one
+    recording, ordered by act; another work on the album stays a recording of its own."""
+    def c(i, section=None):
+        return replace(s(i), continued=True, section=section)
+
+    a = [c(0), c(1, 2), c(2, 1), s(3, "X"), c(4, 1)]
+    res = group_album(a, ambiguous=True)
+    assert [r.slots for r in res.runs] == [[0, 2, 4, 1], [3]]
 
 
 def test_complete_performances_of_whole_work_split():

@@ -34,6 +34,11 @@ class ParsedTitle:
     movement_no: int | None
     movement_name: str | None
     composer_hint: str | None = None
+    hint_is_composer: bool = False     # the separator itself says the head is a composer ('Ives--Psalm 90')
+
+
+# 'Ives--Psalm 90', 'Dvorak--Wood Dove': broadcast-log shorthand, the composer before a double dash
+_DOUBLE_DASH = re.compile(r"^\s*(?P<c>[^\d:;/]{3,40}?)\s*--+\s*(?P<w>\S.*)$")
 
 
 def movement_number(token: str) -> int | None:
@@ -58,6 +63,13 @@ def parse_title(title: str | None) -> ParsedTitle | None:
     if not title:
         return None
     t = title.strip()
+    m = _DOUBLE_DASH.match(t)
+    if m and len(m.group("c").split()) <= 4:
+        head, rest = m.group("c").strip(), m.group("w").strip()
+        inner = parse_title(rest)
+        if inner is not None and inner.composer_hint is None:
+            return ParsedTitle(inner.work, inner.movement_no, inner.movement_name, head, True)
+        return ParsedTitle(rest, None, None, head, True)
     for rx in _SEPARATORS:
         m = rx.search(t)
         if not m:
@@ -74,6 +86,27 @@ def parse_title(title: str | None) -> ParsedTitle | None:
             return ParsedTitle(work=rest, movement_no=None, movement_name=None, composer_hint=work)
         return ParsedTitle(work=work, movement_no=n, movement_name=name or None)
     return None
+
+
+_SHORT_FORMS = {"pc": "Piano Concerto", "vc": "Violin Concerto", "cc": "Cello Concerto", "sym": "Symphony",
+                "symphony": "Symphony", "piano": "Piano Concerto", "violin": "Violin Concerto",
+                "cello": "Cello Concerto", "conc": "Concerto", "concerto": "Concerto", "requiem": "Requiem"}
+_SHORTHAND = re.compile(
+    r"^\s*(?P<c>[^\W\d_](?:[^\W\d_]|['’.-])*)\s+(?P<f>pc|vc|cc|sym\.?|symphony|(?:piano|violin|cello)\s+conc(?:erto|\.)?|"
+    r"conc(?:erto|\.)?|requiem)?\s*(?:no\.?\s*)?(?P<n>\d{1,2})?(?:\s*-\s*(?P<m>\d{1,2}))?\s*$", re.IGNORECASE)
+
+
+def parse_shorthand(title: str | None) -> ParsedTitle | None:
+    """Concert-log shorthand: 'Beethoven 9-1' (Symphony No. 9, first movement), 'Brahms PC1', 'Bruch VC',
+    'Elgar Cello Conc.'. A surname, then a form abbreviation and/or a number, nothing else. The head is
+    only a hint: the caller must resolve it to a listed composer."""
+    m = _SHORTHAND.match(title or "")
+    if not m or not (m.group("f") or m.group("n")):
+        return None
+    f = (m.group("f") or "symphony").lower().rstrip(".")
+    form = _SHORT_FORMS[f.split()[0]]
+    work = f"{form} No. {int(m.group('n'))}" if m.group("n") else form
+    return ParsedTitle(work, int(m.group("m")) if m.group("m") else None, None, composer_hint=m.group("c"))
 
 
 def _looks_like_name_prefix(head: str, rest: str) -> bool:
@@ -142,7 +175,7 @@ _ORDINAL = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "first": 1, "s
             "premier": 1, "deuxième": 2, "troisième": 3, "quatrième": 4, "cinquième": 5}
 _ACT_WORD = r"(?:act|acts|akt|aufzug|atto|acte|acto|aufz\.)"
 _NUM = r"(?:[ivx]{1,4}|\d{1,2}|" + "|".join(_ORDINAL) + r")"
-_TAIL = r"(?:\b|(?=[\s.,:;–—-]|$))[\s.,:;–—-]*(?P<rest>.*)$"
+_TAIL = r"(?:\b|(?=[\s.,:;_–—-]|$))[\s.,:;_–—-]*(?P<rest>.*)$"   # "Act 1_ Duett": "_" is a filename's ":"
 _ACT = (re.compile(rf"^{_ACT_WORD}\s+(?P<n>{_NUM}){_TAIL}", re.IGNORECASE),          # Act II, Akt 3, Act One
         re.compile(rf"^{_ACT_WORD}(?P<n>\d{{1,2}}){_TAIL}", re.IGNORECASE),                # Act1, Akt2
         re.compile(rf"^(?P<n>{_NUM})\.?\s+{_ACT_WORD}{_TAIL}", re.IGNORECASE),        # Erster Aufzug, 2. Akt
@@ -318,6 +351,9 @@ _COLLECTION = re.compile(r"\b(?:arias|overtures|symphonies|concertos|sonatas|son
                          r"preludes|excerpts|highlights|scenes|collection|best of|greatest)\b", re.IGNORECASE)
 
 
+_ENSEMBLE_ABBR = re.compile(r"(?<!\S)(?:BSO|LSO|LPO|VPO|BPO|NYP|CSO|SFS|RCO|TMC|MTT|H&H|MET)(?!\S)")
+
+
 def album_work_segments(name: str | None) -> list[str]:
     """Candidate work titles in an album name, in order: 'Beethoven: Fidelio; Furtwangler/VPO' ->
     ['Beethoven', 'Fidelio', 'Furtwangler', 'VPO']. The caller drops composer names."""
@@ -325,6 +361,9 @@ def album_work_segments(name: str | None) -> list[str]:
     out = []
     for seg in re.split(r"\s*(?::|/|;|\||—|\s[-–]\s)\s*", s):
         seg = strip_disc_marks(seg.split(",")[0])
+        # '151017 Elektra BSO': a broadcast date and an orchestra's initials are not part of the work
+        seg = _ENSEMBLE_ABBR.sub(" ", re.sub(r"^\d{4,8}\s+", "", seg))
+        seg = re.sub(r"\s+", " ", seg).strip()
         seg = re.sub(r"\s+\d{1,3}$", "", seg).strip(" .'\"")
         if len(seg) < 3 or not re.search(r"[^\W\d_]{3}", seg) or _ALBUM_JUNK.match(seg):
             continue

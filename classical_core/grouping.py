@@ -104,8 +104,28 @@ def group_album(slots: list[Slot], ambiguous: bool = False) -> GroupingResult:
     runs: list[Run] = []
     notes: list[tuple[str, list[int]]] = []
     if ambiguous:
+        # no order to read continuity from: nothing is joined by position. Each identified track is a
+        # recording of its own, except the album's own work (the album names it, whatever the order), whose
+        # numbers are one recording, in act order where the titles give one.
         notes.append(("ambiguous album positions", [i for i, s in enumerate(slots) if s.work_key]))
-        return GroupingResult([], notes)
+        album_work: dict[str, list[int]] = {}
+        for i, s in enumerate(slots):
+            if s.work_key is None or s.multi:
+                continue
+            if s.continued:
+                if s.work_key not in album_work:
+                    album_work[s.work_key] = []
+                    runs.append(Run(album_work[s.work_key], s.work_key))
+                album_work[s.work_key].append(i)
+            else:
+                runs.append(Run([i], s.work_key))
+        for r in runs:
+            act, keyed = -1, []
+            for i in r.slots:
+                act = slots[i].section if slots[i].section is not None else act
+                keyed.append((act, i))
+            r.slots[:] = [i for _, i in sorted(keyed, key=lambda x: x[0])]
+        return GroupingResult(runs, notes)
     cur: list[int] = []
 
     def close() -> None:

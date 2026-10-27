@@ -120,4 +120,23 @@ Each entry says what the plan asked for, what was built instead, and why.
 - **Recordings of one work are listed whole.** The planned split by decade or conductor for large works is M2.
 - **Provider tests use a custom in-container harness** instead of MA's pytest fixtures, which are not shipped in
   the image. Status: not written yet (left in M1).
+- **Ambiguous albums are grouped conservatively, not left ungrouped (2026-10).** PLAN §4 says an album with
+  missing or duplicate positions is not grouped and goes to review. On the test library that left whole operas
+  empty (FIDELIO / FURTWANGLER: CUE tracks of both CDs numbered disc 1; `Leonore - Fidelio (CD2)`). The
+  album is still marked ambiguous and listed, but nothing is joined by position: the album's own work (the
+  work its name names, which tracks join whatever their order) is one recording in act order, and every other
+  identified track is a recording of its own.
+- **Coverage fallbacks for albums that derived nothing (2026-10).** For tracks with neither a work tag nor a
+  usable title:
+  - Text-titled numbers ('Acht, wo weilt sie') join the work the album names, but only when the album names one
+    work, by a name rather than a form ('Fidelio', not 'Violin Concerto; Romances').
+  - The album's composer may come from an album-name or artist segment ('Opera - Beethoven : Fidelio',
+    artist 'Beethoven: Fidelio' or 'Beethoven, Ludwig Van:'), or from a local file's folder names
+    ('Beethoven - Fidelio - Furtwangler - EMI 2CDs').
+  - Broadcast-log titles: 'Rands--Symphonic Fantasy' names its composer; shorthand such as 'Beethoven 9-1',
+    'Brahms PC1' or 'DSCH 13' counts only when the head resolves to a listed composer.
+  - A date-prefixed log label ('151017 Elektra BSO') becomes a work only when every track has a composer tag.
+  - An album with no recording gets the review item "no work identified on this album". Composer-tagged tracks
+    left over get "tracks with a composer but no identifiable work".
+  - "possible same work on another album" is one item per new work, listing every match, not one per pair.
 - **No license file yet.**

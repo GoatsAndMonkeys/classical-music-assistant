@@ -28,7 +28,7 @@ from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
 from . import catalogue as cat
-from .composers import PERFORMING, by_surname, find_in_credit, lookup
+from .composers import PERFORMING, KnownComposer, by_surname, find_in_credit, lookup
 from .grouping import Slot, group_album
 from .ids import new_id
 from .mb import MBClient, MBError, MBTransientError, RecordingInfo, WorkInfo, is_mbid, parse_recording, parse_work
@@ -59,6 +59,7 @@ from .titles import (
     is_talk_tail,
     parse_act,
     parse_movement,
+    parse_shorthand,
     parse_title,
     shared_prefix_runs,
     split_act_suffix,
@@ -875,10 +876,46 @@ class Index:
                     continue
                 return k.name
         for artist in (f.track["artist"], album.artist):
-            k = find_in_credit(artist)
+            k = find_in_credit(artist) or self._credit_composer(artist)
             if k is not None and k.name not in PERFORMING and norm_key(k.name) not in conductors:
                 return k.name
         return None
+
+    def _credit_composer(self, credit: str | None) -> KnownComposer | None:
+        """A listed composer that is the whole of a credit, however spelled: 'Beethoven',
+        'Beethoven, Ludwig Van:', or the prefix of 'Beethoven: Fidelio'."""
+        for raw in (album_name_prefix(credit), (credit or "").strip(" :;,")):
+            c = parse_one(raw) if raw else None
+            k = authority_match(c, self._name_ctx)[0] if c else None
+            if k is not None:
+                return k
+        return None
+
+    def _folder_names(self, facts: list[OccFacts]) -> list[str]:
+        """The folders a local album's files sit in ('Beethoven - Fidelio - Furtwangler - EMI 2CDs'), for
+        albums whose own name and artist say nothing of the composer. Remote item ids are not paths."""
+        if not facts:
+            return []
+        marks = ",".join("?" * len(facts))
+        out: dict[str, None] = {}
+        for r in self._q(f"SELECT m.item_id FROM mapping_state m JOIN occurrence o ON o.library_track_id="
+                         f"m.library_track_id WHERE o.id IN ({marks}) AND m.provider_instance LIKE 'filesystem%' "
+                         f"AND m.status != 'gone' ORDER BY m.item_id", [f.occ_id for f in facts]):
+            for part in r["item_id"].split(CUE_TRACK)[0].split("/")[:-1]:
+                out.setdefault(part)
+        return list(out)
+
+    def _shorthand_composer(self, hint: str | None) -> str | None:
+        """The composer a concert-log shorthand starts with ('Mozart VC1'): a listed name, or the one listed
+        bearer of a surname (the form abbreviation that follows is the context a bare 'Mozart' lacks)."""
+        c = parse_one(hint) if hint else None
+        if c is None:
+            return None
+        k = authority_match(c, self._name_ctx)[0]
+        if k is None and is_lone_surname(c.name):
+            hits = by_surname(c.name)
+            k = hits[0] if len(hits) == 1 else None
+        return k.name if k is not None else None   # the title's head: a composer even if he also conducted
 
     # -- user corrections (f) --
 
@@ -1023,6 +1060,17 @@ class Index:
                 self.con.execute("INSERT OR IGNORE INTO work_link(occurrence_id, work_id, ord, partial, live, medley, "
                                  "source, source_ref) VALUES (?,?,?,?,?,?,?,?)",
                                  (f.occ_id, wid, ord_, int(f.partial), int(f.live), int(f.medley), wc.tier, None))
+        # an album nothing could be placed on is listed, never silently empty
+        placed = {i for r in result.runs for i in r.slots} | {i for i, f in enumerate(facts) if f.extra_works}
+        if not placed and any(not f.talk for f in facts):
+            reviews.append(("no work identified on this album", "album", aid,
+                            {"album": album.name, "tracks": [f.track["title"] for f in facts][:40]}))
+        else:
+            unplaced = [f.track["title"] for i, f in enumerate(facts)
+                        if i not in placed and not f.talk and f.tags and f.tags.composers]
+            if unplaced:
+                reviews.append(("tracks with a composer but no identifiable work", "album", aid,
+                                {"album": album.name, "tracks": unplaced[:40]}))
         for f in facts:
             for ord_, p in enumerate(f.credits):
                 pid = self._person_for(p)
@@ -1166,18 +1214,37 @@ class Index:
             known = self._context_composer(f, album, None)
             if known:
                 return self._composers_from([known])
+        # 'Opera - Beethoven : Fidelio (Bernstein)', an artist field 'Beethoven: Fidelio', a folder
+        # 'Beethoven - Fidelio - Furtwangler - EMI 2CDs': a segment that is a listed composer
+        for name in [album.name, album.artist, *self._folder_names(facts)]:
+            for seg in album_work_segments(name) + [album_name_prefix(name) or ""]:
+                k = self._credit_composer(seg) if seg else None
+                if k is not None and k.name not in PERFORMING:
+                    return self._composers_from([k.name])
         return []
 
-    def _album_template(self, facts: list[OccFacts], album: AlbumIn) -> Cand | None:
+    def _album_template(self, facts: list[OccFacts], album: AlbumIn) -> tuple[Cand | None, bool]:
         """The work an album is a recording of, for tracks titled only 'Nr. 3' or 'Act 2': the work named
         by the album ('Beethoven: Fidelio [Disc 1]') — as a track already identifies it when one does —
-        else the album's only specific work."""
+        else the album's only specific work. The flag says the album's name (or artist field) named it
+        and no other work."""
         # a performer is not a work: 'Bryn Terfel' (album artist) would otherwise become one
         performers = {norm_key(p.name) for f in facts for p in f.credits}
+        # a concert log ('151017 Elektra BSO', '260307 BSO Blomstedt') names players as often as works
+        log = bool(re.match(r"\s*\d{4,8}\s", album.name or ""))
         for a in [album.artist] + [f.track["artist"] for f in facts]:
             performers.update(norm_key(x) for x in re.split(r"\s*(?:;|/|,|&|\x00)\s*", a or ""))
-        segs = [s for s in album_work_segments(album.name)
-                if not self._names_composer(s) and norm_key(s) not in performers]
+        # the segment after a composer's name is the strongest ('Flagstad; Patzak | Beethoven: Fidelio')
+        after: list[str] = []
+        rest: list[str] = []
+        for name, own in ((album.name, True), (album.artist, False)):
+            prev = False
+            for s in album_work_segments(name):
+                is_c = self._names_composer(s)
+                if not is_c and norm_key(s) not in performers and not self._mentions_composer(s):
+                    (after if prev else rest if own else []).append(s)
+                prev = is_c
+        segs = after + rest
         cands = [f.cand for f in facts if f.cand and not self._generic(f)]
         if segs:
             tk = norm_key(segs[0])
@@ -1185,18 +1252,27 @@ class Index:
                            if (k := norm_key(split_act_suffix(c.title)[0])) and (k.startswith(tk) or tk.startswith(k)))
             if hits:
                 key = hits.most_common(1)[0][0]
-                return next(c for c in cands if c.key == key)
+                return next(c for c in cands if c.key == key), len(segs) == 1
             if len(segs[0].split()) > 4:
-                return None     # a sentence, not a title ('solti fidelio disc 2 track listings wrong')
+                return None, False  # a sentence, not a title ('solti fidelio disc 2 track listings wrong')
+            if log and not all(f.talk or (f.tags and f.tags.composers) for f in facts):
+                return None, False  # only composer tags on every track make a log's label one work
             composers = self._album_composer(facts, album)
             # first composer per track, after parsing ('Sonnleithner [Author]' first is not a composer)
             named = {own[0] for f in facts if (own := self._own_composer(f))}
             if not composers or len(named) > 1:
-                return None     # 'Tanglewood 6': tracks by several composers are not one work
+                return None, False  # 'Tanglewood 6': tracks by several composers are not one work
             key = f"title:{norm_key(composers[0][0])}|{tk}"
-            return Cand(key=key, title=segs[0], tier="title", composers=composers, key_sig=cat.parse_key(segs[0]))
+            return Cand(key=key, title=segs[0], tier="title", composers=composers,
+                        key_sig=cat.parse_key(segs[0])), len(segs) == 1
         specific = {c.key: c for c in cands if c.tier != "title" or c.catalogues}
-        return next(iter(specific.values())) if len(specific) == 1 else None
+        return (next(iter(specific.values())) if len(specific) == 1 else None), False
+
+    def _mentions_composer(self, seg: str) -> bool:
+        """'The Vivaldi Album', 'BSO all-Beethoven series': a listed composer's surname inside an album
+        segment makes it a programme, not a work's title."""
+        words = set(norm_key(seg).replace("-", " ").split())
+        return any(norm_key(surname(k.name, particles=False)) in words for w in words for k in by_surname(w))
 
     def _names_other_work(self, f: OccFacts, tpl: Cand) -> bool:
         """'Lohengrin: Prelude to Act 1' on a Tannhäuser album: a title prefix that is neither a composer
@@ -1227,15 +1303,23 @@ class Index:
     def _album_work_pass(self, facts: list[OccFacts], album: AlbumIn) -> None:
         _fill_sandwiches(facts)
         generic = [self._generic(f) for f in facts]
-        if not any(generic):
+        # tracks nothing identified ('Acht, wo weilt sie' on 'Richard Wagner: Der Fliegende Holländer Disc 2')
+        orphans = sum(f.cand is None and not f.talk and not f.extra_works for f in facts)
+        if not any(generic) and orphans < 2:
             return
-        tpl = self._album_template(facts, album)
+        tpl, named = self._album_template(facts, album)
         if tpl is None:
             for f, g in zip(facts, generic, strict=True):
                 if g:
                     f.cand = None       # a number of an unknown work is never a work of its own
             return
-        stage = sum(generic) >= 2 or cat.work_type(tpl.title, tpl.mb_type) == "Opera & Stage"
+        # only a work the album names alone, by a name rather than a form ('Fidelio', not 'Violin
+        # Concerto; Romances'), takes in tracks titled by their text
+        kind = cat.work_type(tpl.title, tpl.mb_type)
+        absorb = named and orphans >= 2 and kind in ("Opera & Stage", "Other")
+        if not any(generic) and not absorb:
+            return
+        stage = sum(generic) >= 2 or kind == "Opera & Stage" or absorb
         for f, g in zip(facts, generic, strict=True):
             c = f.cand
             # in an opera, numbers titled by their text ('Marzelline!', 'Mit Gewitter und Sturm') belong too
@@ -1360,12 +1444,22 @@ class Index:
         work = movement = None
         number = None
         hint = None
+        named: str | None = None    # a composer the title itself names
         if prefix:
             work = prefix
             number, movement = parse_movement(title[len(prefix):].lstrip(" :,-–—/"))
         elif parsed:
             work, number, movement, hint = parsed.work, parsed.movement_no, parsed.movement_name, parsed.composer_hint
+        elif (short := parse_shorthand(title)) is not None and (known := self._shorthand_composer(
+                short.composer_hint)):
+            # 'Beethoven 9-1', 'Brahms PC1': a listed composer, then the work in a concert log's shorthand
+            work, number, hint = short.work, short.movement_no, known
+            named = known
+        if not prefix and parsed is not None and parsed.hint_is_composer:
+            named = hint                                # 'Rands--Symphonic Fantasy'
         composers = self._composers_from(t.composers) if t and t.composers else []
+        if not composers and named:
+            composers = self._composers_from([named])
         if not composers:
             known = self._context_composer(f, album, hint)
             if known:
@@ -1468,11 +1562,14 @@ class Index:
             self.con.execute("INSERT INTO work(id, title, sort_title, work_type, identity_tier, created_at) "
                              "VALUES (?,?,?,?,?,?)", (wid, c.title, norm_key(c.title), "Other", c.tier, time.time()))
             # cross-album candidates by title are listed, never merged (§5.5)
-            for r in self._q("SELECT w.id FROM work w JOIN work_composer wc ON wc.work_id=w.id "
-                             "WHERE w.sort_title=? AND wc.composer_id=? AND w.id<>? "
-                             "AND EXISTS (SELECT 1 FROM recording r WHERE r.work_id=w.id)",
-                             (norm_key(c.title), cids[0] if cids else "", wid)):
-                reviews.append(("possible same work on another album", "work", wid, {"other": r[0], "title": c.title}))
+            others = [r[0] for r in self._q(
+                "SELECT w.id FROM work w JOIN work_composer wc ON wc.work_id=w.id "
+                "WHERE w.sort_title=? AND wc.composer_id=? AND w.id<>? "
+                "AND EXISTS (SELECT 1 FROM recording r WHERE r.work_id=w.id) ORDER BY w.id",
+                (norm_key(c.title), cids[0] if cids else "", wid))]
+            if others:      # one item per new work, not one per pair (ten Fidelios are not 45 items)
+                reviews.append(("possible same work on another album", "work", wid,
+                                {"other": others[0], "others": others, "title": c.title}))
         if c.mbid:
             self._add_alias("work", wid, "mbid", c.mbid)
         if c.tier == "tags" and cids and primary and not c.mbid:

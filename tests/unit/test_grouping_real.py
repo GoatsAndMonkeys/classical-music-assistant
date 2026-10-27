@@ -29,15 +29,17 @@ def new_index(tmp_path):
 _n = 0
 
 
-def add(idx, r, name, rows, artist="Various Artists", year=None, disc=None):
-    """rows: (title, TagInfo | dict | None). A dict is TagInfo kwargs; title defaults to the track title."""
+def add(idx, r, name, rows, artist="Various Artists", year=None, disc=None, paths=None, positions=None):
+    """rows: (title, TagInfo | dict | None). A dict is TagInfo kwargs; title defaults to the track title.
+    paths: the files' item ids (a CUE track's '::trackNN' id is never read for tags); positions: (disc, n)."""
     global _n
     _n += 1
     aid = f"A{_n}"
     tracks = []
     for i, (title, tg) in enumerate(rows):
-        path = f"{aid}/{i}"
-        tracks.append(TrackIn(f"{aid}-{i}", disc, i + 1, title, artist, 300,
+        path = paths[i] if paths else f"{aid}/{i}"
+        d, pos = positions[i] if positions else (disc, i + 1)
+        tracks.append(TrackIn(f"{aid}-{i}", d, pos, title, artist, 300,
                               mappings=[MappingIn("filesystem_local", path, fingerprint="f", path=path)]))
         if isinstance(tg, dict):
             tg = TagInfo(**{"title": title, **tg})
@@ -265,3 +267,138 @@ def test_album_named_after_its_performer_invents_no_work(tmp_path):
     m = {"composers": ["Wolfgang Amadeus Mozart"]}
     add(idx, r, "Bryn Terfel", [("Aria", m), ("Recitativo", m), ("Nr. 3", m)], artist="Bryn Terfel")
     assert "Bryn Terfel" not in titles(idx)
+
+
+# --- albums that derived nothing on the 2026-10 test library (FIDELIO / FURTWANGLER, Dorati Holländer
+# disc 2, BSO broadcast logs): every one with a composer and a title now yields works or a review item
+
+
+def reasons(idx):
+    return [v["reason"] for v in idx.review()]
+
+
+def test_tracks_titled_by_their_text_join_the_opera_the_album_names(tmp_path):
+    """Dorati Holländer disc 2: composer tags, no work tag, no 'Nr.' title — only the text sung."""
+    idx, r = new_index(tmp_path)
+    w = {"composers": ["Richard Wagner"], "performers": [Person("Antal Dorati", "conductor", "person")]}
+    rows = [(t, w) for t in ("Acht, wo weilt sie", "Senta! Willst du mich verdeben?",
+                             "Bleib', Senta! Bleib' nue einen Augenblick!", "Auf hohem Felsen lag ich träumend",
+                             "Mein Kind, du siehst mich auf der Schwelle...", "Steuermann, lass die Wacht!")]
+    add(idx, r, "Richard Wagner: Der Fliegende Holländer Disc 2", rows, artist="Antal Dorati")
+    assert recs(idx, "Holländer")[1] == [6], titles(idx)
+    assert titles(idx) == ["Der Fliegende Holländer"]
+
+
+def test_text_titles_are_not_pulled_into_a_form_the_album_names(tmp_path):
+    """Only an album named after a work by its name ('Fidelio') takes in text-titled tracks: songs on
+    'Beethoven: Violin Concerto' are not movements of the concerto, and are listed instead."""
+    idx, r = new_index(tmp_path)
+    rows = [("Adelaide", {"composers": BEETHOVEN}), ("Ich liebe dich", {"composers": BEETHOVEN})]
+    add(idx, r, "Beethoven: Violin Concerto", rows)
+    assert titles(idx) == []
+    assert "no work identified on this album" in reasons(idx)
+
+
+def test_untagged_cue_album_takes_its_composer_from_the_folder(tmp_path):
+    """FIDELIO / FURTWANGLER: CUE tracks (no tags), both CDs numbered disc 1, the composer only in the
+    folder 'Beethoven - Fidelio - Furtwangler - EMI 2CDs'."""
+    idx, r = new_index(tmp_path)
+    folder = "Beethoven - Fidelio - Furtwangler - EMI 2CDs"
+    rows = [("Obertura", None), ("Acto I - Leb wohl, du wannes Sonnenlicht", None),
+            ("Acto I - Jetzt,Schätzten, jetzt sind wir allein", None),
+            ("Acto II - Gott! Welch' dunkel hier! - In des Lebens Frühlingstagen", None),
+            ("Acto I - Der arme Jaquino dauert mich beinahe", None)]
+    paths = [f"{folder}/CD1/CD1.ape.cue::track01", f"{folder}/CD2/CD2.ape.cue::track01",
+             f"{folder}/CD1/CD1.ape.cue::track02", f"{folder}/CD2/CD2.ape.cue::track02",
+             f"{folder}/CD1/CD1.ape.cue::track03"]
+    add(idx, r, "FIDELIO", rows, artist="FURTWANGLER", paths=paths,
+        positions=[(1, 1), (1, 1), (1, 2), (1, 2), (1, 3)])
+    ws, sizes = recs(idx, "Fidelio")
+    assert len(ws) == 1 and sizes == [5], titles(idx)
+    assert [c["name"] for c in idx.composers()] == ["Ludwig van Beethoven"]
+    assert "ambiguous album positions" in reasons(idx)
+
+
+def test_composer_named_in_an_album_name_segment(tmp_path):
+    """'Opera - Beethoven : Fidelio (Bernstein)': no composer tag; the composer is the middle segment."""
+    idx, r = new_index(tmp_path)
+    rows = [(t, {}) for t in ("Ouvertüre", "Act 1: Duett - Jetzt, Schätzchen, jetzt sind wir allein",
+                              "Act 1: Armer Jaquino, ich war ihm sonst recht gut",
+                              "Act 1: Arie - O wär ich schon mit dir vereint")]
+    add(idx, r, "Opera - Beethoven : Fidelio (Bernstein)", rows, artist="Wiener Philharmoniker")
+    assert recs(idx, "Fidelio")[1] == [4], titles(idx)
+    assert [c["name"] for c in idx.composers()] == ["Ludwig van Beethoven"]
+
+
+def test_composer_and_work_in_the_artist_field(tmp_path):
+    """Salzburg 1950 Fidelio: album named by its cast, artist 'Beethoven: Fidelio'."""
+    idx, r = new_index(tmp_path)
+    rows = [(t, {}) for t in ("Act 1: Leb wohl, du warmes Sonnenlicht", "Act 2: Gott ! Welch Dunkel hier!",
+                              "Nur hurtig fort", "Euch werde Lohn")]
+    add(idx, r, "Flagstad; Patzak; Schoeffler; Greindl; Schwarkopf", rows, artist="Beethoven: Fidelio", disc=2)
+    assert recs(idx, "Fidelio")[1] == [4], titles(idx)
+
+
+def test_ambiguous_positions_still_yield_the_album_work(tmp_path):
+    """'Leonore - Fidelio (CD2)': no disc numbers and positions repeated by a second disc's files."""
+    idx, r = new_index(tmp_path)
+    rows = [(t, {}) for t in ("No. 12 Finale: 'O welche Lust, in frier Luft'",
+                              "(Recitativ:) 'Entfernt euch jetzt! Nun, könnt ihr eilen?'",
+                              "(Duett:) 'Wir müssen gleich zu werke schreiten'",
+                              "(Arie:) 'Auf euch nur will ich bauen'")]
+    add(idx, r, "Leonore - Fidelio (CD2)", rows, artist="Ludwig van Beethoven",
+        positions=[(None, 1), (None, 2), (None, 1), (None, 2)])
+    ws, sizes = recs(idx, "Leonore")
+    assert len(ws) == 1 and sizes == [4], titles(idx)
+
+
+def test_broadcast_log_shorthand_titles(tmp_path):
+    """BSO broadcast logs: 'Rands--Symphonic Fantasy', 'Britten VC', 'DSCH 13', 'Beethoven 9-1'; no tags
+    name a composer, and the log's label ('230506 BSO Babi Yar') is not a work."""
+    idx, r = new_index(tmp_path)
+    rows = [(t, {}) for t in ("Intro", "Rands--Symphonic Fantasy", "A&C", "Britten VC", "Encore", "DSCH 13",
+                              "Beethoven 9-1", "Beethoven 9-2", "Applause")]
+    add(idx, r, "230506 BSO Babi Yar", rows)
+    assert set(titles(idx)) == {"Symphonic Fantasy", "Violin Concerto", "Symphony No. 13", "Symphony No. 9"}
+    assert recs(idx, "Symphony No. 9")[1] == [2]
+    assert {c["name"] for c in idx.composers()} >= {"Benjamin Britten", "Dmitri Shostakovich",
+                                                    "Ludwig van Beethoven"}
+
+
+def test_concert_log_label_without_composer_tags_is_not_a_work(tmp_path):
+    """'220814 Ma Tanglewood': generic letters between named works; 'Ma Tanglewood' is the players."""
+    idx, r = new_index(tmp_path)
+    rows = [(t, {}) for t in ("Intro", "Clyne--Masquerade", "A", "B", "C")]
+    add(idx, r, "220814 Ma Tanglewood", rows)
+    assert titles(idx) == ["Masquerade"]
+
+
+def test_concert_log_label_with_composer_tags_names_the_opera(tmp_path):
+    """'1960 Fidelio MET': every track tagged with the composer, the log's label minus the house is the work."""
+    idx, r = new_index(tmp_path)
+    add(idx, r, "1960 Fidelio MET", [("Act 1", {"composers": BEETHOVEN}), ("Act 2", {"composers": BEETHOVEN})])
+    assert titles(idx) == ["Fidelio"] and recs(idx, "Fidelio")[1] == [2], titles(idx)
+
+
+def test_album_with_nothing_to_go_on_is_listed_for_review(tmp_path):
+    idx, r = new_index(tmp_path)
+    add(idx, r, "Unknown Album (2/11/2009 10:42:23 PM)", [(f"Track {i}", {}) for i in range(1, 4)])
+    assert titles(idx) == []
+    assert "no work identified on this album" in reasons(idx)
+
+
+def test_underscored_act_titles_are_numbers_not_works(tmp_path):
+    """Karajan EMI box: '010 Act 1_ Terzett: Gut, Söhnchen' ('_' for ':') is not a work 'Act 1_ Terzett'."""
+    idx, r = new_index(tmp_path)
+    rows = [(t, {}) for t in ("010 Act 1_ Terzett: Gut, Sohnchen, gut", "015 Act 1_ Duett: Jetzt, Alter")]
+    add(idx, r, "Various: Karajan The Complete EMI Recordings 1946-1984", rows, artist="Beethoven, Ludwig Van:")
+    assert not any("Act 1" in t for t in titles(idx)), titles(idx)
+
+
+def test_composer_tagged_tracks_left_over_are_listed(tmp_path):
+    """Tanglewood logs: a named work, then '01'-style tracks tagged by several composers."""
+    idx, r = new_index(tmp_path)
+    add(idx, r, "Tanglewood 7", [("Symphony No. 5 in C minor, Op. 67", {"composers": BEETHOVEN}),
+                                 ("Adagio", {"composers": ["Mahler"]}), ("Lied", {"composers": ["Barber"]})])
+    assert titles(idx) == ["Symphony No. 5 in C minor, Op. 67"]
+    assert "tracks with a composer but no identifiable work" in reasons(idx)
