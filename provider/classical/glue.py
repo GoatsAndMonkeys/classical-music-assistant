@@ -93,21 +93,25 @@ class ClassicalProvider(CompanionUI, PluginProvider):
         """Return the config entries for this provider."""
         return (
             ConfigEntry(
-                key=CONF_MUSICBRAINZ,
-                type=ConfigEntryType.BOOLEAN,
-                label="Look up works and recordings on MusicBrainz",
-                default_value=True,
+                key=CONF_MB_CONTACT,
+                type=ConfigEntryType.STRING,
+                label="Your email address or website, for looking things up online",
+                description="Composers, works, dates and album covers are looked up in MusicBrainz, a free "
+                "music encyclopedia, which asks every app for a way to reach the person running it. It is "
+                "sent only to MusicBrainz and the other music sites you turn on. Until this is filled in, "
+                "the plugin works from your music files alone.",
+                default_value="",
                 required=False,
             ),
             ConfigEntry(
-                key=CONF_MB_CONTACT,
-                type=ConfigEntryType.STRING,
-                label="Contact for the MusicBrainz User-Agent (email or URL), required for lookups",
-                description="MusicBrainz asks every client to identify itself with a way to reach its "
-                "operator. Lookups stay off until this is set.",
-                default_value="",
+                key=CONF_MUSICBRAINZ,
+                type=ConfigEntryType.BOOLEAN,
+                label="Look up composers and works on MusicBrainz",
+                description="Fills in catalogue numbers, dates and missing details your files don't carry. "
+                "Needs the email address or website above.",
+                default_value=True,
                 required=False,
-                depends_on=CONF_MUSICBRAINZ,
+                advanced=True,
             ),
             ConfigEntry(
                 key=CONF_LLM,
@@ -158,28 +162,31 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             ConfigEntry(
                 key=CONF_COVER_ART,
                 type=ConfigEntryType.BOOLEAN,
-                label="Album art from the Cover Art Archive for albums without any",
-                description="For an album with no embedded art and no cover file, whose MusicBrainz release "
-                "is known, the release's front cover is added to the album in Music Assistant's library (a "
-                "link, nothing is written next to your music). Needs the MusicBrainz contact.",
+                label="Find covers for albums that have none",
+                description="When an album has no picture of its own and MusicBrainz knows which release it "
+                "is, its cover is shown in Music Assistant. Nothing is added to your music folders. Needs the "
+                "email address or website above.",
                 default_value=True,
                 required=False,
+                advanced=True,
             ),
             ConfigEntry(
                 key=CONF_ACC_DATASET,
                 type=ConfigEntryType.BOOLEAN,
-                label="Show awards from the built-in list (Grammy, Gramophone, Diapason d'Or)",
-                description="Matched offline and conservatively: an award is shown only when the work, the "
-                "performers and the year agree; doubtful matches wait in the review queue.",
+                label="Show awards (Grammy, Gramophone, Diapason d'Or)",
+                description="Uses a list that comes with the plugin; nothing is looked up online. An award is "
+                "shown only when the work, the performers and the year all agree; doubtful matches are left "
+                "for review.",
                 default_value=True,
                 required=False,
+                advanced=True,
             ),
             ConfigEntry(
                 key=CONF_ACC_WIKIDATA,
                 type=ConfigEntryType.BOOLEAN,
-                label="Look up album awards on Wikidata",
-                description="Off by default. Uses the MusicBrainz contact; asks Wikidata about albums "
-                "MusicBrainz links to it.",
+                label="Also look up album awards on Wikidata",
+                description="Off unless turned on. Asks Wikidata about albums that MusicBrainz links to it. "
+                "Needs the email address or website above.",
                 default_value=False,
                 required=False,
                 advanced=True,
@@ -187,7 +194,9 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             ConfigEntry(
                 key=CONF_ACC_CRITIQUEBRAINZ,
                 type=ConfigEntryType.BOOLEAN,
-                label="Show CritiqueBrainz reviews (short attributed excerpts, Creative Commons)",
+                label="Show reviews from CritiqueBrainz",
+                description="Short excerpts of listener reviews, with the reviewer's name and a link to the "
+                "full review.",
                 default_value=False,
                 required=False,
                 advanced=True,
@@ -195,7 +204,9 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             ConfigEntry(
                 key=CONF_ACC_DISCOGS,
                 type=ConfigEntryType.BOOLEAN,
-                label="Show Discogs community ratings (needs a personal access token)",
+                label="Show Discogs ratings",
+                description="Star ratings from Discogs users. Needs a Discogs account and its personal access "
+                "token below.",
                 default_value=False,
                 required=False,
                 advanced=True,
@@ -204,6 +215,7 @@ class ClassicalProvider(CompanionUI, PluginProvider):
                 key=CONF_DISCOGS_TOKEN,
                 type=ConfigEntryType.SECURE_STRING,
                 label="Discogs personal access token",
+                description="Found in your Discogs account under Settings, Developers.",
                 default_value="",
                 required=False,
                 depends_on=CONF_ACC_DISCOGS,
@@ -212,11 +224,11 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             ConfigEntry(
                 key=CONF_HEMISPHERE,
                 type=ConfigEntryType.STRING,
-                label="Hemisphere for the seasonal picks",
-                description="Spring, summer, autumn and winter shelves follow your hemisphere; church feasts "
-                "and dates stay on the calendar.",
-                options=[ConfigValueOption(title="Northern", value="north"),
-                         ConfigValueOption(title="Southern", value="south")],
+                label="Where you live, for seasonal suggestions",
+                description="Spring, summer, autumn and winter suggestions follow your half of the world. "
+                "Holidays and anniversaries stay on their dates.",
+                options=[ConfigValueOption(title="Northern hemisphere", value="north"),
+                         ConfigValueOption(title="Southern hemisphere", value="south")],
                 default_value="north",
                 required=False,
             ),
@@ -244,7 +256,7 @@ class ClassicalProvider(CompanionUI, PluginProvider):
                 self._mb = MBClient(contact, cache=SqliteMBCache(self._con, run=self._db.write))
             else:
                 # MB's policy wants a real contact in the User-Agent: no placeholder, no lookups without one
-                self._mb_note = "set a contact (email or URL) in the Classical settings to enable MusicBrainz"
+                self._mb_note = "add your email address or website in the Classical settings to turn MusicBrainz on"
                 self.logger.warning("Classical: MusicBrainz lookups are off: %s", self._mb_note)
         self._acc_dataset = bool(self.config.get_value(CONF_ACC_DATASET, True))
         self._net = self._net_clients(mb_contact(self.config.get_value(CONF_MB_CONTACT, "")))

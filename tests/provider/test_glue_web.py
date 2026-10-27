@@ -111,6 +111,31 @@ def test_image_urls(mods):
                    "n": 1}
 
 
+def test_settings_a_fresh_install_needs_are_few_and_plain(mods):
+    """Only the contact and the hemisphere are ordinary settings; the rest sit under Advanced, keys unchanged."""
+    g = mods.glue
+    p = object.__new__(g.ClassicalProvider)
+    p.mass = MagicMock()
+    p.mass.webserver.base_url = ""
+    g.ConfigEntry.reset_mock()
+    asyncio.run(p.get_config_entries())
+    entries = {c.kwargs["key"]: c.kwargs for c in g.ConfigEntry.call_args_list}
+    assert set(entries) >= {g.CONF_MUSICBRAINZ, g.CONF_MB_CONTACT, g.CONF_LLM, g.CONF_LLM_BASE_URL, g.CONF_LLM_MODEL,
+                            g.CONF_LLM_API_KEY, g.CONF_COVER_ART, g.CONF_ACC_DATASET, g.CONF_ACC_WIKIDATA,
+                            g.CONF_ACC_CRITIQUEBRAINZ, g.CONF_ACC_DISCOGS, g.CONF_DISCOGS_TOKEN, g.CONF_HEMISPHERE}
+    assert {k for k, e in entries.items() if not e.get("advanced")} == {g.CONF_MB_CONTACT, g.CONF_HEMISPHERE}
+    assert g.CONF_MUSICBRAINZ == "musicbrainz" and g.CONF_MB_CONTACT == "mb_contact" and g.CONF_HEMISPHERE == "hemisphere"
+    # the contact stands on its own: the lookups switch it once depended on is now an advanced setting
+    assert "depends_on" not in entries[g.CONF_MB_CONTACT]
+    defaults = {k: e.get("default_value") for k, e in entries.items()}
+    assert defaults[g.CONF_MUSICBRAINZ] is True and defaults[g.CONF_COVER_ART] is True
+    assert defaults[g.CONF_ACC_DATASET] is True and defaults[g.CONF_HEMISPHERE] == "north"
+    assert not any(defaults[k] for k in (g.CONF_LLM, g.CONF_ACC_WIKIDATA, g.CONF_ACC_CRITIQUEBRAINZ, g.CONF_ACC_DISCOGS))
+    for e in entries.values():
+        text = (str(e.get("label", "")) + " " + str(e.get("description", ""))).lower()
+        assert "derive" not in text and "facet" not in text and "user-agent" not in text, e["key"]
+
+
 def test_ui_info_follows_the_users_scope(mods, monkeypatch):
     p = object.__new__(mods.glue.ClassicalProvider)
     p.mass = MagicMock()

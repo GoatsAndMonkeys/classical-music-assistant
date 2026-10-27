@@ -151,10 +151,10 @@ acclaimed" sort is enabled when any recording of the work carries a counted acco
 
 | Setting | Default |
 |---|---|
-| Show awards from the built-in list | on |
-| Look up album awards on Wikidata | off (advanced) |
-| Show CritiqueBrainz reviews | off (advanced) |
-| Show Discogs community ratings + token | off (advanced) |
+| Show awards (Grammy, Gramophone, Diapason d'Or) | on (advanced) |
+| Also look up album awards on Wikidata | off (advanced) |
+| Show reviews from CritiqueBrainz | off (advanced) |
+| Show Discogs ratings + token | off (advanced) |
 
 Network enrichment runs in chunks of 20 albums after the dataset refresh. It uses the MB contact as its user
 agent and the per-host rate limits (Wikidata and CritiqueBrainz 1 request/s, Discogs 1.1 s). Successful

@@ -120,12 +120,15 @@ def browse(index: Index, sub_path: str, vis=None) -> list[Node]:
 
 
 def root(index: Index, vis) -> list[Node]:
+    """Listening folders first; the review queue last, named for whoever tidies the library. The sort names keep
+    that order where a client sorts by name."""
     n_review = len(index.review(vis))
     return [
-        Node("folder", "composers", "Composers"),
-        Node("folder", "works", "Works"),
-        Node("folder", "albums", "Albums"),
-        Node("folder", "review", "Review", version=f"{n_review} items" if n_review else "nothing to review"),
+        Node("folder", "composers", "Composers", sort_name="1"),
+        Node("folder", "works", "Works", sort_name="2"),
+        Node("folder", "albums", "Albums", sort_name="3"),
+        Node("folder", "review", "Review queue (for curators)", sort_name="9",
+             version=f"{n_review} item{'s' if n_review != 1 else ''} to check" if n_review else "nothing to check"),
     ]
 
 

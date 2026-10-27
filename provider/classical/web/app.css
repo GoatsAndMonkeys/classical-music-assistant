@@ -65,6 +65,11 @@ button, input, select { font: inherit; color: inherit; }
 }
 .brand { display: flex; align-items: center; gap: 10px; font: 600 20px/1 var(--serif); letter-spacing: .01em; }
 .brand-icon { width: 28px; height: 28px; border-radius: 7px; }
+.top-actions { display: flex; align-items: center; gap: 8px; }
+.curate-btn {
+  min-height: 30px; padding: 0 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line); background: none; color: var(--muted); font-size: 13px; font-weight: 500;
+}
 .user-btn {
   width: 34px; height: 34px; border-radius: 50%; border: 0; cursor: pointer;
   background: var(--accent-soft); color: var(--accent); font-weight: 600;
@@ -224,6 +229,12 @@ select.input {
 }
 .input.year { width: 92px; flex: none; }
 .dash { color: var(--muted); }
+.more-filters > summary { cursor: pointer; color: var(--accent); font-size: 14px; font-weight: 600; padding: 4px 2px; }
+.more-filters > .filters { margin-top: 8px; }
+.toggle { display: flex; align-items: flex-start; gap: 10px; margin: 14px 0 6px; cursor: pointer; }
+.toggle input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
+.toggle > span { display: flex; flex-direction: column; }
+.toggle .fine { margin: 2px 0 0; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
 .chips.scroll { flex-wrap: nowrap; overflow-x: auto; margin-left: -16px; margin-right: -16px; padding: 0 16px; scrollbar-width: none; }
@@ -253,7 +264,10 @@ select.input {
   width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 14px; min-height: 64px;
   background: none; border: 0; text-align: left; cursor: pointer;
 }
-.rec.open .rec-head { background: var(--surface-2); }
+.rec-top { display: flex; align-items: center; }
+.rec-top > .rec-head { flex: 1; min-width: 0; padding-right: 4px; }
+.rec-top > .play { margin-right: 6px; color: var(--accent); }
+.rec.open .rec-top { background: var(--surface-2); }
 .rec-detail { display: none; padding: 4px 14px 14px; }
 .rec.open .rec-detail { display: block; }
 .thumb, .art-empty.thumb { flex: none; width: 46px; height: 46px; border-radius: 8px; object-fit: cover; background: var(--surface-2); }
