@@ -272,3 +272,105 @@ def test_a_hidden_work_has_no_review_item_for_the_caller(lib):
     job(lib, WorksMB([SYM4]))
     assert views.review(lib.ix)["total"] == 1
     assert views.review(lib.ix, vis=["nobody--x"])["total"] == 0
+
+
+def test_koechel_alternatives_never_join_different_numbers_of_a_set():
+    a = wl.cat.primary_catalogue("Divertimento K. 439b No. 1")
+    assert wl._same_cat(a, wl.cat.primary_catalogue("K. 439b No. 1"))
+    assert not wl._same_cat(a, wl.cat.primary_catalogue("K. 439b No. 2"))
+    assert not wl._same_cat(a, wl.cat.primary_catalogue("K. 439b"))
+    assert wl._same_cat(wl.cat.primary_catalogue("Mass, K. 427"), wl.cat.primary_catalogue("K. 427/417a"))
+
+
+def test_a_hyphenated_key_is_read_and_one_edition_is_not_the_work(lib):
+    """MusicBrainz's Bruckner: a generic work, editions that are revisions of it, all 'in C-minor'."""
+    lib.add("Symphony No. 8 in C minor, WAB 108", composer="Anton Bruckner")
+    _arid(lib, "Anton Bruckner")
+    generic = mbw(30, "Symphony no. 8 in C-minor, WAB 108")
+    ed = mbw(31, "Symphony no. 8 in C-minor, WAB 108")
+    ed["relations"].append({"type": "revision of", "direction": "backward", "target-type": "work",
+                            "work": {"id": uid(30), "title": "Symphony no. 8"}})
+    job(lib, WorksMB([ed, generic]))
+    assert linked(lib, "Symphony No. 8 in C minor, WAB 108") == uid(30)
+
+
+def test_a_title_naming_no_instrument_is_not_certainly_a_piano_sonata(lib):
+    lib.add("Sonata No. 1 in C major")
+    lib.add("Piano Concerto No. 4 in G major")
+    _arid(lib)
+    job(lib, WorksMB([mbw(32, "Piano Sonata no. 1 in C major", "C major"), PC4]))
+    assert linked(lib, "Sonata No. 1 in C major") is None and match(lib, "Sonata No. 1 in C major")["state"] == "review"
+    assert linked(lib, "Piano Concerto No. 4 in G major") == uid(5)       # 'and Orchestra' is no difference
+
+
+def test_a_link_made_under_older_rules_is_decided_again(lib):
+    lib.add("Sonata No. 1 in C major")
+    _arid(lib)
+    mb = WorksMB([mbw(32, "Piano Sonata no. 1 in C major", "C major")])
+    job(lib, mb)
+    wid = lib.wid("Sonata No. 1 in C major")
+    # as the first matcher linked it
+    con = lib.ix.con
+    con.execute("INSERT INTO alias(entity, entity_id, kind, value) VALUES ('work', ?, 'mbid', ?)", (wid, uid(32)))
+    con.execute("UPDATE mb_work_match SET state='linked', mbid=?, sig='old' WHERE work_id=?", (uid(32), wid))
+    job(lib, mb)
+    assert linked(lib, "Sonata No. 1 in C major") is None and match(lib, "Sonata No. 1 in C major")["state"] == "review"
+
+
+def test_an_unlisted_composer_found_by_alias_and_an_empty_search_asked_again(lib):
+    """Glinka is not in the authority list, and MusicBrainz names him in Cyrillic."""
+    lib.add("Kamarinskaya", composer="Mikhail Glinka")
+    glinka = uid(790)
+    found = {"on": False}
+    works = WorksMB([mbw(40, "Kamarinskaya", composer=glinka)])
+    base_fetch = works.fetch
+
+    async def fetch(url, headers):
+        if "/artist?" in url:
+            works.calls.append(url)
+            assert "alias%3A" in url
+            arts = [{"id": glinka, "type": "Person", "score": 100, "name": "Михаил Иванович Глинка",
+                     "life-span": {"begin": "1804", "end": "1857"}, "aliases": [{"name": "Mikhail Glinka"}]}]
+            return 200, json.dumps({"artists": arts if found["on"] else []}).encode()
+        return await base_fetch(url, headers)
+
+    works.fetch = fetch
+    job(lib, works)
+    assert linked(lib, "Kamarinskaya") is None
+    exp = lib.ix.con.execute("SELECT expires_at - fetched_at FROM mb_cache WHERE url LIKE '%/artist?%'").fetchone()[0]
+    assert exp == pytest.approx(7 * 86400)               # an empty answer is kept a week, not 90 days
+    found["on"] = True
+    job(lib, works)
+    assert linked(lib, "Kamarinskaya") is None           # still cached
+    lib.ix.con.execute("UPDATE mb_cache SET expires_at=0 WHERE url LIKE '%/artist?%'")
+    job(lib, works)
+    assert linked(lib, "Kamarinskaya") == uid(40)
+
+
+def test_unlinking_from_the_work_page(lib):
+    lib.add("Symphony No. 5 in C minor, Op. 67")
+    lib.add("Symphony No. 4")
+    _arid(lib)
+    mb = WorksMB([SYM5, SYM4])
+    job(lib, mb)
+    w5, w4 = lib.wid("Symphony No. 5 in C minor, Op. 67"), lib.wid("Symphony No. 4")
+    assert views.work(lib.ix, w5)["mb_link"] == {"mbid": uid(1), "auto": True,
+                                                  "title": "Symphony no. 5 in C minor, op. 67"}
+    assert views.work(lib.ix, w4)["mb_link"] is None
+    wl.set_user_link(lib.ix.con, w4, "seth", "accept", [uid(4)])
+    assert views.work(lib.ix, w4)["mb_link"]["auto"] is False
+    # an accepted link can be undone too, and neither comes back
+    wl.set_user_link(lib.ix.con, w4, "seth", "reject", [uid(4)])
+    wl.set_user_link(lib.ix.con, w5, "seth", "reject", [uid(1)])
+    job(lib, mb)
+    assert linked(lib, "Symphony No. 4") is None and linked(lib, "Symphony No. 5 in C minor, Op. 67") is None
+    assert views.work(lib.ix, w5)["mb_link"] is None
+    # a file's own tag is not the job's to offer undoing
+    lib.ix.con.execute("INSERT INTO alias(entity, entity_id, kind, value) VALUES ('work', ?, 'mbid', ?)", (w4, uid(9)))
+    assert views.work(lib.ix, w4)["mb_link"] is None
+
+
+def test_orchestra_alone_is_no_instrument_but_the_concerto_for_orchestra_is_not_a_piano_concerto():
+    assert wl._agree("Piano Concerto No. 4 in G major", "Concerto for Piano and Orchestra no. 4 in G major")
+    assert not wl._agree("Piano Concerto", "Concerto for Orchestra")
+    assert not wl._agree("Violin Concerto", "Concerto for Violin, Piano and Orchestra")

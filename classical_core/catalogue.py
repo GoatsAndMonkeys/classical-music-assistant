@@ -117,7 +117,8 @@ def catalogues_conflict(a: list[Catalogue], b: list[Catalogue]) -> bool:
 
 # ---- keys ----------------------------------------------------------------------------------------------
 
-_KEY_EN = re.compile(r"\bin\s+([a-g])(?:[\s-]*(flat|sharp|♭|♯))?(?:\s+(major|minor))?\b", re.IGNORECASE)
+# 'in C minor', 'in E-flat major', 'in C-minor' (MusicBrainz's spelling for some composers), 'in F'
+_KEY_EN = re.compile(r"\bin\s+([a-g])(?:[\s-]*(flat|sharp|♭|♯))?(?:[\s-]+(major|minor))?\b", re.IGNORECASE)
 _KEY_DE = re.compile(r"\b([a-h])(is|es|s)?[\s-](dur|moll)\b", re.IGNORECASE)
 
 
@@ -125,7 +126,8 @@ def parse_key(text: str | None) -> str | None:
     """'Symphony No. 5 in C minor' -> 'C minor'; 'Symphonie Nr. 1 C-dur' -> 'C major'."""
     if not text:
         return None
-    m = _KEY_EN.search(text)
+    # a lower-case letter alone is a word, not a key: 'Songs in a Garden' (but 'in a minor' is A minor)
+    m = next((x for x in _KEY_EN.finditer(text) if x.group(1).isupper() or x.group(2) or x.group(3)), None)
     if m:
         acc = {"flat": "-flat", "♭": "-flat", "sharp": "-sharp", "♯": "-sharp"}.get((m.group(2) or "").lower(), "")
         mode = (m.group(3) or "major").lower()

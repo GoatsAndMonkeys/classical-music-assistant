@@ -315,6 +315,15 @@
     });
   }
 
+  /** A work page's MusicBrainz link (one the linking job made, or a person accepted): its text and page. */
+  function mbLinkLine(link) {
+    if (!link || typeof link.mbid !== "string" ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(link.mbid)) return null;
+    return { mbid: link.mbid.toLowerCase(),
+      text: (link.auto ? "Linked automatically to " : "Linked to ") + String(link.title || "a MusicBrainz work") + ":",
+      href: "https://musicbrainz.org/work/" + link.mbid.toLowerCase() };
+  }
+
   /** A Today pick's lines: title, "composer · recording", and why it was chosen (never repeating the title). */
   function pickLines(p) {
     p = p || {};
@@ -355,7 +364,7 @@
     workSubtitle: workSubtitle, rowDate: rowDate, datesLine: datesLine, worksQuery: worksQuery,
     recordingMatches: recordingMatches,
     filterRecordings: filterRecordings, sortRecordings: sortRecordings, creditGroups: creditGroups,
-    reviewSubtitle: reviewSubtitle, mbWorkCandidates: mbWorkCandidates, badgeText: badgeText, anyAcclaim: anyAcclaim, safeHref: safeHref,
+    reviewSubtitle: reviewSubtitle, mbWorkCandidates: mbWorkCandidates, mbLinkLine: mbLinkLine, badgeText: badgeText, anyAcclaim: anyAcclaim, safeHref: safeHref,
     byLetter: byLetter, playArgs: playArgs, loginReturnUrl: loginReturnUrl, choosePlayer: choosePlayer, errorText: errorText, imageSrc: imageSrc,
     plural: plural, pickLines: pickLines, daySubtitle: daySubtitle, localDate: localDate, probeOrder: probeOrder,
   };
@@ -1026,6 +1035,21 @@
         dl && dl.source ? h("span", { class: "dates-src", text: " · " + dl.source }) : null,
         canCorrect ? h("button", { type: "button", class: "link-btn", text: dl ? "Edit dates" : "Add dates",
           onclick: function () { datesSheet(w); } }) : null));
+    }
+    var ml = mbLinkLine(res.mb_link);
+    if (ml && canCorrect) {
+      var armed = false;
+      var unlink = h("button", { type: "button", class: "link-btn", text: "Unlink", onclick: async function () {
+        if (!armed) { armed = true; unlink.textContent = "Unlink? Tap again"; return; }
+        try {
+          await call("classical/work_mb_link", { work_id: w.id, decision: "reject", mbid: ml.mbid });
+          toast("Unlinked; not proposed again");
+          render();
+        } catch (e) { toast(e.message); }
+      } });
+      actions.appendChild(h("p", { class: "fine mb-link" }, h("span", { text: ml.text + " " }),
+        ml.href ? h("a", { href: ml.href, target: "_blank", rel: "noopener noreferrer", text: "MusicBrainz" }) : null,
+        " ", unlink));
     }
     wrap.appendChild(actions);
 

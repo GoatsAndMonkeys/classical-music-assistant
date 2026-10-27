@@ -48,7 +48,7 @@ from .titles import strip_track_number
 from .work_identity import core_name, has_act_suffix, is_arrangement, title_sig, titles_agree
 
 REASON = "Link to MusicBrainz work?"
-MATCHER = "1"                   # bump when the rules change: every undecided work is looked at again
+MATCHER = "2"                   # bump when the rules change: every work the job decided is looked at again
 PAGE = 100                      # MusicBrainz's largest browse page
 BROWSE_INC = "aliases+artist-rels+work-rels"
 MAX_PAGES = 60                  # a composer with more works than this many pages is searched work by work
@@ -100,7 +100,9 @@ class _Cache:
             return self.memo[url]
         r = self.con.execute("SELECT status, body_zlib, expires_at FROM mb_cache WHERE url=?", (url,)).fetchone()
         out: Any = _MISSING
-        if r is not None:
+        if r is not None and "/artist?" in url and r["expires_at"] < time.time():
+            pass                        # a person search goes stale (an empty answer after a week): ask again
+        elif r is not None:
             if r["status"] == 200 and r["body_zlib"]:
                 try:
                     out = json.loads(zlib.decompress(r["body_zlib"]))
@@ -110,6 +112,13 @@ class _Cache:
                 out = None
         self.memo[url] = out
         return out
+
+    def has(self, url: str) -> bool:
+        """Whether `url` has a usable cached answer, without reading it."""
+        if url in self.memo:
+            return self.memo[url] is not _MISSING
+        r = self.con.execute("SELECT status, expires_at FROM mb_cache WHERE url=?", (url,)).fetchone()
+        return r is not None and (r["status"] == 200 or r["expires_at"] >= time.time())
 
 
 # ---- MusicBrainz candidates -----------------------------------------------------------------------------
@@ -124,6 +133,7 @@ class Candidate:
     composer: bool                      # the artist is credited as its composer
     part: bool                          # a part of another work
     arranged: bool                      # an arrangement or orchestration of another work
+    revision: bool = False              # one edition or version of another work (Bruckner's 'ed. Haas')
     verified: bool = True               # read from a browse page or a lookup (relations complete)
     note: str = ""                      # MusicBrainz's disambiguation ('1877 version'), shown to a person
 
@@ -140,6 +150,8 @@ def candidate(w: dict, arid: str, verified: bool = True) -> Candidate | None:
                for r in rels)
     arranged = is_arrangement(title) or any(r.get("type") in _ARRANGED_RELS and r.get("direction") == "backward"
                                             for r in rels)
+    revision = any(r.get("type") == "revision of" and r.get("direction") == "backward"
+                   and r.get("target-type", "work") == "work" for r in rels)
     # a title says it too, relations or not: 'Op. 67: IV. Allegro', 'Mass in E minor…: Kyrie', '(excerpt)'
     part = part or ": " in title or (not verified and ":" in title) or bool(_EXCERPT.search(fold(title)))
     key = next((a.get("value") for a in w.get("attributes") or [] if (a.get("type") or "").lower() == "key"), None)
@@ -149,8 +161,8 @@ def candidate(w: dict, arid: str, verified: bool = True) -> Candidate | None:
     cats = cat.parse_catalogues(title)
     if not cats:
         cats = next((c for c in (cat.parse_catalogues(n) for n in names[1:]) if c), [])
-    return Candidate(mbid, title, list(dict.fromkeys(names)), key, cats, composer, part, arranged, verified,
-                     str(w.get("disambiguation") or ""))
+    return Candidate(mbid, title, list(dict.fromkeys(names)), key, cats, composer, part, arranged, revision,
+                     verified, str(w.get("disambiguation") or ""))
 
 
 def usable(c: Candidate) -> bool:
@@ -178,13 +190,23 @@ class Decision:
     why: str | None = None
 
 
+def _split_nos(c: cat.Catalogue) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """(the number with its alternatives, the 'No.' components): 'K. 439b No. 2' -> (('439b',), ('2',))."""
+    n = c.display.count(" No. ")
+    return (c.components[:-n], c.components[-n:]) if n else (c.components, ())
+
+
 def _same_cat(a: cat.Catalogue, b: cat.Catalogue) -> bool:
     if a.namespace != b.namespace:
         return False
     if a.components == b.components:
         return True
-    # Köchel's alternative numbers: 'K. 427' is 'K. 427/417a'
-    return a.namespace == "k" and (a.components[0] in b.components or b.components[0] in a.components)
+    # Köchel's alternative numbers: 'K. 427' is 'K. 427/417a'; the 'No.' after it must still be the same
+    # ('K. 439b No. 1' is not 'K. 439b No. 2', nor the set 'K. 439b')
+    if a.namespace != "k":
+        return False
+    (ah, an), (bh, bn) = _split_nos(a), _split_nos(b)
+    return an == bn and bool(ah) and bool(bh) and (ah[0] in bh or bh[0] in ah)
 
 
 def _cat_relation(mine: cat.Catalogue | None, theirs: list[cat.Catalogue]) -> bool | None:
@@ -195,6 +217,24 @@ def _cat_relation(mine: cat.Catalogue | None, theirs: list[cat.Catalogue]) -> bo
     if not shared:
         return None
     return any(_same_cat(mine, c) for c in shared)
+
+
+_TUTTI = {"orchestra", "orchester"}
+_NO_TUTTI = re.compile(r"\b(?:orchestra|orchester)\b", re.IGNORECASE)
+
+
+def _same_scoring(a: str, b: str) -> bool:
+    """Both titles name the same instruments, or neither does ('orchestra' aside): 'Sonata No. 1 in C' is
+    not certainly 'Piano Sonata no. 1 in C major', while 'Piano Concerto No. 1' is 'Concerto for Piano and
+    Orchestra no. 1'."""
+    return title_sig(a).scoring - _TUTTI == title_sig(b).scoring - _TUTTI
+
+
+def _agree(a: str, b: str) -> bool:
+    """titles_agree, except that 'and Orchestra' alone is no different instrument."""
+    why = titles_agree(a, b)
+    return why is None or (why == "different instruments" and _same_scoring(a, b)
+                           and titles_agree(_NO_TUTTI.sub("", a), _NO_TUTTI.sub("", b)) is None)
 
 
 def lib_catalogue(w: LibWork) -> cat.Catalogue | None:
@@ -227,7 +267,7 @@ def decide(w: LibWork, cands: list[Candidate], complete: bool, rejected: set[str
     pool = [c for c in cands if usable(c) and c.mbid not in rejected]
     mine = lib_catalogue(w)
     sig = title_sig(w.title)
-    key = w.key or sig.key
+    key = sig.key or w.key          # the title's own key first: a stored key may predate a parser fix
     core = core_name(w.title)
     strong: dict[str, tuple[Candidate, str]] = {}
     weak: dict[str, tuple[Candidate, str]] = {}
@@ -240,11 +280,13 @@ def decide(w: LibWork, cands: list[Candidate], complete: bool, rejected: set[str
         if rel is False:
             continue                                    # Op. 67 is not Op. 68
         keys_conflict = bool(key and c.key and key != c.key)
-        agree = any(titles_agree(w.title, n) is None for n in c.names)
+        agree = any(_agree(w.title, n) for n in c.names)
         if rel:
             why = f"same catalogue number ({mine.display})"
-            if agree and not keys_conflict:
+            if agree and not keys_conflict and not c.revision:
                 strong[c.mbid] = (c, why)
+            elif agree and not keys_conflict:
+                weak[c.mbid] = (c, why + ", one edition of it")
             else:
                 weak[c.mbid] = (c, why + ", but the titles differ" if not agree else why + ", but a different key")
             continue
@@ -253,7 +295,8 @@ def decide(w: LibWork, cands: list[Candidate], complete: bool, rejected: set[str
         same_shape = sig.forms and any((s := title_sig(n)).forms == sig.forms and s.numbers == sig.numbers
                                        for n in c.names)
         if same_shape and agree:
-            if sig.numbers and key and c.key:
+            if sig.numbers and key and c.key and not c.revision and any(_same_scoring(w.title, n)
+                                                                         for n in c.names):
                 strong[c.mbid] = (c, f"same title, number and key ({key})")
             else:
                 weak[c.mbid] = (c, "same kind of work and number" if sig.numbers else "same kind of work")
@@ -263,7 +306,7 @@ def decide(w: LibWork, cands: list[Candidate], complete: bool, rejected: set[str
             # 'Leonore no. 3' must not make the overture the opera 'Leonore'
             own = title_sig(c.title)
             plain = not own.numbers and own.forms <= sig.forms
-            if plain and distinctive(w.title) and complete and len(by_core[core]) == 1:
+            if plain and distinctive(w.title) and complete and len(by_core[core]) == 1 and not c.revision:
                 strong[c.mbid] = (c, "the same distinctive title, and the only such work")
             else:
                 weak[c.mbid] = (c, "the same title")
@@ -341,18 +384,32 @@ def composer_mbid(con: sqlite3.Connection, cache: _Cache, base: str, cid: str | 
     if r and is_mbid(r[0]):
         return r[0].lower(), None
     k = lookup(name)
-    if k is None:
-        return None, None               # an unlisted name: the index's own artist search decides it
-    if k.mbid:
+    if k is not None and k.mbid:
         return k.mbid, None
-    url = mb_search_url(base, k.name)
+    if k is not None:
+        cand = NameCandidate(k.name, k.name, norm_key(k.name), k.born, k.died)
+    else:
+        # an unlisted composer the index's own search left without an id (an answer cached before the search
+        # read aliases: 'Mikhail Glinka' is 'Михаил Иванович Глинка' on MusicBrainz): the same strict pick
+        row = con.execute("SELECT born, died FROM composer WHERE id=?", (cid,)).fetchone()
+        if not name or row is None:
+            return None, None
+        cand = NameCandidate(name, name, norm_key(name), _year(row["born"]), _year(row["died"]))
+        if not cand.key or " " not in cand.key:
+            return None, None           # a lone surname or nothing: never searched
+    url = mb_search_url(base, cand.name)
     data = cache.get(url)
     if data is _MISSING:
         return None, url
     if not data:
         return None, None
-    art, _why = pick_mb_artist(NameCandidate(k.name, k.name, norm_key(k.name), k.born, k.died), data)
+    art, _why = pick_mb_artist(cand, data)
     return (art.mbid if art else None), None
+
+
+def _year(v: Any) -> int | None:
+    m = re.match(r"\s*(\d{3,4})", v) if isinstance(v, str) else None
+    return int(m.group(1)) if m else (v if isinstance(v, int) else None)
 
 
 def _sig(w: LibWork, arid: str | None) -> str:
@@ -384,8 +441,9 @@ def _refresh(con: sqlite3.Connection, base: str, limit: int) -> tuple[dict[str, 
     cache = _Cache(con)
     stats: dict[str, int] = defaultdict(int)
     due: list[tuple[int, str]] = []        # (requests the composer still needs, url)
-    prior = {r["work_id"]: r for r in con.execute("SELECT work_id, sig, state FROM mb_work_match")}
+    prior = {r["work_id"]: r for r in con.execute("SELECT work_id, sig, state, mbid FROM mb_work_match")}
     users = decisions(con)
+    _unlink_stale(con, base, cache, prior)
     by_comp: dict[tuple[str | None, str | None], list[LibWork]] = defaultdict(list)
     live = _works(con)
     for w in live:
@@ -431,14 +489,15 @@ def _refresh(con: sqlite3.Connection, base: str, limit: int) -> tuple[dict[str, 
             continue
         pages = max(1, math.ceil(int(first.get("work-count") or 0) / PAGE))
         urls = [browse_url(base, arid, i) for i in range(pages)]
-        got = [cache.get(u) for u in urls]
-        missing = [u for u, g in zip(urls, got) if g is _MISSING]
+        # which pages are still due, without reading (decompressing) the ones that are not
+        missing = [u for u in urls if not cache.has(u)]
         eligible_n = sum(1 for w in works if not eligible(w))
         if not missing or (pages <= MAX_PAGES and pages - 1 <= 2 * eligible_n):
             if missing:
                 due += [(len(missing), u) for u in missing]
                 continue
-            if any(g is None for g in got):
+            got = [cache.get(u) for u in urls]
+            if any(g is None or g is _MISSING for g in got):
                 stats["errors"] += 1
                 continue
             cands = [c for g in got for x in g.get("works") or [] if (c := candidate(x, arid))]
@@ -474,6 +533,31 @@ def _refresh(con: sqlite3.Connection, base: str, limit: int) -> tuple[dict[str, 
         _apply(con, w, s, mode, d, stats)
     due.sort(key=lambda x: x[0])
     return dict(stats), list(dict.fromkeys(u for _, u in due))[:limit]
+
+
+def _unlink_stale(con: sqlite3.Connection, base: str, cache: _Cache, prior: dict) -> None:
+    """An automatic link made under other rules (or from a title, key or catalogue since changed) is taken
+    back, so the work is decided again now: a rule fixed after a wrong link undoes the link."""
+    for wid, p in list(prior.items()):
+        if p["state"] != "linked" or not p["mbid"]:
+            continue
+        r = con.execute(
+            "SELECT w.title, w.key, w.catalogue_display, c.id AS cid, c.name AS cname FROM work w "
+            "LEFT JOIN work_composer wc ON wc.work_id=w.id AND wc.ord=(SELECT MIN(ord) FROM work_composer x "
+            "  WHERE x.work_id=w.id) LEFT JOIN composer c ON c.id=wc.composer_id WHERE w.id=? AND NOT EXISTS "
+            "(SELECT 1 FROM redirect d WHERE d.entity='work' AND d.old_id=w.id)", (wid,)).fetchone()
+        if r is None:
+            continue
+        arid, need = composer_mbid(con, cache, base, r["cid"], r["cname"])
+        if need:
+            continue                    # the composer's id is not known yet: decided when it is
+        w = LibWork(wid, r["title"], r["key"], r["catalogue_display"], r["cid"], r["cname"])
+        if _sig(w, arid) == p["sig"]:
+            continue
+        con.execute("DELETE FROM alias WHERE entity='work' AND kind='mbid' AND entity_id=? AND value=?",
+                    (wid, p["mbid"]))
+        con.execute("UPDATE mb_work_match SET state='none', mbid=NULL WHERE work_id=?", (wid,))
+        prior[wid] = {"work_id": wid, "sig": None, "state": "none", "mbid": None}
 
 
 def _review(con: sqlite3.Connection, w: LibWork, d: Decision) -> None:
@@ -581,10 +665,11 @@ def set_user_link(con: sqlite3.Connection, wid: str, user: str | None, decision:
                     (wid, m))
     else:
         for m in mbids:
-            # only a link this job made goes (a tag's id would come back on the next index anyway)
+            # only a link this job made or a person accepted goes (a tag's id would come back on the next
+            # index anyway)
             con.execute("DELETE FROM alias WHERE entity='work' AND kind='mbid' AND entity_id=? AND value=? AND "
-                        "EXISTS (SELECT 1 FROM mb_work_match WHERE work_id=? AND state='linked' AND mbid=?)",
-                        (wid, m, wid, m))
+                        "EXISTS (SELECT 1 FROM mb_work_match WHERE work_id=? AND state IN ('linked', 'user') "
+                        "AND mbid=?)", (wid, m, wid, m))
     for m in mbids:
         con.execute("INSERT INTO override(entity, entity_id, op, payload_json, created_at, by_user) "
                     "VALUES (?,?,?,?,?,?)", ("work", wid, "mb_link",

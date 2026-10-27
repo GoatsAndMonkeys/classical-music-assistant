@@ -519,3 +519,47 @@ def test_bare_vaughan_williams_is_the_listed_composer(tmp_path):
                                    ("Symphony No. 4: II. Andante", "Vaughan Williams", None, None)])
     assert composer_names(idx) == ["Ralph Vaughan Williams"]
     assert not [v for v in idx.review() if v["reason"] == "possible same composer"]
+
+
+GLINKA_MBID = "8e1ba2b6-5b4e-4d3c-9a43-2b8a3c3f1a01"
+
+
+def test_mb_search_reads_aliases_and_an_old_or_stale_miss_is_asked_again(tmp_path):
+    """MusicBrainz names Glinka 'Михаил Иванович Глинка': only an alias search finds 'Mikhail Glinka'. A miss
+    cached for an older query, or older than a week, does not stop a new search."""
+    calls: list[str] = []
+    answer = {"artists": []}
+
+    async def fetch(url, headers):
+        calls.append(url)
+        return 200, json.dumps(answer).encode()
+
+    mb = MBClient("https://example.invalid/contact", fetch=fetch, interval=0)
+    idx, r = make_index(tmp_path, mb=mb)
+    rows = [("Kamarinskaya", "Mikhail Glinka", None, None), ("Valse-fantaisie", "Mikhail Glinka", None, None)]
+    add_album(idx, r, "A", "One", rows)
+    [url] = [u for u in calls if "/artist?" in u]
+    assert "alias%3A%22Mikhail%20Glinka%22" in url
+    key = "mikhail glinka"
+    # the miss was recorded for the old query (artist: only): the current query is asked
+    idx.con.execute("UPDATE evidence SET source_ref='old-query' WHERE entity='name' AND entity_id=? "
+                    "AND field='mb_miss'", (key,))
+    answer = {"artists": [{"id": GLINKA_MBID, "type": "Person", "score": 100, "name": "Михаил Иванович Глинка",
+                           "sort-name": "Glinka, Mikhail Ivanovich", "life-span": {"begin": "1804", "end": "1857"},
+                           "aliases": [{"name": "Mikhail Glinka", "sort-name": "Glinka, Mikhail"}]}]}
+    calls.clear()
+    add_album(idx, r, "A", "One", rows, force=True)
+    assert len([u for u in calls if "/artist?" in u]) == 1
+    fields = {(f, src) for f, src in idx.con.execute(
+        "SELECT field, source_ref FROM evidence WHERE entity='name' AND entity_id=? AND retracted_at IS NULL",
+        (key,))}
+    assert fields == {("identity", url)}                # the old miss is retracted
+    # a current miss younger than a week is not asked again; an older one is
+    idx.con.execute("UPDATE evidence SET field='mb_miss', value='x' WHERE entity='name' AND entity_id=?", (key,))
+    calls.clear()
+    add_album(idx, r, "A", "One", rows, force=True)
+    assert not [u for u in calls if "/artist?" in u]
+    idx.con.execute("UPDATE evidence SET observed_at=observed_at-8*86400 WHERE entity='name' AND entity_id=?",
+                    (key,))
+    add_album(idx, r, "A", "One", rows, force=True)
+    assert len([u for u in calls if "/artist?" in u]) == 1

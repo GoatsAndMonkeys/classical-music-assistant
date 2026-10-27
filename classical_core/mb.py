@@ -24,6 +24,7 @@ WORK_INC = "work-rels+artist-rels+series-rels+aliases"
 DEFAULT_BASE = "https://musicbrainz.org/ws/2"
 GOOD_TTL = 90 * 86400
 ERROR_TTL = 86400
+EMPTY_SEARCH_TTL = 7 * 86400     # a search that found nothing (MusicBrainz's search index has bad days)
 MBID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 log = logging.getLogger("classical.mb")
@@ -360,7 +361,10 @@ class MBClient:
                 except ValueError as e:
                     raise MBTransientError(f"bad JSON from {url}") from e
                 if self.cache is not None:
-                    await self.cache.put(url, 200, body, self.good_ttl)
+                    empty = "?query=" in url and isinstance(data, dict) and not any(
+                        data.get(k) for k in ("artists", "works", "recordings", "releases"))
+                    await self.cache.put(url, 200, body, min(self.good_ttl, EMPTY_SEARCH_TTL) if empty
+                                         else self.good_ttl)
                 return data
             if status in (503, -1, 429):
                 retry_after = parse_retry_after(headers.get("retry-after"))

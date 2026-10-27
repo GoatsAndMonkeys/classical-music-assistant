@@ -245,3 +245,13 @@ test("MusicBrainz work candidates link only to a real work id on musicbrainz.org
   assert.equal(c[1].href, null);
   assert.deepEqual(app.mbWorkCandidates({}), []);
 });
+
+test("a work page's MusicBrainz link line: only a well-formed MBID makes a link", () => {
+  const id = "00000005-0000-4000-8000-00000000ABCD";
+  assert.deepEqual(app.mbLinkLine({ mbid: id, auto: true, title: "Concerto no. 4" }),
+    { mbid: id.toLowerCase(), text: "Linked automatically to Concerto no. 4:",
+      href: "https://musicbrainz.org/work/" + id.toLowerCase() });
+  assert.equal(app.mbLinkLine({ mbid: id, auto: false }).text, "Linked to a MusicBrainz work:");
+  for (const bad of [null, {}, { mbid: "javascript:alert(1)" }, { mbid: id + "/../x" }, { mbid: 5 }])
+    assert.equal(app.mbLinkLine(bad), null);
+});

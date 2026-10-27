@@ -409,7 +409,25 @@ def work(ix: Index, wid: str, vis=None, scope: str | list[str] | None = None) ->
         "contained_tracks": [{"track_id": t["library_track_id"], "title": t["title"],
                               "track_uri": f"library://track/{t['library_track_id']}"} for t in extra],
         "scope": {"ids": [p["id"] for p in people], "people": people} if people else None,
+        "mb_link": _mb_link(ix, wid),
     }
+
+
+def _mb_link(ix: Index, wid: str) -> dict | None:
+    """The MusicBrainz work the linking job linked, or a person accepted, while that link stands; the work page
+    offers to undo it (a file's own MusicBrainz tag is not offered: it would come back on the next index)."""
+    r = ix._one("SELECT m.mbid, m.state, m.detail_json FROM mb_work_match m JOIN alias a ON a.entity='work' "
+                "AND a.kind='mbid' AND a.entity_id=m.work_id AND a.value=m.mbid "
+                "WHERE m.work_id=? AND m.state IN ('linked', 'user')", (wid,))
+    if r is None:
+        return None
+    title = None
+    try:
+        title = next((c.get("title") for c in json.loads(r["detail_json"] or "{}").get("candidates") or []
+                      if isinstance(c, dict) and c.get("mbid") == r["mbid"]), None)
+    except (ValueError, TypeError, AttributeError):
+        pass
+    return {"mbid": r["mbid"], "auto": r["state"] == "linked", "title": title}
 
 
 # ---- recording page -------------------------------------------------------------------------------------

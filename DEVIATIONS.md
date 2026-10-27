@@ -437,10 +437,25 @@ link, conservatively.
   a searched composer, plus one artist search for a listed composer without an id. On the M1 library: about
   200 requests for everything (Beethoven 31 pages, Brahms 21, Mahler 6; Mozart, Schubert and Britten
   searched, about 50, 25 and 20).
+- **Review fixes (matcher 2).**
+  - The artist search reads aliases: `(artist:"X" OR alias:"X") AND type:person`. MusicBrainz names
+    Shostakovich, Glinka and others in Cyrillic and Bartók surname-first, so `artist:` alone found nothing.
+    The new URL means every composer is asked again once.
+  - An empty search answer (artist, work or recording) is cached 7 days, not 90 (`mb.EMPTY_SEARCH_TTL`), and
+    the index's `mb_miss` for a composer counts only for the current search URL and 7 days.
+  - Composers not on the authority list are searched too, by name with the composer row's life dates.
+  - A MusicBrainz work that is a `revision of` another (one edition of a Bruckner symphony) never links
+    automatically; it goes to review as "one edition of it". The generic or original work links.
+  - "Symphony No. 8 in C-minor" was read as C major (hyphenated keys); `parse_key` now reads it.
+  - Köchel alternates join catalogue heads only: K. 439b No. 1 is not K. 439b No. 2.
+  - A same-form/number/key link also needs the same instruments ("orchestra" aside): "Sonata No. 1 in C
+    major" is not certainly the Piano Sonata. "Piano Concerto No. 4" agrees with "Concerto for Piano and
+    Orchestra no. 4".
+  - An automatic link made under other rules (or from a title, key or catalogue since changed) is taken back
+    and decided again.
+  - The work page shows a job's or a person's link ("Linked automatically to …", MusicBrainz link) to
+    library-manage users, with "Unlink" (tap twice). It rejects the id like "None of these", so it is not
+    proposed again. A file's own MusicBrainz tag is not offered for unlinking.
 - **Not done or known gaps.**
-  - No work-page control to undo an automatic link; only review cards decide.
   - Search mode cannot test uniqueness, so it never links by name alone.
-  - A composer whose cached artist search came back empty (Shostakovich, Bartók, Glinka, Glazunov,
-    Gubaidulina, Takemitsu on the M1) is skipped: the job reuses the cached answer.
-  - Bruckner-style version works (one MusicBrainz work per edition) mostly go to review; a link may name one
-    edition.
+  - A Bruckner symphony with no generic work links its earliest (root) version.

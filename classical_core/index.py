@@ -48,6 +48,7 @@ from .names import (
     given_name_from_title,
     is_lone_surname,
     mb_artist_confirms,
+    mb_search_url,
     parse_names,
     parse_one,
     pick_mb_artist,
@@ -79,6 +80,7 @@ log = logging.getLogger("classical.index")
 
 FOLDER_CAP = 500
 MAX_PARENT_DEPTH = 3
+MB_MISS_TTL = 7 * 86400                # an artist search that found no one is asked again after a week
 CUE_TRACK = "::track"                  # MA's CUE-sheet track item_id delimiter (file.cue::trackNN)
 # bumped when derivation changes, so every album re-derives once (tags are not re-read)
 DERIVE_VERSION = 9
@@ -996,9 +998,22 @@ class Index:
         todo = await self._w(self._names_to_search, album, tracks)
         ask_llm: list[NameCandidate] = []
         for c in todo:
-            fields = {r["field"] for r in await self._w(self._live, "name", c.key)}
+            live = await self._w(self._live, "name", c.key)
+            fields = {r["field"] for r in live}
             if "identity" in fields:
                 continue
+            if self.mb is not None and "mb_miss" in fields:
+                # a miss counts only for the current query and for a week: a fixed query, or a search
+                # MusicBrainz answered empty on a bad day, is asked again (and the old miss retracted)
+                url = mb_search_url(self.mb.base_url, c.name)
+                fresh = await self._w(self._one, "SELECT 1 FROM evidence WHERE entity='name' AND entity_id=? "
+                                      "AND field='mb_miss' AND source_ref=? AND retracted_at IS NULL "
+                                      "AND observed_at>=?", (c.key, url, time.time() - MB_MISS_TTL))
+                if not fresh:
+                    for r in live:
+                        if r["field"] == "mb_miss" and r["source_ref"] != url:
+                            await self._w(self.replace_origin, r["source_ref"], "mb", [])
+                    fields.discard("mb_miss")
             if self.mb is not None and "mb_miss" not in fields:
                 try:
                     url, data = await self.mb.search_artist(c.name)

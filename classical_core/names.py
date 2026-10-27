@@ -377,7 +377,11 @@ def _lucene(s: str) -> str:
 
 
 def mb_search_url(base_url: str, name: str) -> str:
-    q = f'artist:"{_lucene(name)}" AND type:person'
+    """A Person search on the name *and* its aliases: MusicBrainz names many composers in their own script
+    or order ('Дмитрий Дмитриевич Шостакович', 'Bartók Béla'), so `artist:` alone finds no one. A changed
+    query is a new URL, so answers cached for an older query are never reused."""
+    n = _lucene(name)
+    q = f'(artist:"{n}" OR alias:"{n}") AND type:person'
     return f"{base_url.rstrip('/')}/artist?query={urllib.parse.quote(q)}&limit=5&fmt=json"
 
 
