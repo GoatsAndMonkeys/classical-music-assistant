@@ -21,7 +21,7 @@ from music_assistant.controllers.webserver.helpers.auth_middleware import get_cu
 from music_assistant.models.plugin import PluginProvider
 from music_assistant_models.auth import Scope
 from music_assistant_models.config_entries import ConfigEntry, ConfigValueOption
-from music_assistant_models.enums import ConfigEntryType, EventType, ProviderFeature
+from music_assistant_models.enums import ConfigEntryType, EventType, ExternalID, ImageType, ProviderFeature
 from music_assistant_models.errors import InvalidDataError, MediaNotFoundError
 from music_assistant_models.media_items import (
     BrowseFolder,
@@ -34,7 +34,7 @@ from music_assistant_models.media_items import (
 )
 
 from classical_core import __version__ as CORE_VERSION
-from classical_core import accolades, curation, triage, views, work_link
+from classical_core import accolades, artwork, curation, triage, views, work_link
 from classical_core import browse as tree
 from classical_core import dates as work_dates
 from classical_core.index import AlbumIn, Index, MappingIn, TrackIn
@@ -61,6 +61,7 @@ CONF_ACC_CRITIQUEBRAINZ = "accolades_critiquebrainz"
 CONF_ACC_DISCOGS = "accolades_discogs"
 CONF_DISCOGS_TOKEN = "discogs_token"
 CONF_HEMISPHERE = "hemisphere"
+CONF_COVER_ART = "cover_art"
 TODAY_TTL = 300                      # seconds the day's shelves are reused (they change with the library)
 TODAY_WAIT = 2.5                     # home rows wait this long for fresh shelves (MA gives rows 5 s)
 TODAY_KEEP = 8                       # (day, sources, hemisphere) entries kept
@@ -146,6 +147,16 @@ class ClassicalProvider(CompanionUI, PluginProvider):
                 advanced=True,
             ),
             ConfigEntry(
+                key=CONF_COVER_ART,
+                type=ConfigEntryType.BOOLEAN,
+                label="Album art from the Cover Art Archive for albums without any",
+                description="For an album with no embedded art and no cover file, whose MusicBrainz release "
+                "is known, the release's front cover is added to the album in Music Assistant's library (a "
+                "link, nothing is written next to your music). Needs the MusicBrainz contact.",
+                default_value=True,
+                required=False,
+            ),
+            ConfigEntry(
                 key=CONF_ACC_DATASET,
                 type=ConfigEntryType.BOOLEAN,
                 label="Show awards from the built-in list (Grammy, Gramophone, Diapason d'Or)",
@@ -229,6 +240,11 @@ class ClassicalProvider(CompanionUI, PluginProvider):
         self._acc_dataset = bool(self.config.get_value(CONF_ACC_DATASET, True))
         self._net = self._net_clients(mb_contact(self.config.get_value(CONF_MB_CONTACT, "")))
         self._wiki = self._wiki_clients(mb_contact(self.config.get_value(CONF_MB_CONTACT, ""))) if self._mb else {}
+        self._caa = None
+        self._art_after = None
+        if self._mb is not None and self.config.get_value(CONF_COVER_ART, True):
+            self._caa = artwork.CAAClient(mb_contact(self.config.get_value(CONF_MB_CONTACT, "")) or "",
+                                          cache=SqliteMBCache(self._con, run=self._db.write, table="web_cache"))
         self._llm = None
         if self.config.get_value(CONF_LLM, False):
             base = str(self.config.get_value(CONF_LLM_BASE_URL, "") or "").strip()
@@ -325,6 +341,8 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             await client.close()
         for client in (getattr(self, "_wiki", None) or {}).values():
             await client.close()
+        if getattr(self, "_caa", None) is not None:
+            await self._caa.close()
         if getattr(self, "_artists", None) is not None:
             await self._artists.close()
         await self._db.close()
@@ -381,6 +399,7 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             await self._index_album_id(arg)
             self._enqueue("accolades")
             self._enqueue("dates")
+            self._enqueue("art")
         elif kind == "accolades":
             stats = await self._write(accolades.refresh, self._con, None, getattr(self, "_acc_dataset", True))
             self.logger.debug("Classical accolades: %s", stats)
@@ -396,6 +415,8 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             self._enqueue("worklink")
         elif kind == "dates_net":
             await self._dates_net()
+        elif kind == "art":
+            await self._art()
         elif kind == "worklink":
             stats, due = await self._write(work_link.refresh, self._con, self._mb_base(), work_link.CHUNK)
             self.logger.debug("Classical work links: %s", stats)
@@ -480,6 +501,7 @@ class ClassicalProvider(CompanionUI, PluginProvider):
         self._state["last_scan"] = time.time()
         self._enqueue("accolades")
         self._enqueue("dates")
+        self._enqueue("art")
         self.logger.info("Classical scan done: %d albums (re)indexed; %s", n, await self._read(Index.status))
 
     async def _sync_watch(self) -> None:
@@ -594,6 +616,50 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             await self._write(accolades.store_net, self._con, album["album_library_id"], res)
         if len(due) == NET_CHUNK:
             self._enqueue("accolades_net")
+
+    async def _art(self) -> None:
+        """One chunk of album art (classical_core/artwork.py): albums without an image get their MusicBrainz
+        release's Cover Art Archive front, added to MA's library album. Walks the albums in id order and
+        re-queues itself; a transient failure stops the walk until the next scan or album change."""
+        caa = getattr(self, "_caa", None)
+        if caa is None:
+            return
+        due = await self._write(artwork.due, self._con, self._art_after, artwork.CHUNK)
+        for album in due:
+            try:
+                art = await artwork.find(album, caa, self._mb)
+            except MBTransientError as err:
+                self.logger.info("Classical album art: lookups deferred (%s)", err)
+                return            # resumes from here: `_art_after` still names the last album done
+            if art is not None:
+                await self._apply_art(album["album_library_id"], art)
+            self._art_after = album["album_library_id"]
+        if len(due) == artwork.CHUNK:
+            self._enqueue("art")
+        else:
+            self._art_after = None
+
+    async def _apply_art(self, album_id: str, art: artwork.Art) -> bool:
+        """Add the cover to MA's library album (a remote image in MA's own metadata; with a confident match
+        also the MusicBrainz ids MA lacks, so its own metadata providers can use them). Never replaces an
+        image MA has."""
+        try:
+            album = await self.mass.music.albums.get_library_item(int(album_id))
+        except (MediaNotFoundError, ValueError):
+            return False
+        if getattr(album, "image", None) is not None:
+            return False
+        if art.confident:
+            have = album_ids_map(album)
+            for kind, value in ((ExternalID.MB_ALBUM, art.release), (ExternalID.MB_RELEASEGROUP, art.release_group)):
+                if value and not have.get(str(getattr(kind, "value", kind))):
+                    album.add_external_id(kind, value)
+        album.metadata.add_image(MediaItemImage(type=ImageType.THUMB, path=art.url, provider=artwork.PROVIDER,
+                                                remotely_accessible=True))
+        await self.mass.music.albums.update_item_in_library(album.item_id, album)
+        await self._write(artwork.store_image, self._con, album_id, art.url)
+        self.logger.debug("Classical album art for %s (%s): %s", album_id, album.name, art.url)
+        return True
 
     def _mb_base(self) -> str:
         return self._mb.base_url if getattr(self, "_mb", None) is not None else DEFAULT_BASE
@@ -1136,7 +1202,7 @@ def job_order(key: str) -> tuple[bool, bool, bool]:
     """The worker's order: removals and provider checks first, then single albums, then scans, then accolades,
     work dates and work links (the dataset refreshes and the network lookups wait until the library is
     indexed)."""
-    return (not key.startswith(("providers", "remove:")), key.startswith(("accolades", "dates", "worklink")),
+    return (not key.startswith(("providers", "remove:")), key.startswith(("accolades", "dates", "worklink", "art")),
             key.startswith("scan"))
 
 
@@ -1151,14 +1217,20 @@ def external_ids(item: Any, kind: str) -> list[str]:
     return sorted(out - {""})
 
 
-def album_ids(album: Any) -> tuple[str | None, ...]:
-    """(label, barcode, MB release, MB release group, Discogs release) from an MA album; any may be None."""
+def album_ids_map(album: Any) -> dict[str, str]:
+    """An MA item's external ids as {type value: id} (empty ids left out)."""
     ids: dict[str, str] = {}
     ext = getattr(album, "external_ids", None)
     if isinstance(ext, (set, frozenset, list, tuple)):
         for item in ext:
             if isinstance(item, (tuple, list)) and len(item) == 2 and item[1]:
                 ids[str(getattr(item[0], "value", item[0]))] = str(item[1])
+    return ids
+
+
+def album_ids(album: Any) -> tuple[str | None, ...]:
+    """(label, barcode, MB release, MB release group, Discogs release) from an MA album; any may be None."""
+    ids = album_ids_map(album)
     label = getattr(getattr(album, "metadata", None), "label", None)
     return (label if isinstance(label, str) and label.strip() else None, ids.get("barcode"),
             ids.get("musicbrainz_albumid"), ids.get("musicbrainz_releasegroupid"), ids.get("discogs"))
