@@ -2,7 +2,8 @@
 
 Everything classical lives in `classical_core` (no MA imports); this module only adapts MA's library and
 models to it. One worker task, created in a fresh context so it never runs as the user whose request
-loaded the plugin, owns the SQLite writer connection; event callbacks only enqueue ids.
+loaded the plugin, drives indexing; event callbacks only enqueue ids. No SQLite call runs on MA's event loop:
+writes go through the `Database` writer thread, browse and command reads through its reader threads.
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ from classical_core import __version__ as CORE_VERSION
 from classical_core import browse as tree
 from classical_core.index import AlbumIn, Index, MappingIn, TrackIn
 from classical_core.mb import MBClient
-from classical_core.store import SqliteMBCache, connect, migrate
+from classical_core.store import Database, SqliteMBCache
 
 if TYPE_CHECKING:
     from music_assistant_models.event import MassEvent
@@ -56,6 +57,7 @@ class ClassicalProvider(PluginProvider):
 
     index: Index
     _con: Any
+    _db: Database | None
     _mb: MBClient | None
     _jobs: dict[str, None]
     _wake: asyncio.Event
@@ -77,7 +79,9 @@ class ClassicalProvider(PluginProvider):
             ConfigEntry(
                 key=CONF_MB_CONTACT,
                 type=ConfigEntryType.STRING,
-                label="Contact for the MusicBrainz User-Agent (email or URL)",
+                label="Contact for the MusicBrainz User-Agent (email or URL), required for lookups",
+                description="MusicBrainz asks every client to identify itself with a way to reach its "
+                "operator. Lookups stay off until this is set.",
                 default_value="",
                 required=False,
                 depends_on=CONF_MUSICBRAINZ,
@@ -93,13 +97,20 @@ class ClassicalProvider(PluginProvider):
         self._retry_handle = None
         self._state = {"current": None, "last_scan": None, "albums_indexed": 0, "errors": 0}
         db_path = os.path.join(self.mass.storage_path, "classical", "index.db")
-        self._con = await asyncio.to_thread(connect, db_path)
-        await asyncio.to_thread(migrate, self._con)
+        self._db = Database(db_path)
+        await self._db.open()
+        self._con = self._db.con
         self._mb = None
+        self._mb_note = None
         if self.config.get_value(CONF_MUSICBRAINZ, True):
-            contact = str(self.config.get_value(CONF_MB_CONTACT, "") or "") or "no contact configured"
-            self._mb = MBClient(contact, cache=SqliteMBCache(self._con))
-        self.index = Index(self._con, self._mb)
+            contact = mb_contact(self.config.get_value(CONF_MB_CONTACT, ""))
+            if contact:
+                self._mb = MBClient(contact, cache=SqliteMBCache(self._con, run=self._db.write))
+            else:
+                # MB's policy wants a real contact in the User-Agent: no placeholder, no lookups without one
+                self._mb_note = "set a contact (email or URL) in the Classical settings to enable MusicBrainz"
+                self.logger.warning("Classical: MusicBrainz lookups are off: %s", self._mb_note)
+        self.index = Index(self._con, self._mb, db=self._db)
 
     async def loaded_in_mass(self) -> None:
         """Register commands and subscriptions, start the worker and queue the initial scan."""
@@ -136,14 +147,31 @@ class ClassicalProvider(PluginProvider):
                 await self._worker_task
         if self._mb:
             await self._mb.close()
-        await asyncio.to_thread(self._con.close)
+        await self._db.close()
         # is_removed: the index database is kept (rollback leaves it untouched, §7)
 
     # ---- job queue ---------------------------------------------------------------------------------------
 
     def _enqueue(self, key: str) -> None:
+        # a forced scan covers a normal one; a queued forced scan is never downgraded
+        if key == "scan" and "scan:force" in self._jobs:
+            return
+        if key == "scan:force":
+            self._jobs.pop("scan", None)
         self._jobs[key] = None
         self._wake.set()
+
+    async def _write(self, fn: Callable[..., Any], *args: Any) -> Any:
+        """Run `fn(*args)` on the database writer thread (inline when there is no Database: tests)."""
+        db = getattr(self, "_db", None)
+        return fn(*args) if db is None else await db.write(fn, *args)
+
+    async def _read(self, fn: Callable[..., Any], *args: Any) -> Any:
+        """Run `fn(index, *args)` on a reader thread against a read-only Index."""
+        db = getattr(self, "_db", None)
+        if db is None:
+            return fn(self.index, *args)
+        return await db.read(lambda con, *a: fn(Index(con), *a), *args)
 
     async def _worker(self) -> None:
         while True:
@@ -174,30 +202,42 @@ class ClassicalProvider(PluginProvider):
         elif kind == "album":
             await self._index_album_id(arg)
         elif kind == "remove":
-            self.index.remove_album(arg)
+            await self._write(self.index.remove_album, arg)
+        elif kind == "track":
+            for aid in await self._write(self.index.albums_of_track, arg):
+                self._enqueue(f"album:{aid}")
         elif kind == "providers":
             await self._reconcile_providers()
 
     # ---- library → index ---------------------------------------------------------------------------------
 
-    def _job_cursor(self, job_id: str) -> str | None:
-        r = self._con.execute("SELECT cursor, state FROM job WHERE id=?", (job_id,)).fetchone()
-        return r["cursor"] if r and r["state"] == "running" else None
+    def _job_row(self, job_id: str) -> tuple[str | None, bool] | None:
+        """(cursor, forced) of an interrupted scan, or None."""
+        r = self._con.execute("SELECT cursor, state, kind FROM job WHERE id=?", (job_id,)).fetchone()
+        return (r["cursor"], r["kind"] == "scan_force") if r and r["state"] == "running" else None
 
-    def _set_job(self, job_id: str, state: str, cursor: str | None = None, error: str | None = None) -> None:
+    def _set_job(self, job_id: str, state: str, cursor: str | None = None, error: str | None = None,
+                 force: bool = False) -> None:
         self._con.execute(
             "INSERT INTO job(id, kind, scope, cursor, state, started_at, error) VALUES (?,?,?,?,?,?,?) "
-            "ON CONFLICT(id) DO UPDATE SET cursor=excluded.cursor, state=excluded.state, error=excluded.error",
-            (job_id, "scan", "library", cursor, state, time.time(), error),
+            "ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, cursor=excluded.cursor, state=excluded.state, "
+            "error=excluded.error",
+            (job_id, "scan_force" if force else "scan", "library", cursor, state, time.time(), error),
         )
 
     async def _scan(self, force: bool = False) -> None:
-        """Reconcile the whole library: index every album (resuming from job.cursor), drop vanished ones."""
-        cursor = self._job_cursor("scan")
-        start = int(cursor) if cursor and cursor.isdigit() else 0
-        if start:
-            self.logger.info("Resuming classical scan after album %s", start)
-        self._set_job("scan", "running", str(start))
+        """Reconcile the whole library: index every album, drop vanished ones.
+
+        A normal scan resumes an interrupted one from job.cursor (forced, if that one was forced); a forced
+        scan always starts from the first album, so a reindex never skips what an earlier scan passed."""
+        start = 0
+        prev = await self._write(self._job_row, "scan")
+        if prev is not None and not force:
+            cursor, force = prev
+            start = int(cursor) if cursor and cursor.isdigit() else 0
+            if start:
+                self.logger.info("Resuming classical %sscan after album %s", "forced " if force else "", start)
+        await self._write(self._set_job, "scan", "running", str(start), None, force)
         n = 0
         while True:
             rows = await self.mass.music.database.get_rows_from_query(
@@ -217,10 +257,10 @@ class ClassicalProvider(PluginProvider):
                     # resumed scan would retry it first and fail again
                     self._state["errors"] += 1
                     self.logger.exception("Classical: indexing album %s failed", start)
-                self._set_job("scan", "running", str(start))
+                await self._write(self._set_job, "scan", "running", str(start), None, force)
         # albums the index knows but MA no longer has
         present = set()
-        known = self.index.album_ids()
+        known = await self._write(self.index.album_ids)
         for i in range(0, len(known), PAGE):
             chunk = [int(a) for a in known[i : i + PAGE] if a.isdigit()]
             if chunk:
@@ -228,10 +268,10 @@ class ClassicalProvider(PluginProvider):
                 present |= {str(r["item_id"]) for r in await self.mass.music.database.get_rows_from_query(q, {}, limit=PAGE)}
         for aid in known:
             if aid not in present:
-                self.index.remove_album(aid)
-        self._set_job("scan", "done")
+                await self._write(self.index.remove_album, aid)
+        await self._write(self._set_job, "scan", "done", None, None, force)
         self._state["last_scan"] = time.time()
-        self.logger.info("Classical scan done: %d albums (re)indexed; %s", n, self.index.status())
+        self.logger.info("Classical scan done: %d albums (re)indexed; %s", n, await self._read(Index.status))
 
     async def _album_tracks(self, album_id: int) -> list[Track]:
         out: list[Track] = []
@@ -266,7 +306,7 @@ class ClassicalProvider(PluginProvider):
         try:
             album = await self.mass.music.albums.get_library_item(int(album_id))
         except (MediaNotFoundError, ValueError):
-            self.index.remove_album(album_id)
+            await self._write(self.index.remove_album, album_id)
             return False
         tracks = await self._album_tracks(int(album_id))
         ain = AlbumIn(
@@ -301,7 +341,7 @@ class ClassicalProvider(PluginProvider):
         configured = set((self.mass.config.get(CONF_PROVIDERS) or {}).keys())
         loaded = {p.instance_id for p in self.mass.providers}
         pending = False
-        for pi in self.index.provider_instances():
+        for pi in await self._write(self.index.provider_instances):
             if pi in loaded:
                 state = "configured"
             elif pi in configured:
@@ -314,12 +354,12 @@ class ClassicalProvider(PluginProvider):
                     state = "removal_pending"
                     pending = True
                 else:
-                    if self.index.provider_state(pi) != "removed":
-                        for aid in self.index.retract_provider(pi):
+                    if await self._write(self.index.provider_state, pi) != "removed":
+                        for aid in await self._write(self.index.retract_provider, pi):
                             self._enqueue(f"album:{aid}")
                         self.logger.info("Provider %s removed: its evidence was retracted", pi)
                     continue
-            if self.index.set_provider_state(pi, state):
+            if await self._write(self.index.set_provider_state, pi, state):
                 self.logger.info("Provider %s is now %s", pi, state)
         if pending and self._retry_handle is None:
             loop = asyncio.get_running_loop()
@@ -348,12 +388,11 @@ class ClassicalProvider(PluginProvider):
             kind = "remove" if event.event == EventType.MEDIA_ITEM_DELETED else "album"
             self._enqueue(f"{kind}:{item.item_id}")
         elif mt == MediaType.TRACK:
-            albums = set(self.index.albums_of_track(str(item.item_id)))
+            # the albums holding the track are looked up by the worker (no SQLite on the event loop)
+            self._enqueue(f"track:{item.item_id}")
             album = getattr(item, "album", None)
             if album is not None and getattr(album, "provider", None) == "library":
-                albums.add(str(album.item_id))
-            for aid in albums:
-                self._enqueue(f"album:{aid}")
+                self._enqueue(f"album:{album.item_id}")
 
     # ---- access ------------------------------------------------------------------------------------------
 
@@ -373,8 +412,9 @@ class ClassicalProvider(PluginProvider):
     async def browse(self, path: str) -> Sequence[MediaItemType | ItemMapping | BrowseFolder]:
         """Browse the classical tree (path: classical://...)."""
         sub = path.split("://", 1)[1] if "://" in path else path
+        vis = self._vis()  # on the loop: the current user is a context variable
         try:
-            nodes = tree.browse(self.index, sub, self._vis())
+            nodes = await self._read(tree.browse, sub, vis)
         except tree.NotFound as err:
             raise MediaNotFoundError(f"Not found: {path}") from err
         return await self._to_items(nodes)
@@ -429,16 +469,20 @@ class ClassicalProvider(PluginProvider):
         vis = self._vis()
         items: UniqueList[MediaItemType | ItemMapping | BrowseFolder] = UniqueList()
         if item_id == "recent_works":
-            for w in self.index.recently_added_works(vis, limit=20):
-                best = self.index.best_recording(w["id"], vis)
-                if best is None:
-                    continue
-                r, _ = best
+            def recent(ix: Index) -> list[tuple[dict, dict]]:
+                out = []
+                for w in ix.recently_added_works(vis, limit=20):
+                    best = ix.best_recording(w["id"], vis)
+                    if best is not None:
+                        out.append((w, best[0]))
+                return out
+
+            for w, r in await self._read(recent):
                 items.append(self._folder(tree.Node(
                     "folder", f"works/{w['id']}/{r['id']}", w["title"], version=f"{w['composer'] or ''} · {r['label']}",
                     item_id=tree.recording_item_id(w["id"], r["id"]), playable=True, image=r.get("image"))))
         elif item_id == "composers":
-            comps = sorted(self.index.composers(vis), key=lambda c: -c["works"])[:20]
+            comps = sorted(await self._read(Index.composers, vis), key=lambda c: -c["works"])[:20]
             for c in comps:
                 items.append(self._folder(tree.Node("folder", f"composers/{c['id']}", c["name"],
                                                     version=f"{c['works']} works")))
@@ -446,13 +490,14 @@ class ClassicalProvider(PluginProvider):
 
     # ---- API commands (M1a) ------------------------------------------------------------------------------
 
-    def _work_result(self, w: dict, vis: list[str] | None) -> dict[str, Any]:
+    @staticmethod
+    def _work_result(ix: Index, w: dict, vis: list[str] | None) -> dict[str, Any]:
         res: dict[str, Any] = {
             "id": w["id"], "kind": "work", "title": w["title"], "composer": w.get("composer"),
             "work_type": w.get("work_type"), "catalogue": w.get("catalogue_display"),
             "recordings": w.get("recordings"), "browse_path": f"{tree.SCHEME}works/{w['id']}",
         }
-        best = self.index.best_recording(w["id"], vis)
+        best = ix.best_recording(w["id"], vis)
         if best:
             r, reason = best
             res.update(play_uri=tree.play_uri(w["id"], r["id"]), recording_id=r["id"], recording_label=r["label"],
@@ -464,46 +509,67 @@ class ClassicalProvider(PluginProvider):
         if kind not in ("composer", "work", "recording"):
             raise InvalidDataError("kind must be composer, work or recording")
         vis = self._vis()
-        hits = self.index.search(query, kind, vis, limit=max(1, min(int(limit), 200)))
-        if kind == "composer":
-            return [{"id": c["id"], "kind": "composer", "name": c["name"], "works": c["works"],
-                     "browse_path": f"{tree.SCHEME}composers/{c['id']}"} for c in hits]
-        if kind == "work":
-            return [self._work_result(w, vis) for w in hits]
-        return [{"id": r["id"], "kind": "recording", "label": r["label"], "work_id": r["work_id"],
-                 "work_title": r["work_title"], "composer": r["composer"], "album": r.get("album"),
-                 "browse_path": f"{tree.SCHEME}works/{r['work_id']}/{r['id']}",
-                 "play_uri": tree.play_uri(r["work_id"], r["id"])} for r in hits]
+        lim = max(1, min(int(limit), 200))
+
+        def search(ix: Index) -> list[dict[str, Any]]:
+            hits = ix.search(query, kind, vis, limit=lim)
+            if kind == "composer":
+                return [{"id": c["id"], "kind": "composer", "name": c["name"], "works": c["works"],
+                         "browse_path": f"{tree.SCHEME}composers/{c['id']}"} for c in hits]
+            if kind == "work":
+                return [self._work_result(ix, w, vis) for w in hits]
+            return [{"id": r["id"], "kind": "recording", "label": r["label"], "work_id": r["work_id"],
+                     "work_title": r["work_title"], "composer": r["composer"], "album": r.get("album"),
+                     "browse_path": f"{tree.SCHEME}works/{r['work_id']}/{r['id']}",
+                     "play_uri": tree.play_uri(r["work_id"], r["id"])} for r in hits]
+
+        return await self._read(search)
 
     async def cmd_composer(self, id: str | None = None, name: str | None = None) -> dict[str, Any]:
         """One composer (by id or name) with their works by type."""
         vis = self._vis()
-        comp = None
-        if id:
-            comp = next((c for c in self.index.composers(vis) if c["id"] == self.index.resolve("composer", id)), None)
-        elif name:
-            hits = self.index.search(name, "composer", vis, limit=1)
-            comp = hits[0] if hits else None
-        if comp is None:
+
+        def composer(ix: Index) -> dict[str, Any] | None:
+            comp = None
+            if id:
+                comp = next((c for c in ix.composers(vis) if c["id"] == ix.resolve("composer", id)), None)
+            elif name:
+                hits = ix.search(name, "composer", vis, limit=1)
+                comp = hits[0] if hits else None
+            if comp is None:
+                return None
+            works = ix.works(comp["id"], vis=vis)
+            return {
+                "id": comp["id"], "kind": "composer", "name": comp["name"], "born": comp.get("born"),
+                "died": comp.get("died"), "browse_path": f"{tree.SCHEME}composers/{comp['id']}",
+                "types": [{"type": t, "works": n} for t, n in ix.composer_types(comp["id"], vis)],
+                "works": [self._work_result(ix, w, vis) for w in works[:200]],
+            }
+
+        res = await self._read(composer)
+        if res is None:
             raise MediaNotFoundError("Composer not found")
-        works = self.index.works(comp["id"], vis=vis)
-        return {
-            "id": comp["id"], "kind": "composer", "name": comp["name"], "born": comp.get("born"),
-            "died": comp.get("died"), "browse_path": f"{tree.SCHEME}composers/{comp['id']}",
-            "types": [{"type": t, "works": n} for t, n in self.index.composer_types(comp["id"], vis)],
-            "works": [self._work_result(w, vis) for w in works[:200]],
-        }
+        return res
 
     async def cmd_status(self) -> dict[str, Any]:
         """Index counts and worker state (household-wide, so LIBRARY_MANAGE)."""
         return {
-            "core_version": CORE_VERSION, "ma_version": self.mass.version, **self.index.status(),
+            "core_version": CORE_VERSION, "ma_version": self.mass.version, **await self._read(Index.status),
             "worker": {**self._state, "queued": list(self._jobs),
                        "running": bool(self._worker_task and not self._worker_task.done())},
             "musicbrainz": self._mb is not None,
+            **({"musicbrainz_note": self._mb_note} if getattr(self, "_mb_note", None) else {}),
         }
 
     async def cmd_reindex(self, force: bool = False) -> dict[str, Any]:
         """Queue a full library scan (force re-reads every file and MB response)."""
         self._enqueue("scan:force" if force else "scan")
         return {"queued": list(self._jobs)}
+
+
+def mb_contact(value: Any) -> str | None:
+    """The configured MusicBrainz contact if it looks like one (an email address or a URL), else None."""
+    v = str(value or "").strip()
+    if "@" in v.strip("@") or "://" in v or v.startswith("www."):
+        return v
+    return None

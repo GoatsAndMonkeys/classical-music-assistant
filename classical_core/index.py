@@ -30,7 +30,7 @@ from . import catalogue as cat
 from .composers import find_in_credit, lookup
 from .grouping import Slot, group_album
 from .ids import new_id
-from .mb import MBClient, MBError, RecordingInfo, WorkInfo, is_mbid, parse_recording, parse_work
+from .mb import MBClient, MBError, MBTransientError, RecordingInfo, WorkInfo, is_mbid, parse_recording, parse_work
 from .sethster_canonical import form_key
 from .tags import Person, TagInfo, read_tags, year_of
 from .text import fold, norm_key, sort_name
@@ -84,6 +84,7 @@ class AlbumStats:
     tag_reads: int = 0
     read_errors: int = 0
     mb_requests: int = 0
+    mb_failures: int = 0          # transient MB failures: the album is retried on the next scan
     review_items: int = 0
 
 
@@ -159,15 +160,65 @@ def _tags_from_rows(rows: Iterable[sqlite3.Row]) -> TagInfo:
     return info
 
 
+# ---- grouping boundary (§5.3) --------------------------------------------------------------------------
+
+# MB work types that are complete works in their own right: the parent walk never climbs above one, so a
+# cycle or collection (Der Ring des Nibelungen, Das wohltemperierte Klavier I, Má vlast, "6 Cello Suites")
+# never becomes the unit that adjacent tracks are grouped under.
+STANDALONE_TYPES = {
+    "opera", "operetta", "zarzuela", "ballet", "musical", "symphony", "concerto", "concerto grosso", "sonata",
+    "sonatina", "quartet", "quintet", "trio", "mass", "requiem", "oratorio", "cantata", "song-cycle", "suite",
+    "partita", "symphonic poem", "beijing opera",
+}
+_RANGE = re.compile(r"\d[a-z]?\s*[-–—]\s*\d")
+
+
+def _cats(w: WorkInfo) -> tuple[list[cat.Catalogue], bool]:
+    """Parsed catalogues of an MB work, and whether any of them is a range ("BWV 846–869": a collection)."""
+    out: list[cat.Catalogue] = []
+    ranged = False
+    for _series, num in w.catalogues:
+        ranged |= bool(_RANGE.search(num))
+        out += cat.parse_catalogues(num)
+    return out, ranged
+
+
+def climb_stop(child: WorkInfo, parent: WorkInfo | None) -> str | None:
+    """Why the parent walk must stop at `child` (it is the grouping boundary), or None to climb on."""
+    if (child.work_type or "").lower() in STANDALONE_TYPES:
+        return "standalone work type"
+    if parent is None:
+        return "parent work not fetched"
+    pcats, ranged = _cats(parent)
+    if ranged:
+        return "parent is a catalogue range"
+    ccats, _ = _cats(child)
+    if ccats and not pcats:
+        return "catalogued work in an uncatalogued parent"
+    by_ns = {c.namespace: c for c in pcats}
+    for c in ccats:
+        p = by_ns.get(c.namespace)
+        if p is not None and p.components != c.components and not p.is_prefix_of(c):
+            return "parent has a different catalogue number"
+    return None
+
+
 # ---- the index -----------------------------------------------------------------------------------------
 
 
 class Index:
+    """`db` (a `store.Database`) runs every database step of `index_album` on its writer thread, so MA's
+    event loop only awaits; without it (tests, read-only instances) the steps run inline."""
+
     def __init__(self, con: sqlite3.Connection, mb: MBClient | None = None,
-                 tag_reader: Callable[[str], TagInfo] = read_tags) -> None:
+                 tag_reader: Callable[[str], TagInfo] = read_tags, db: Any = None) -> None:
         self.con = con
         self.mb = mb
         self.tag_reader = tag_reader
+        self.db = db
+
+    async def _w(self, fn: Callable[..., Any], *args: Any) -> Any:
+        return fn(*args) if self.db is None else await self.db.write(fn, *args)
 
     # -- small helpers --
 
@@ -233,8 +284,17 @@ class Index:
 
     # -- Tier 1 --
 
-    async def refresh_mapping(self, track: TrackIn, m: MappingIn, force: bool = False) -> str:
-        """Returns 'read', 'unchanged', 'skipped', 'error' or 'unavailable'."""
+    def _needs_read(self, m: MappingIn, force: bool) -> bool:
+        if not m.available or m.path is None or CUE_TRACK in m.item_id:
+            return False  # a CUE track's item_id names a track inside one image file (PLAN §5: no Tier 1)
+        row = self._one("SELECT status, file_fingerprint FROM mapping_state WHERE provider_instance=? AND item_id=?",
+                        (m.provider_instance, m.item_id))
+        return (force or row is None or row["status"] != "ok" or m.fingerprint is None
+                or row["file_fingerprint"] != m.fingerprint)
+
+    def _apply_mapping(self, track: TrackIn, m: MappingIn, read: TagInfo | BaseException | None) -> str:
+        """Record one mapping's Tier 1 result. `read` is the tag read (or its error); None = not read.
+        Returns 'read', 'unchanged', 'skipped', 'error' or 'unavailable'."""
         origin = f"tags:{m.provider_instance}/{m.item_id}"
         row = self._one("SELECT * FROM mapping_state WHERE provider_instance=? AND item_id=?",
                         (m.provider_instance, m.item_id))
@@ -243,22 +303,18 @@ class Index:
             self._upsert_mapping(m, track, row, status="unavailable")
             return "unavailable"
         if m.path is None or CUE_TRACK in m.item_id:
-            # no file to read; a CUE track's item_id names a track inside one image file (PLAN §5: no Tier 1)
             self._upsert_mapping(m, track, row, status="ok")
             return "skipped"
-        if (not force and row is not None and row["status"] == "ok" and row["file_fingerprint"] == m.fingerprint
-                and m.fingerprint is not None):
+        if read is None:
             return "unchanged"
-        try:
-            info = await asyncio.to_thread(self.tag_reader, m.path)
-        except Exception as e:  # noqa: BLE001 - any read failure is a read_error; it retracts nothing
-            self._upsert_mapping(m, track, row, status="read_error", error=str(e)[:500], retry_after=now + 3600)
+        if isinstance(read, BaseException):  # any read failure is a read_error; it retracts nothing
+            self._upsert_mapping(m, track, row, status="read_error", error=str(read)[:500], retry_after=now + 3600)
             return "error"
-        h = info.tag_hash()
+        h = read.tag_hash()
         # always reconcile: a mapping returning from 'gone' has an unchanged hash but retracted evidence
-        rows = [("mapping", f"{m.provider_instance}/{m.item_id}", f, v, e) for f, v, e in _tag_rows(info)]
+        rows = [("mapping", f"{m.provider_instance}/{m.item_id}", f, v, e) for f, v, e in _tag_rows(read)]
         self.replace_origin(origin, "tags", rows)
-        self._upsert_mapping(m, track, row, status="ok", tag_hash=h, mbid=info.recording_mbid, indexed_at=now)
+        self._upsert_mapping(m, track, row, status="ok", tag_hash=h, mbid=read.recording_mbid, indexed_at=now)
         return "read"
 
     def _upsert_mapping(self, m: MappingIn, track: TrackIn, row: sqlite3.Row | None, status: str,
@@ -293,6 +349,7 @@ class Index:
             data = await self.mb.recording(mbid)
         except MBError as e:
             log.debug("MB recording %s: %s", mbid, e)
+            stats.mb_failures += isinstance(e, MBTransientError)
             return
         stats.mb_requests += 1
         try:
@@ -303,21 +360,28 @@ class Index:
         rows = [("mb_recording", mbid, "title", json.dumps(rec.title), "title")]
         rows += [("mb_recording", mbid, "work_link", json.dumps(asdict(w), sort_keys=True), w.edge) for w in rec.works]
         rows += [("mb_recording", mbid, "credit", json.dumps(asdict(c), sort_keys=True), c.edge) for c in rec.credits]
-        self.replace_origin(url, "mb", rows)
+        await self._w(self.replace_origin, url, "mb", rows)
         for w in rec.works:
             await self.refresh_mb_work_chain(w.work_mbid, stats)
 
     async def refresh_mb_work_chain(self, mbid: str, stats: AlbumStats) -> None:
+        """Fetch a work and its parents up to the grouping boundary (bounded): a standalone work's parents
+        are never fetched, and a parent that cannot be climbed into (a cycle) ends the walk there."""
         seen: set[str] = set()
-        todo = [(mbid, 0)]
+        todo: list[tuple[str, int, WorkInfo | None]] = [(mbid, 0, None)]
         while todo:
-            wid, depth = todo.pop(0)
+            wid, depth, child = todo.pop(0)
             if wid in seen:
                 continue
             seen.add(wid)
             info = await self.refresh_mb_work(wid, stats)
-            if info is not None and depth < MAX_PARENT_DEPTH:
-                todo += [(p.mbid, depth + 1) for p in info.parents]
+            if info is None or depth >= MAX_PARENT_DEPTH:
+                continue
+            if child is not None and climb_stop(child, info):
+                continue  # the child is the boundary: this parent's own parents are irrelevant
+            if (info.work_type or "").lower() in STANDALONE_TYPES:
+                continue
+            todo += [(p.mbid, depth + 1, info) for p in info.parents]
 
     async def refresh_mb_work(self, mbid: str, stats: AlbumStats) -> WorkInfo | None:
         if self.mb is None:
@@ -327,13 +391,14 @@ class Index:
             data = await self.mb.work(mbid)
         except MBError as e:
             log.debug("MB work %s: %s", mbid, e)
-            return self._mb_work(mbid)
+            stats.mb_failures += isinstance(e, MBTransientError)
+            return await self._w(self._mb_work, mbid)
         stats.mb_requests += 1
         try:
             w = parse_work(data)
         except Exception as e:  # noqa: BLE001 - malformed MB JSON abstains; it must not fail the album
             log.warning("MB work %s: unparseable response: %r", mbid, e)
-            return self._mb_work(mbid)
+            return await self._w(self._mb_work, mbid)
         e = ("mb_work", mbid)
         rows = [(*e, "title", json.dumps(w.title), "title")]
         for f in ("work_type", "key", "title_en"):
@@ -342,7 +407,7 @@ class Index:
         for f in ("composers", "credits", "parents", "parts", "arrangement_of", "revision_of"):
             rows += [(*e, f, json.dumps(asdict(x), sort_keys=True), x.edge) for x in getattr(w, f)]
         rows += [(*e, "catalogues", json.dumps(c), f"cat:{c[0]}:{c[1]}") for c in w.catalogues]
-        self.replace_origin(url, "mb", rows)
+        await self._w(self.replace_origin, url, "mb", rows)
         return w
 
     def _mb_recording(self, mbid: str) -> RecordingInfo | None:
@@ -386,14 +451,17 @@ class Index:
         return w
 
     def mb_chain(self, mbid: str) -> tuple[list[str], str | None]:
-        """[work, parent, grandparent, ...] up to the depth limit, plus an abstain reason if the walk had to
-        stop at an ambiguity (two parents, a cycle, or the depth limit with parents left)."""
+        """[work, parent, grandparent, ...] up to the grouping boundary (§5.3), plus an abstain reason if
+        the walk had to stop at an ambiguity (two parents, a cycle, the depth limit, a missing parent).
+
+        The boundary is the highest work that is still one work: the walk stops below a cycle or a
+        collection (see `climb_stop`), so the Ring's operas and each WTC prelude-and-fugue stay apart."""
         chain = [mbid]
         seen = {mbid}
         cur = self._mb_work(mbid)
         while cur is not None:
             parents = {p.mbid for p in cur.parents}
-            if not parents:
+            if not parents or (cur.work_type or "").lower() in STANDALONE_TYPES:
                 return chain, None
             if len(parents) > 1:
                 return chain, "work has two parents"
@@ -402,9 +470,13 @@ class Index:
             nxt = next(iter(parents))
             if nxt in seen:
                 return chain, "cycle in work hierarchy"
+            pw = self._mb_work(nxt)
+            if climb_stop(cur, pw):
+                # includes an unfetched parent: group only up to what is known (never merge on a guess)
+                return chain, None
             chain.append(nxt)
             seen.add(nxt)
-            cur = self._mb_work(nxt)
+            cur = pw
         return chain, None
 
     # -- album indexing --
@@ -424,32 +496,68 @@ class Index:
         return False
 
     async def index_album(self, album: AlbumIn, force: bool = False) -> AlbumStats | None:
-        """Index one album. Returns None when nothing changed since the last run (and not forced)."""
+        """Index one album. Returns None when nothing changed since the last run (and not forced).
+
+        Database steps run on the writer thread (`db`); tag reads run in worker threads; MB requests are
+        awaited on the loop. Nothing here blocks the event loop."""
         sig = album_signature(album)
-        if not force and self.album_signature(album.library_album_id) == sig and not self._retry_due(album):
+        tracks = sorted(album.tracks, key=lambda t: (t.disc or 1, t.position or 0))
+        todo = await self._w(self._plan_album, album, tracks, sig, force)
+        if todo is None:
             return None
         stats = AlbumStats()
-        self.con.execute(
-            "INSERT INTO album_info(album_library_id, name, artist, year, image_json, indexed_at) VALUES (?,?,?,?,?,?) "
-            "ON CONFLICT(album_library_id) DO UPDATE SET name=excluded.name, artist=excluded.artist, "
-            "year=excluded.year, image_json=excluded.image_json, indexed_at=excluded.indexed_at",
-            (album.library_album_id, album.name, album.artist, album.year,
-             json.dumps(album.image) if album.image else None, time.time()))
-        tracks = sorted(album.tracks, key=lambda t: (t.disc or 1, t.position or 0))
-        for t in tracks:
-            self.con.execute("INSERT OR REPLACE INTO track_info(library_track_id, title, artist, duration) "
-                             "VALUES (?,?,?,?)", (t.library_track_id, t.title, t.artist, t.duration))
-            for m in t.mappings:
-                res = await self.refresh_mapping(t, m, force=force)
-                stats.tag_reads += res == "read"
-                stats.read_errors += res == "error"
-            # mappings MA no longer lists on this track are gone (their evidence and visibility go with them)
-            current = {(m.provider_instance, m.item_id) for m in t.mappings}
-            for r in self._q("SELECT provider_instance, item_id FROM mapping_state WHERE library_track_id=? "
-                             "AND status<>'gone'", (t.library_track_id,)):
-                if (r["provider_instance"], r["item_id"]) not in current:
-                    self.mark_gone(r["provider_instance"], r["item_id"])
-        # Tier 2 entry points: recording MBIDs (MA's or the tag's) and work MBID tags
+        reads: dict[tuple[str, str], TagInfo | BaseException] = {}
+        for m in todo:
+            try:
+                reads[(m.provider_instance, m.item_id)] = await asyncio.to_thread(self.tag_reader, m.path)
+            except Exception as e:  # noqa: BLE001 - recorded as a read_error by _apply_tier1
+                reads[(m.provider_instance, m.item_id)] = e
+        rec_ids, work_ids = await self._w(self._apply_tier1, album, tracks, reads, stats)
+        for rid in sorted(rec_ids):
+            await self.refresh_mb_recording(rid, stats)
+        for wid in sorted(work_ids):
+            await self.refresh_mb_work_chain(wid, stats)
+        # a transient MB failure leaves the signature unset, so the next scan retries the album
+        await self._w(self._finish_album, album, tracks, stats, None if stats.mb_failures else sig)
+        return stats
+
+    def _plan_album(self, album: AlbumIn, tracks: list[TrackIn], sig: str, force: bool) -> list[MappingIn] | None:
+        """None when the album is up to date; otherwise the mappings whose tags must be (re)read."""
+        if not force and self.album_signature(album.library_album_id) == sig and not self._retry_due(album):
+            return None
+        return [m for t in tracks for m in t.mappings if self._needs_read(m, force)]
+
+    def _apply_tier1(self, album: AlbumIn, tracks: list[TrackIn],
+                     reads: dict[tuple[str, str], TagInfo | BaseException],
+                     stats: AlbumStats) -> tuple[set[str], set[str]]:
+        """Album/track rows and every mapping's tag result in one transaction; returns the Tier 2 entry
+        points (recording MBIDs from MA or the tags, work MBID tags)."""
+        self.con.execute("BEGIN IMMEDIATE")
+        try:
+            self.con.execute(
+                "INSERT INTO album_info(album_library_id, name, artist, year, image_json, indexed_at) "
+                "VALUES (?,?,?,?,?,?) ON CONFLICT(album_library_id) DO UPDATE SET name=excluded.name, "
+                "artist=excluded.artist, year=excluded.year, image_json=excluded.image_json, "
+                "indexed_at=excluded.indexed_at",
+                (album.library_album_id, album.name, album.artist, album.year,
+                 json.dumps(album.image) if album.image else None, time.time()))
+            for t in tracks:
+                self.con.execute("INSERT OR REPLACE INTO track_info(library_track_id, title, artist, duration) "
+                                 "VALUES (?,?,?,?)", (t.library_track_id, t.title, t.artist, t.duration))
+                for m in t.mappings:
+                    res = self._apply_mapping(t, m, reads.get((m.provider_instance, m.item_id)))
+                    stats.tag_reads += res == "read"
+                    stats.read_errors += res == "error"
+                # mappings MA no longer lists on this track are gone (their evidence and visibility go with them)
+                current = {(m.provider_instance, m.item_id) for m in t.mappings}
+                for r in self._q("SELECT provider_instance, item_id FROM mapping_state WHERE library_track_id=? "
+                                 "AND status<>'gone'", (t.library_track_id,)):
+                    if (r["provider_instance"], r["item_id"]) not in current:
+                        self.mark_gone(r["provider_instance"], r["item_id"])
+            self.con.execute("COMMIT")
+        except BaseException:
+            self.con.execute("ROLLBACK")
+            raise
         rec_ids: set[str] = set()
         work_ids: set[str] = set()
         for t in tracks:
@@ -459,10 +567,9 @@ class Index:
                     rec_ids.add(mbid.lower())
             if tags and tags.work_mbid:
                 work_ids.add(tags.work_mbid)
-        for rid in sorted(rec_ids):
-            await self.refresh_mb_recording(rid, stats)
-        for wid in sorted(work_ids):
-            await self.refresh_mb_work_chain(wid, stats)
+        return rec_ids, work_ids
+
+    def _finish_album(self, album: AlbumIn, tracks: list[TrackIn], stats: AlbumStats, sig: str | None) -> None:
         self.con.execute("BEGIN IMMEDIATE")
         try:
             self._sync_occurrences(album.library_album_id, tracks)
@@ -473,7 +580,6 @@ class Index:
         except BaseException:
             self.con.execute("ROLLBACK")
             raise
-        return stats
 
     def remove_album(self, album_id: str) -> None:
         self.con.execute("BEGIN IMMEDIATE")
@@ -567,7 +673,7 @@ class Index:
                 conductors={norm_key(p.name) for p in f.credits if p.role == "conductor"},
                 orchestras={norm_key(p.name) for p in f.credits if p.role == "orchestra"},
                 choirs={norm_key(p.name) for p in f.credits if p.role == "chorus"},
-                recorded=f.recorded, multi=bool(f.extra_works)))
+                recorded=f.recorded, multi=bool(f.extra_works), partial=f.partial))
         result = group_album(slots, ambiguous=ambiguous)
         for reason, idx in result.notes:
             reviews.append((reason, "occurrence", slots[idx[0]].occ_id if idx else None,

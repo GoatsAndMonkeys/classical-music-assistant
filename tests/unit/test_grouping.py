@@ -1,9 +1,9 @@
 from classical_core.grouping import Slot, group_album
 
 
-def s(i, work="W", part=None, no=None, parent=None, disc=1, cond=(), orch=(), rec=None, multi=False):
+def s(i, work="W", part=None, no=None, parent=None, disc=1, cond=(), orch=(), rec=None, multi=False, partial=False):
     return Slot(f"o{i}", disc, i, work, parent or work, part or (f"p{no}" if no else None), no,
-                set(cond), set(orch), set(), rec, multi)
+                set(cond), set(orch), set(), rec, multi, partial=partial)
 
 
 def runs(slots, **kw):
@@ -77,4 +77,13 @@ def test_complete_performances_of_whole_work_split():
     # part_key == work_key marks a track that performs the whole work (not partial)
     assert runs([s(0, part="W"), s(1, part="W")]) == [[0], [1]]
     assert runs([s(0, part="W"), s(1, no=1), s(2, no=2)]) == [[0], [1, 2]]
-    assert runs([s(0), s(1)]) == [[0, 1]]                 # partial links (no part key) still join
+    assert runs([s(0, partial=True), s(1, partial=True)]) == [[0, 1]]   # MB partial links still join
+
+
+def test_no_movement_evidence_never_joins():
+    # adjacent tracks tagged only with the work (no movement name or number): maybe two complete takes
+    res = group_album([s(0), s(1)])
+    assert [r.slots for r in res.runs] == [[0], [1]]
+    assert any(n[0] == "split: no movement evidence" for n in res.notes)
+    assert runs([s(0, no=1), s(1)]) == [[0], [1]]
+    assert runs([s(0), s(1, no=1), s(2, no=2)]) == [[0], [1, 2]]

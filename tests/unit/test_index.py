@@ -433,3 +433,70 @@ def test_unexpected_mb_failures_do_not_fail_the_album(tmp_path, failure):
         assert run(idx.index_album(a)) is not None
     finally:
         mbmod.asyncio.sleep = orig
+
+
+# ---- regressions from the second review (2026-10-26) ----
+
+
+def test_adjacent_work_only_tags_never_merge(tmp_path):
+    """Two adjacent tracks tagged with the work but no movement name or number: two recordings."""
+    r = Reader()
+    idx = new_index(tmp_path, mb=False, reader=r)
+    a = album("A", ["Symphony No. 5", "Symphony No. 5"])
+    for t in a.tracks:
+        r.tags[t.mappings[0].path] = tag("Symphony No. 5 in C minor, Op. 67", None, None,
+                                         composer="Ludwig van Beethoven", title="Symphony No. 5")
+    run(idx.index_album(a))
+    [w] = idx.works()
+    assert sorted(x["tracks"] for x in idx.recordings(w["id"])) == [1, 1]
+    assert any(v["reason"] == "split: no movement evidence" for v in idx.review())
+
+
+def test_all_database_work_runs_on_the_writer_thread(tmp_path, library):
+    import threading
+
+    from classical_core.store import Database
+
+    async def go():
+        db = Database(tmp_path / "index.db")
+        await db.open()
+        threads: set[str] = set()
+        db.con.set_trace_callback(lambda _sql: threads.add(threading.current_thread().name))
+        idx = Index(db.con, offline_mb(cache=SqliteMBCache(db.con, run=db.write)), db=db)
+        [kertesz] = [a for a in fake_library(library) if "Dvořák" in a.name]
+        stats = await idx.index_album(kertesz)
+        works = await db.read(lambda con: Index(con).works())
+        await db.close()
+        return threads, stats, works
+
+    threads, stats, works = run(go())
+    assert stats.mb_requests > 0 and len(works) == 1
+    assert threads and all(t.startswith("classical-db-writer") for t in threads), threads
+
+
+def test_transient_mb_failure_leaves_album_for_retry(tmp_path, library):
+    import classical_core.mb as mbmod
+
+    idx = new_index(tmp_path)
+    [kertesz] = [a for a in fake_library(library) if "Dvořák" in a.name]
+
+    async def busy(url, headers):
+        return 503, b"", {"Retry-After": "0"}
+
+    good = idx.mb._fetch
+    idx.mb._fetch = busy
+    orig = mbmod.asyncio.sleep
+
+    async def nosleep(_):
+        await orig(0)
+    mbmod.asyncio.sleep = nosleep
+    try:
+        st = run(idx.index_album(kertesz))
+    finally:
+        mbmod.asyncio.sleep = orig
+    assert st.mb_failures > 0 and idx.album_signature(kertesz.library_album_id) is None
+    idx.mb._fetch = good
+    st = run(idx.index_album(kertesz))           # not skipped: MB is retried
+    assert st is not None and st.mb_failures == 0 and st.mb_requests > 0
+    assert idx.album_signature(kertesz.library_album_id) is not None
+    assert run(idx.index_album(kertesz)) is None

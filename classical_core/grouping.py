@@ -29,6 +29,7 @@ class Slot:
     multi: bool = False                  # links to more than one top work: never grouped (v1)
     together_with: str | None = None     # a `together` constraint id
     separate_from: frozenset[str] = frozenset()  # occurrences a `separate` constraint keeps apart
+    partial: bool = False                # MB says the track performs part of the work (positive evidence)
 
 
 @dataclass(slots=True)
@@ -89,6 +90,13 @@ def _whole(s: Slot) -> bool:
     return s.part_key is not None and s.part_key == s.work_key
 
 
+def _evidence(s: Slot) -> bool:
+    """Positive evidence that the track is one part of a longer performance: a movement identity, a
+    movement number, or an MB partial-performance link. A bare work tag is not enough: two adjacent tracks
+    tagged only "Symphony No. 5" may be two complete takes, so they are never joined (§5.1)."""
+    return s.part_key is not None or s.movement_no is not None or s.partial
+
+
 def group_album(slots: list[Slot], ambiguous: bool = False) -> GroupingResult:
     runs: list[Run] = []
     notes: list[tuple[str, list[int]]] = []
@@ -116,6 +124,8 @@ def group_album(slots: list[Slot], ambiguous: bool = False) -> GroupingResult:
             reason = None
             if first.work_key != s.work_key:
                 reason = "new work"
+            elif not _evidence(s) or not _evidence(prev):
+                reason = "no movement evidence"
             elif s.part_key and any(slots[j].part_key == s.part_key for j in cur):
                 reason = "repeated movement (alternate take or second performance)"
             elif _whole(s) or any(_whole(slots[j]) for j in cur):

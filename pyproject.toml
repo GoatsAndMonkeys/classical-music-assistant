@@ -21,7 +21,7 @@ packages = ["classical_core"]
 include = ["classical_core"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests/unit"]
+testpaths = ["tests/unit", "tests/provider"]
 
 [tool.ruff]
 line-length = 120

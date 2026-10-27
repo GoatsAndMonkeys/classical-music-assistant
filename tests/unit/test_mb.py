@@ -1,6 +1,9 @@
 import asyncio
 import json
 
+import pytest
+
+import classical_core.mb as mbmod
 from classical_core.mb import MBClient, MBError, parse_recording, parse_work
 from tests.helpers import MB_FIXTURES
 
@@ -91,3 +94,51 @@ def test_client_dedupes_backs_off_and_caches_errors():
             mbmod.asyncio.sleep = orig
 
     asyncio.run(run())
+
+
+def test_retry_after_is_honoured():
+    import time as _time
+
+    from classical_core.mb import MBTransientError, parse_retry_after
+
+    assert parse_retry_after("7") == 7.0
+    assert parse_retry_after("Wed, 21 Oct 2015 07:28:00 GMT", now=1445412470.0) == 10.0
+    assert parse_retry_after("soon") is None and parse_retry_after(None) is None
+
+    sleeps: list[float] = []
+    calls: list[str] = []
+
+    async def fetch(url, headers):
+        calls.append(url)
+        if len(calls) == 1:
+            return 503, b"", {"Retry-After": "5"}
+        return 200, b'{"id": "x"}', {}
+
+    async def main():
+        c = MBClient("t@example.invalid", fetch=fetch, interval=0)
+        orig = mbmod.asyncio.sleep
+
+        async def fake_sleep(d):
+            sleeps.append(d)
+            await orig(0)
+        mbmod.asyncio.sleep = fake_sleep
+        try:
+            assert await c.get("https://mb/a") == {"id": "x"}
+            # a long Retry-After defers instead of blocking, and applies to the next request too
+            calls.clear()
+
+            async def long_wait(url, headers):
+                calls.append(url)
+                return 429, b"", {"retry-after": "3600"}
+            c._fetch = long_wait
+            with pytest.raises(MBTransientError):
+                await c.get("https://mb/b")
+            with pytest.raises(MBTransientError):
+                await c.get("https://mb/c")
+            assert calls == ["https://mb/b"]
+            assert c._not_before > _time.monotonic() + 3000
+        finally:
+            mbmod.asyncio.sleep = orig
+
+    asyncio.run(main())
+    assert sleeps and 4.9 < sleeps[0] <= 5.0 and 2.0 not in sleeps   # waited the server's 5 s, not the backoff

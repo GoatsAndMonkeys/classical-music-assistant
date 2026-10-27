@@ -28,16 +28,38 @@ Each entry says what the plan asked for, what was built instead, and why.
 
 ## Choices made during implementation
 
-- **Tags: mutagen first, ffprobe as fallback.** M0 found that MA's ffprobe-based `async_parse_tags` drops the
+- **Tags: mutagen only, no ffprobe fallback.** M0 found that MA's ffprobe-based `async_parse_tags` drops the
   movement and work frames (ID3 MVNM/MVIN; MP4 ©wrk/©mvn/©mvi/©mvc), so the plugin reads tags itself with
-  mutagen.
+  mutagen and nothing else. A file mutagen cannot read is a `read_error` mapping (retried after an hour, it
+  retracts nothing and stays playable); formats mutagen does not know get no Tier 1 evidence at all.
 - **Composer data:** a bundled composer list (names, dates, sort names) instead of live Wikidata lookups in M1.
 - **Schema names and extras:**
   - the table is called `grouping_constraint`;
   - `evidence` has an `edge` column, a stable per-origin key for replacing evidence;
   - the derived caches `review_item`, `album_info` and `track_info` were added.
-- **SQLite runs on the event loop.** Queries are small and indexed. A worker thread is deferred until profiling
-  shows a need.
+- **SQLite never runs on the event loop (§5.6).** `store.Database` owns one writer thread with the read-write
+  connection (all writes, including the MB cache, go through it, so there is a single writer) and two reader
+  threads with read-only WAL connections for browse, search, home rows and commands. `index_album` runs as
+  phases: plan and Tier 1 apply on the writer, tag reads in worker threads, MB requests awaited on the loop,
+  then one derive transaction on the writer.
+- **MusicBrainz needs a contact before it is used.** PLAN §5.6 calls the User-Agent contact a required config
+  field, but MA creates the plugin without a setup flow, so a required field would block creation. Instead the
+  field stays optional and lookups stay off (with a log warning and a `musicbrainz_note` in `classical/status`)
+  until it holds an email address or URL. No placeholder contact is ever sent.
+- **MB `Retry-After` is honoured** (seconds or an HTTP date) for every following request. A wait above 60 s
+  defers the request instead of blocking: the album keeps no signature and is retried on the next scan, as after
+  any transient MB failure (503/429, network errors).
+- **Grouping boundary (§5.3).** The lowest common ancestor of adjacent tracks is kept, but the parent walk
+  never climbs above a standalone work (MB type opera, symphony, concerto, sonata, mass, song-cycle, suite,
+  symphonic poem, ...), into a parent whose catalogue number is a range (BWV 846–869), into an uncatalogued
+  parent from a catalogued child, into a parent with a different number in the same catalogue (WWV 86A in
+  WWV 86), or into a parent that could not be fetched. So the Ring stays four operas and WTC I stays 24
+  prelude-and-fugue pairs.
+- **No movement evidence, no grouping (§5.1).** Adjacent tracks of the same work are joined only when each has a
+  movement identity, a movement number or an MB partial-performance link; tracks tagged with the work alone
+  stay separate recordings and are listed for review.
+- **A forced reindex starts from the first album.** The scan job row records whether it was forced, so an
+  interrupted forced scan resumes forced; a normal scan never resumes a forced one as normal.
 - **MusicBrainz canonical titles** replace tag titles once a work is matched.
 - **`read_error` mappings stay playable.** A tag read failure hides nothing that MA can still play.
 - **Album signature skip.** An album whose MA-side signature is unchanged is not re-derived, unless a forced

@@ -124,7 +124,8 @@ async def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", default="http://localhost:8095")
     ap.add_argument("--state", default=str(Path(__file__).resolve().parents[1] / "docker/data-stable/smoke.json"))
-    ap.add_argument("--musicbrainz", action="store_true", help="leave MusicBrainz lookups on")
+    ap.add_argument("--musicbrainz", metavar="CONTACT",
+                    help="turn MusicBrainz lookups on, with this User-Agent contact (email or URL)")
     a = ap.parse_args()
     async with aiohttp.ClientSession() as http:
         token = await get_token(http, a.url, Path(a.state))
@@ -142,9 +143,9 @@ async def main() -> int:
             fs = await ensure_provider(api, "filesystem_local", {"content_type": "music", "path": LIBRARY_PATH})
             demo = await ensure_provider(api, "_demo_player_provider")
             cl = await ensure_provider(api, "classical")
-            if not a.musicbrainz:
-                await api.call("config/providers/save", provider_domain="classical",
-                               values={"musicbrainz": False}, instance_id=cl)
+            await api.call("config/providers/save", provider_domain="classical",
+                           values={"musicbrainz": bool(a.musicbrainz), "mb_contact": a.musicbrainz or ""},
+                           instance_id=cl)
             print(f"providers: {fs}, {demo}, {cl}")
             await wait_for("classical loaded", lambda: _loaded(api, cl), 120)
 

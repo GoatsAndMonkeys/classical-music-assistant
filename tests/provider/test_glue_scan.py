@@ -67,3 +67,62 @@ def test_one_failing_album_does_not_block_the_scan(glue, tmp_path):
     asyncio.run(p._scan())
     assert seen == ["1", "2", "3"] and p._state["errors"] == 1
     assert con.execute("SELECT state FROM job WHERE id='scan'").fetchone()[0] == "done"
+
+
+def _provider(glue, tmp_path, ids=(1, 2, 3)):
+    con = connect(tmp_path / "index.db")
+    migrate(con)
+    p = object.__new__(glue.ClassicalProvider)
+    p._con, p.index, p.logger = con, Index(con, None), logging.getLogger("test")
+    p._state = {"errors": 0, "last_scan": None, "albums_indexed": 0}
+
+    async def rows(query, params, limit):
+        if "IN (" in query:
+            return []
+        return [{"item_id": i} for i in ids if i > params["c"]]
+
+    p.mass = MagicMock()
+    p.mass.music.database.get_rows_from_query = rows
+    seen = []
+
+    async def index_album_id(aid, force=False):
+        seen.append((aid, force))
+        return True
+
+    p._index_album_id = index_album_id
+    return p, con, seen
+
+
+def test_forced_reindex_starts_fresh_not_from_an_interrupted_cursor(glue, tmp_path):
+    p, con, seen = _provider(glue, tmp_path)
+    con.execute("INSERT INTO job(id, kind, scope, cursor, state, started_at) VALUES "
+                "('scan', 'scan', 'library', '2', 'running', 0)")
+    asyncio.run(p._scan(force=True))
+    assert seen == [("1", True), ("2", True), ("3", True)]
+
+
+def test_interrupted_forced_scan_resumes_forced(glue, tmp_path):
+    p, con, seen = _provider(glue, tmp_path)
+    con.execute("INSERT INTO job(id, kind, scope, cursor, state, started_at) VALUES "
+                "('scan', 'scan_force', 'library', '1', 'running', 0)")
+    asyncio.run(p._scan())
+    assert seen == [("2", True), ("3", True)]
+    seen.clear()
+    asyncio.run(p._scan())                         # finished: the next normal scan is normal and complete
+    assert seen == [("1", False), ("2", False), ("3", False)]
+
+
+def test_forced_scan_supersedes_queued_scan(glue):
+    p = object.__new__(glue.ClassicalProvider)
+    p._jobs, p._wake = {}, asyncio.Event()
+    p._enqueue("scan")
+    p._enqueue("scan:force")
+    p._enqueue("scan")
+    assert list(p._jobs) == ["scan:force"]
+
+
+def test_mb_contact_must_be_real(glue):
+    assert glue.mb_contact("") is None and glue.mb_contact("  ") is None
+    assert glue.mb_contact("no contact configured") is None
+    assert glue.mb_contact("me@example.org") == "me@example.org"
+    assert glue.mb_contact("https://example.org/me") == "https://example.org/me"

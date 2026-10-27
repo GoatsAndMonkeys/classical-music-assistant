@@ -229,11 +229,38 @@ class MBError(Exception):
     """A failed or partial MB response: callers keep the previous assertions (§4)."""
 
 
+class MBTransientError(MBError):
+    """A failure worth retrying later (503/429, network, rate-limit wait too long): not cached, and the
+    album is indexed again on the next scan instead of being marked up to date."""
+
+
+MAX_RETRY_WAIT = 60.0
+
+
+def parse_retry_after(value: str | None, now: float | None = None) -> float | None:
+    """Seconds to wait from a Retry-After header (delta-seconds or an HTTP-date), or None."""
+    if not value:
+        return None
+    v = value.strip()
+    if v.isdigit():
+        return float(v)
+    from email.utils import parsedate_to_datetime
+
+    try:
+        when = parsedate_to_datetime(v)
+    except (TypeError, ValueError):
+        return None
+    if when is None:
+        return None
+    return max(0.0, when.timestamp() - (time.time() if now is None else now))
+
+
 class MBClient:
-    """1 req/s, in-flight dedupe, 503/network backoff, cached. `fetch` is injectable for tests."""
+    """1 req/s, in-flight dedupe, 503/network backoff honouring Retry-After, cached. `fetch` is injectable
+    for tests; it returns (status, body) or (status, body, headers)."""
 
     def __init__(self, contact: str, cache: MBCache | None = None, base_url: str = DEFAULT_BASE,
-                 fetch: Callable[[str, dict[str, str]], Awaitable[tuple[int, bytes]]] | None = None,
+                 fetch: Callable[[str, dict[str, str]], Awaitable[tuple]] | None = None,
                  interval: float = 1.0, session: Any = None) -> None:
         self.base_url = base_url.rstrip("/")
         self.cache = cache
@@ -243,15 +270,16 @@ class MBClient:
         self._session = session
         self._lock = asyncio.Lock()
         self._last = 0.0
+        self._not_before = 0.0          # monotonic time before which no request is sent (Retry-After)
         self._inflight: dict[str, asyncio.Future[dict]] = {}
 
-    async def _aiohttp_fetch(self, url: str, headers: dict[str, str]) -> tuple[int, bytes]:
+    async def _aiohttp_fetch(self, url: str, headers: dict[str, str]) -> tuple[int, bytes, dict[str, str]]:
         import aiohttp  # shipped with MA
 
         if self._session is None:
             self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30))
         async with self._session.get(url, headers=headers) as resp:
-            return resp.status, await resp.read()
+            return resp.status, await resp.read(), {k.lower(): v for k, v in resp.headers.items()}
 
     async def close(self) -> None:
         if self._session is not None and getattr(self._session, "close", None):
@@ -294,11 +322,18 @@ class MBClient:
         delay = 2.0
         for attempt in range(4):
             async with self._lock:
-                wait = self.interval - (time.monotonic() - self._last)
+                now = time.monotonic()
+                wait = max(self.interval - (now - self._last), self._not_before - now)
+                if wait > MAX_RETRY_WAIT:
+                    raise MBTransientError(f"MusicBrainz asked us to wait {wait:.0f}s; {url} deferred")
                 if wait > 0:
                     await asyncio.sleep(wait)
+                headers: dict[str, str] = {}
                 try:
-                    status, body = await self._fetch(url, self.headers)
+                    res = await self._fetch(url, self.headers)
+                    status, body = res[0], res[1]
+                    if len(res) > 2 and res[2]:
+                        headers = {k.lower(): v for k, v in res[2].items()}
                 except Exception as e:  # noqa: BLE001 - aiohttp.ClientError and friends: retry as a network error
                     status, body = -1, str(e).encode()
                 finally:
@@ -307,15 +342,24 @@ class MBClient:
                 try:
                     data = json.loads(body)
                 except ValueError as e:
-                    raise MBError(f"bad JSON from {url}") from e
+                    raise MBTransientError(f"bad JSON from {url}") from e
                 if self.cache is not None:
                     await self.cache.put(url, 200, body, GOOD_TTL)
                 return data
-            if status in (503, -1, 429) and attempt < 3:
-                await asyncio.sleep(delay)
-                delay *= 2
-                continue
+            if status in (503, -1, 429):
+                retry_after = parse_retry_after(headers.get("retry-after"))
+                if retry_after is not None:
+                    # the server's wait applies to every following request, not just this URL
+                    self._not_before = max(self._not_before, time.monotonic() + retry_after)
+                    if retry_after > MAX_RETRY_WAIT:
+                        raise MBTransientError(f"HTTP {status} for {url}: Retry-After {retry_after:.0f}s")
+                if attempt < 3:
+                    if retry_after is None:
+                        await asyncio.sleep(delay)
+                    delay *= 2
+                    continue
+                raise MBTransientError(f"HTTP {status} for {url}")
             if self.cache is not None and status in (400, 404):
                 await self.cache.put(url, status, b"", ERROR_TTL)
             raise MBError(f"HTTP {status} for {url}")
-        raise MBError(f"gave up on {url}")
+        raise MBTransientError(f"gave up on {url}")
