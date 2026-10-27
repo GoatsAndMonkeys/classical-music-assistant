@@ -77,9 +77,7 @@ button, input, select { font: inherit; color: inherit; }
   display: flex; justify-content: space-around;
   height: calc(var(--tabs-h) + env(safe-area-inset-bottom));
   padding-bottom: env(safe-area-inset-bottom);
-  background: var(--surface);
-  background: color-mix(in srgb, var(--surface) 96%, transparent);
-  -webkit-backdrop-filter: saturate(1.4) blur(14px); backdrop-filter: saturate(1.4) blur(14px);
+  background: var(--surface);   /* opaque: list text showing through the tab labels was hard to read */
   border-top: 1px solid var(--line);
 }
 .tab {
