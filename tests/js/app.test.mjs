@@ -180,3 +180,15 @@ test("outbound links are https only", () => {
   assert.equal(app.safeHref("https://x.org/\" onmouseover=1"), null);
   assert.equal(app.safeHref(null), null);
 });
+
+test("Today picks and the day line read cleanly", () => {
+  assert.deepEqual(app.pickLines({ title: "Cello Concerto", composer: "Edward Elgar", recording_label: "Ma · LSO",
+    reason: "Premiered on this day in 1919" }),
+  { title: "Cello Concerto", sub: "Edward Elgar · Ma · LSO", why: "Premiered on this day in 1919" });
+  assert.deepEqual(app.pickLines({ title: "Messiah", composer: "Handel", recording_label: "Messiah" }),
+    { title: "Messiah", sub: "Handel", why: "" });
+  assert.deepEqual(app.pickLines(null), { title: "", sub: "", why: "" });
+  assert.equal(app.daySubtitle({ liturgical: "Christmas Day", season: "winter" }), "Christmas Day · Winter");
+  assert.equal(app.daySubtitle({ liturgical: null, season: "autumn" }), "Autumn");
+  assert.equal(app.daySubtitle({}), "");
+});

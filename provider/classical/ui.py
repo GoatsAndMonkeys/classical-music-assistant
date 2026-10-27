@@ -9,6 +9,7 @@ then maps images to image-proxy URLs. Corrections reuse the existing `classical/
 
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import Callable
 from typing import Any
 
@@ -19,7 +20,7 @@ from music_assistant_models.enums import ConfigEntryType
 from music_assistant_models.errors import InvalidDataError
 
 from classical_core import __version__ as CORE_VERSION
-from classical_core import views
+from classical_core import curation, views
 from classical_core.index import Index
 
 from .web import ROUTE, ClassicalWeb, image_urls
@@ -40,7 +41,7 @@ def can(user: Any, scope: Any) -> bool:
 
 
 class CompanionUI:
-    """Mixin: needs `mass`, `logger`, `_read`, `_vis` from the provider."""
+    """Mixin: needs `mass`, `logger`, `_read`, `_vis`, `_today`, `_hemisphere` from the provider."""
 
     mass: Any
     logger: Any
@@ -83,6 +84,7 @@ class CompanionUI:
             ("classical/performer", self.cmd_performer),
             ("classical/review", self.cmd_review),
             ("classical/accolades", self.cmd_accolades),
+            ("classical/today", self.cmd_today),
         ):
             handles.append(reg(command, handler, required_scope=Scope.LIBRARY_READ))
         self._web = ClassicalWeb(CORE_VERSION)
@@ -165,6 +167,16 @@ class CompanionUI:
         """Awards, reviews and ratings of one recording (with review-site links), or of every recording of a
         work with its acclaim and pick score."""
         return await self._view(views.accolades, recording_id=recording_id, work_id=work_id)
+
+    async def cmd_today(self, date: str | None = None) -> dict[str, Any]:
+        """Today's shelves (or another day's, `date` as YYYY-MM-DD): on this day, the season, the weekday,
+        acclaimed recordings. Each pick plays its recording as a whole work."""
+        try:
+            day = dt.date.fromisoformat(date) if date else dt.date.today()
+        except (TypeError, ValueError):
+            raise InvalidDataError("date must be YYYY-MM-DD") from None
+        res = curation.header(day, self._hemisphere()) | {"shelves": await self._today(day)}
+        return image_urls(res, self._image_id)
 
     async def cmd_review(self) -> dict[str, Any]:
         """The review queue grouped by reason, with correction actions for composer identities."""

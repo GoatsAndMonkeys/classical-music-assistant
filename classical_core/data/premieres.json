@@ -1,0 +1,978 @@
+{
+ "schema": "classical.premieres/1",
+ "note": "Well-known first performances, bundled for the 'On this day' shelf (PLAN.md §5.9). Dates are Gregorian (Russian premieres converted from Old Style). `match` is a regular expression over the work's normalised title and catalogue number (classical_core.text.norm_key) and only applies to works by `composer`. Each date was checked against the cited article.",
+ "items": [
+  {
+   "composer": "Johann Sebastian Bach",
+   "work": "St John Passion, BWV 245",
+   "match": "\\bbwv 245\\b|johannes ?passion|st john passion",
+   "date": "1724-04-07",
+   "place": "Nikolaikirche, Leipzig",
+   "source": "https://en.wikipedia.org/wiki/St_John_Passion"
+  },
+  {
+   "composer": "Johann Sebastian Bach",
+   "work": "St Matthew Passion, BWV 244",
+   "match": "\\bbwv 244\\b|matth[a-z]* ?passion",
+   "date": "1727-04-11",
+   "place": "Thomaskirche, Leipzig",
+   "source": "https://en.wikipedia.org/wiki/St_Matthew_Passion"
+  },
+  {
+   "composer": "Johann Sebastian Bach",
+   "work": "Christmas Oratorio, BWV 248 (Part I)",
+   "match": "\\bbwv 248\\b|weihnachtsoratorium|christmas oratorio",
+   "date": "1734-12-25",
+   "place": "Nikolaikirche, Leipzig",
+   "source": "https://en.wikipedia.org/wiki/Christmas_Oratorio"
+  },
+  {
+   "composer": "George Frideric Handel",
+   "work": "Messiah, HWV 56",
+   "match": "\\bhwv 56\\b|\\bmessiah\\b",
+   "date": "1742-04-13",
+   "place": "Great Music Hall, Fishamble Street, Dublin",
+   "source": "https://en.wikipedia.org/wiki/Messiah_(Handel)"
+  },
+  {
+   "composer": "George Frideric Handel",
+   "work": "Water Music, HWV 348–350",
+   "match": "\\bhwv 34[89]\\b|\\bhwv 350\\b|water music|wassermusik",
+   "date": "1717-07-17",
+   "place": "on the Thames, London",
+   "source": "https://en.wikipedia.org/wiki/Water_Music"
+  },
+  {
+   "composer": "Joseph Haydn",
+   "work": "The Creation, Hob. XXI:2",
+   "match": "\\bcreation\\b|\\bschopfung\\b|xxi 2\\b",
+   "date": "1799-03-19",
+   "place": "Burgtheater, Vienna (first public performance)",
+   "source": "https://en.wikipedia.org/wiki/The_Creation_(Haydn)"
+  },
+  {
+   "composer": "Wolfgang Amadeus Mozart",
+   "work": "Die Entführung aus dem Serail, K. 384",
+   "match": "\\bk 384\\b|entfuhrung",
+   "date": "1782-07-16",
+   "place": "Burgtheater, Vienna",
+   "source": "https://en.wikipedia.org/wiki/Die_Entf%C3%BChrung_aus_dem_Serail"
+  },
+  {
+   "composer": "Wolfgang Amadeus Mozart",
+   "work": "Le nozze di Figaro, K. 492",
+   "match": "\\bk 492\\b|nozze di figaro|marriage of figaro",
+   "date": "1786-05-01",
+   "place": "Burgtheater, Vienna",
+   "source": "https://en.wikipedia.org/wiki/The_Marriage_of_Figaro"
+  },
+  {
+   "composer": "Wolfgang Amadeus Mozart",
+   "work": "Don Giovanni, K. 527",
+   "match": "\\bk 527\\b|don giovanni",
+   "date": "1787-10-29",
+   "place": "Estates Theatre, Prague",
+   "source": "https://en.wikipedia.org/wiki/Don_Giovanni"
+  },
+  {
+   "composer": "Wolfgang Amadeus Mozart",
+   "work": "Così fan tutte, K. 588",
+   "match": "\\bk 588\\b|cosi fan tutte",
+   "date": "1790-01-26",
+   "place": "Burgtheater, Vienna",
+   "source": "https://en.wikipedia.org/wiki/Cos%C3%AC_fan_tutte"
+  },
+  {
+   "composer": "Wolfgang Amadeus Mozart",
+   "work": "Die Zauberflöte, K. 620",
+   "match": "\\bk 620\\b|zauberflote|magic flute",
+   "date": "1791-09-30",
+   "place": "Theater auf der Wieden, Vienna",
+   "source": "https://en.wikipedia.org/wiki/The_Magic_Flute"
+  },
+  {
+   "composer": "Ludwig van Beethoven",
+   "work": "Symphony No. 3 'Eroica', Op. 55",
+   "match": "symphony no 3\\b|\\bop 55\\b|eroica",
+   "date": "1805-04-07",
+   "place": "Theater an der Wien, Vienna (first public performance)",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._3_(Beethoven)"
+  },
+  {
+   "composer": "Ludwig van Beethoven",
+   "work": "Violin Concerto, Op. 61",
+   "match": "violin concerto|\\bop 61\\b",
+   "date": "1806-12-23",
+   "place": "Theater an der Wien, Vienna",
+   "source": "https://en.wikipedia.org/wiki/Violin_Concerto_(Beethoven)"
+  },
+  {
+   "composer": "Ludwig van Beethoven",
+   "work": "Symphony No. 5, Op. 67",
+   "match": "symphony no 5\\b|\\bop 67\\b",
+   "date": "1808-12-22",
+   "place": "Theater an der Wien, Vienna",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._5_(Beethoven)"
+  },
+  {
+   "composer": "Ludwig van Beethoven",
+   "work": "Symphony No. 6 'Pastoral', Op. 68",
+   "match": "symphony no 6\\b|\\bop 68\\b|pastoral",
+   "date": "1808-12-22",
+   "place": "Theater an der Wien, Vienna",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._6_(Beethoven)"
+  },
+  {
+   "composer": "Ludwig van Beethoven",
+   "work": "Piano Concerto No. 5 'Emperor', Op. 73",
+   "match": "piano concerto no 5\\b|\\bop 73\\b|emperor",
+   "date": "1811-11-28",
+   "place": "Gewandhaus, Leipzig",
+   "source": "https://en.wikipedia.org/wiki/Piano_Concerto_No._5_(Beethoven)"
+  },
+  {
+   "composer": "Ludwig van Beethoven",
+   "work": "Symphony No. 7, Op. 92",
+   "match": "symphony no 7\\b|\\bop 92\\b",
+   "date": "1813-12-08",
+   "place": "University of Vienna",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._7_(Beethoven)"
+  },
+  {
+   "composer": "Ludwig van Beethoven",
+   "work": "Fidelio, Op. 72 (final version)",
+   "match": "\\bfidelio\\b|\\bop 72\\b",
+   "date": "1814-05-23",
+   "place": "Kärntnertortheater, Vienna",
+   "source": "https://en.wikipedia.org/wiki/Fidelio",
+   "note": "The final version; the first, Leonore, was given on 20 November 1805."
+  },
+  {
+   "composer": "Ludwig van Beethoven",
+   "work": "Missa solemnis, Op. 123",
+   "match": "missa solemnis|\\bop 123\\b",
+   "date": "1824-04-07",
+   "place": "St Petersburg",
+   "source": "https://en.wikipedia.org/wiki/Missa_solemnis_(Beethoven)"
+  },
+  {
+   "composer": "Ludwig van Beethoven",
+   "work": "Symphony No. 9 'Choral', Op. 125",
+   "match": "symphony no 9\\b|\\bop 125\\b|choral symphony",
+   "date": "1824-05-07",
+   "place": "Kärntnertortheater, Vienna",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._9_(Beethoven)"
+  },
+  {
+   "composer": "Carl Maria von Weber",
+   "work": "Der Freischütz",
+   "match": "freischutz",
+   "date": "1821-06-18",
+   "place": "Schauspielhaus, Berlin",
+   "source": "https://en.wikipedia.org/wiki/Der_Freisch%C3%BCtz"
+  },
+  {
+   "composer": "Gioachino Rossini",
+   "work": "Il barbiere di Siviglia",
+   "match": "barbiere di siviglia|barber of seville",
+   "date": "1816-02-20",
+   "place": "Teatro Argentina, Rome",
+   "source": "https://en.wikipedia.org/wiki/The_Barber_of_Seville"
+  },
+  {
+   "composer": "Hector Berlioz",
+   "work": "Symphonie fantastique, Op. 14",
+   "match": "symphonie fantastique|\\bop 14\\b",
+   "date": "1830-12-05",
+   "place": "Paris Conservatoire",
+   "source": "https://en.wikipedia.org/wiki/Symphonie_fantastique"
+  },
+  {
+   "composer": "Hector Berlioz",
+   "work": "Roméo et Juliette, Op. 17",
+   "match": "romeo et juliette|\\bop 17\\b",
+   "date": "1839-11-24",
+   "place": "Paris Conservatoire",
+   "source": "https://en.wikipedia.org/wiki/Rom%C3%A9o_et_Juliette_(Berlioz)"
+  },
+  {
+   "composer": "Vincenzo Bellini",
+   "work": "Norma",
+   "match": "\\bnorma\\b",
+   "date": "1831-12-26",
+   "place": "La Scala, Milan",
+   "source": "https://en.wikipedia.org/wiki/Norma_(opera)"
+  },
+  {
+   "composer": "Gaetano Donizetti",
+   "work": "Lucia di Lammermoor",
+   "match": "lucia di lammermoor",
+   "date": "1835-09-26",
+   "place": "Teatro di San Carlo, Naples",
+   "source": "https://en.wikipedia.org/wiki/Lucia_di_Lammermoor"
+  },
+  {
+   "composer": "Franz Schubert",
+   "work": "Symphony No. 9 'Great', D. 944",
+   "match": "\\bd 944\\b|\\bgreat\\b|symphony no 9\\b",
+   "date": "1839-03-21",
+   "place": "Gewandhaus, Leipzig",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._9_(Schubert)"
+  },
+  {
+   "composer": "Franz Schubert",
+   "work": "Symphony No. 8 'Unfinished', D. 759",
+   "match": "\\bd 759\\b|unfinished",
+   "date": "1865-12-17",
+   "place": "Vienna",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._8_(Schubert)"
+  },
+  {
+   "composer": "Richard Wagner",
+   "work": "Der fliegende Holländer, WWV 63",
+   "match": "fliegende holl|flying dutchman|\\bwwv 63\\b",
+   "date": "1843-01-02",
+   "place": "Königliches Hoftheater, Dresden",
+   "source": "https://en.wikipedia.org/wiki/Der_fliegende_Holl%C3%A4nder"
+  },
+  {
+   "composer": "Richard Wagner",
+   "work": "Tannhäuser, WWV 70",
+   "match": "tannhauser|\\bwwv 70\\b",
+   "date": "1845-10-19",
+   "place": "Königliches Hoftheater, Dresden",
+   "source": "https://en.wikipedia.org/wiki/Tannh%C3%A4user_(opera)"
+  },
+  {
+   "composer": "Richard Wagner",
+   "work": "Lohengrin, WWV 75",
+   "match": "lohengrin|\\bwwv 75\\b",
+   "date": "1850-08-28",
+   "place": "Weimar",
+   "source": "https://en.wikipedia.org/wiki/Lohengrin_(opera)"
+  },
+  {
+   "composer": "Richard Wagner",
+   "work": "Tristan und Isolde, WWV 90",
+   "match": "tristan|\\bwwv 90\\b",
+   "date": "1865-06-10",
+   "place": "Königliches Hof- und Nationaltheater, Munich",
+   "source": "https://en.wikipedia.org/wiki/Tristan_und_Isolde"
+  },
+  {
+   "composer": "Richard Wagner",
+   "work": "Die Meistersinger von Nürnberg, WWV 96",
+   "match": "meistersinger|\\bwwv 96\\b",
+   "date": "1868-06-21",
+   "place": "Königliches Hof- und Nationaltheater, Munich",
+   "source": "https://en.wikipedia.org/wiki/Die_Meistersinger_von_N%C3%BCrnberg"
+  },
+  {
+   "composer": "Richard Wagner",
+   "work": "Das Rheingold",
+   "match": "rheingold",
+   "date": "1869-09-22",
+   "place": "Königliches Hof- und Nationaltheater, Munich",
+   "source": "https://en.wikipedia.org/wiki/Das_Rheingold"
+  },
+  {
+   "composer": "Richard Wagner",
+   "work": "Die Walküre",
+   "match": "walkure",
+   "date": "1870-06-26",
+   "place": "Königliches Hof- und Nationaltheater, Munich",
+   "source": "https://en.wikipedia.org/wiki/Die_Walk%C3%BCre"
+  },
+  {
+   "composer": "Richard Wagner",
+   "work": "Siegfried",
+   "match": "^siegfried\\b(?! idyll)",
+   "date": "1876-08-16",
+   "place": "Bayreuth Festspielhaus",
+   "source": "https://en.wikipedia.org/wiki/Siegfried_(opera)"
+  },
+  {
+   "composer": "Richard Wagner",
+   "work": "Götterdämmerung",
+   "match": "gotterdammerung",
+   "date": "1876-08-17",
+   "place": "Bayreuth Festspielhaus",
+   "source": "https://en.wikipedia.org/wiki/G%C3%B6tterd%C3%A4mmerung"
+  },
+  {
+   "composer": "Richard Wagner",
+   "work": "Parsifal, WWV 111",
+   "match": "parsifal|\\bwwv 111\\b",
+   "date": "1882-07-26",
+   "place": "Bayreuth Festspielhaus",
+   "source": "https://en.wikipedia.org/wiki/Parsifal"
+  },
+  {
+   "composer": "Giuseppe Verdi",
+   "work": "Nabucco",
+   "match": "nabucco",
+   "date": "1842-03-09",
+   "place": "La Scala, Milan",
+   "source": "https://en.wikipedia.org/wiki/Nabucco"
+  },
+  {
+   "composer": "Giuseppe Verdi",
+   "work": "Rigoletto",
+   "match": "rigoletto",
+   "date": "1851-03-11",
+   "place": "La Fenice, Venice",
+   "source": "https://en.wikipedia.org/wiki/Rigoletto"
+  },
+  {
+   "composer": "Giuseppe Verdi",
+   "work": "Il trovatore",
+   "match": "trovatore",
+   "date": "1853-01-19",
+   "place": "Teatro Apollo, Rome",
+   "source": "https://en.wikipedia.org/wiki/Il_trovatore"
+  },
+  {
+   "composer": "Giuseppe Verdi",
+   "work": "La traviata",
+   "match": "traviata",
+   "date": "1853-03-06",
+   "place": "La Fenice, Venice",
+   "source": "https://en.wikipedia.org/wiki/La_traviata"
+  },
+  {
+   "composer": "Giuseppe Verdi",
+   "work": "Aida",
+   "match": "\\baida\\b",
+   "date": "1871-12-24",
+   "place": "Khedivial Opera House, Cairo",
+   "source": "https://en.wikipedia.org/wiki/Aida"
+  },
+  {
+   "composer": "Giuseppe Verdi",
+   "work": "Messa da Requiem",
+   "match": "requiem",
+   "date": "1874-05-22",
+   "place": "San Marco, Milan",
+   "source": "https://en.wikipedia.org/wiki/Requiem_(Verdi)"
+  },
+  {
+   "composer": "Giuseppe Verdi",
+   "work": "Otello",
+   "match": "\\botello\\b",
+   "date": "1887-02-05",
+   "place": "La Scala, Milan",
+   "source": "https://en.wikipedia.org/wiki/Otello"
+  },
+  {
+   "composer": "Giuseppe Verdi",
+   "work": "Falstaff",
+   "match": "falstaff",
+   "date": "1893-02-09",
+   "place": "La Scala, Milan",
+   "source": "https://en.wikipedia.org/wiki/Falstaff_(opera)"
+  },
+  {
+   "composer": "Charles Gounod",
+   "work": "Faust",
+   "match": "^faust\\b",
+   "date": "1859-03-19",
+   "place": "Théâtre Lyrique, Paris",
+   "source": "https://en.wikipedia.org/wiki/Faust_(opera)"
+  },
+  {
+   "composer": "Johann Strauss II",
+   "work": "An der schönen blauen Donau, Op. 314",
+   "match": "blauen donau|blue danube|\\bop 314\\b",
+   "date": "1867-02-15",
+   "place": "Dianabad, Vienna",
+   "source": "https://en.wikipedia.org/wiki/The_Blue_Danube"
+  },
+  {
+   "composer": "Johann Strauss II",
+   "work": "Die Fledermaus",
+   "match": "fledermaus",
+   "date": "1874-04-05",
+   "place": "Theater an der Wien, Vienna",
+   "source": "https://en.wikipedia.org/wiki/Die_Fledermaus"
+  },
+  {
+   "composer": "Max Bruch",
+   "work": "Violin Concerto No. 1, Op. 26",
+   "match": "violin concerto|\\bop 26\\b",
+   "date": "1868-01-07",
+   "place": "Bremen",
+   "source": "https://en.wikipedia.org/wiki/Violin_Concerto_No._1_(Bruch)",
+   "note": "The revised version, with Joseph Joachim."
+  },
+  {
+   "composer": "Johannes Brahms",
+   "work": "Ein deutsches Requiem, Op. 45",
+   "match": "deutsches requiem|german requiem|\\bop 45\\b",
+   "date": "1868-04-10",
+   "place": "Bremen Cathedral",
+   "source": "https://en.wikipedia.org/wiki/A_German_Requiem",
+   "note": "Six movements; the complete seven were first heard in Leipzig on 18 February 1869."
+  },
+  {
+   "composer": "Johannes Brahms",
+   "work": "Symphony No. 1, Op. 68",
+   "match": "symphony no 1\\b|\\bop 68\\b",
+   "date": "1876-11-04",
+   "place": "Karlsruhe",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._1_(Brahms)"
+  },
+  {
+   "composer": "Johannes Brahms",
+   "work": "Symphony No. 2, Op. 73",
+   "match": "symphony no 2\\b|\\bop 73\\b",
+   "date": "1877-12-30",
+   "place": "Musikverein, Vienna",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._2_(Brahms)"
+  },
+  {
+   "composer": "Johannes Brahms",
+   "work": "Violin Concerto, Op. 77",
+   "match": "violin concerto|\\bop 77\\b",
+   "date": "1879-01-01",
+   "place": "Gewandhaus, Leipzig",
+   "source": "https://en.wikipedia.org/wiki/Violin_Concerto_(Brahms)"
+  },
+  {
+   "composer": "Johannes Brahms",
+   "work": "Piano Concerto No. 2, Op. 83",
+   "match": "piano concerto no 2\\b|\\bop 83\\b",
+   "date": "1881-11-09",
+   "place": "Budapest",
+   "source": "https://en.wikipedia.org/wiki/Piano_Concerto_No._2_(Brahms)"
+  },
+  {
+   "composer": "Johannes Brahms",
+   "work": "Symphony No. 3, Op. 90",
+   "match": "symphony no 3\\b|\\bop 90\\b",
+   "date": "1883-12-02",
+   "place": "Musikverein, Vienna",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._3_(Brahms)"
+  },
+  {
+   "composer": "Johannes Brahms",
+   "work": "Symphony No. 4, Op. 98",
+   "match": "symphony no 4\\b|\\bop 98\\b",
+   "date": "1885-10-25",
+   "place": "Meiningen",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._4_(Brahms)"
+  },
+  {
+   "composer": "Camille Saint-Saëns",
+   "work": "Danse macabre, Op. 40",
+   "match": "danse macabre|\\bop 40\\b",
+   "date": "1875-01-24",
+   "place": "Théâtre du Châtelet, Paris",
+   "source": "https://en.wikipedia.org/wiki/Danse_macabre_(Saint-Sa%C3%ABns)"
+  },
+  {
+   "composer": "Camille Saint-Saëns",
+   "work": "Symphony No. 3 'Organ', Op. 78",
+   "match": "symphony no 3\\b|\\bop 78\\b|organ symphony|avec orgue",
+   "date": "1886-05-19",
+   "place": "St James's Hall, London",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._3_(Saint-Sa%C3%ABns)"
+  },
+  {
+   "composer": "Georges Bizet",
+   "work": "Carmen",
+   "match": "\\bcarmen\\b",
+   "date": "1875-03-03",
+   "place": "Opéra-Comique, Paris",
+   "source": "https://en.wikipedia.org/wiki/Carmen"
+  },
+  {
+   "composer": "Pyotr Ilyich Tchaikovsky",
+   "work": "Piano Concerto No. 1, Op. 23",
+   "match": "piano concerto no 1\\b|\\bop 23\\b",
+   "date": "1875-10-25",
+   "place": "Music Hall, Boston",
+   "source": "https://en.wikipedia.org/wiki/Piano_Concerto_No._1_(Tchaikovsky)"
+  },
+  {
+   "composer": "Pyotr Ilyich Tchaikovsky",
+   "work": "Swan Lake, Op. 20",
+   "match": "swan lake|lebedinoye|\\bop 20\\b",
+   "date": "1877-03-04",
+   "place": "Bolshoi Theatre, Moscow",
+   "source": "https://en.wikipedia.org/wiki/Swan_Lake",
+   "note": "4 March 1877 N.S. (20 February O.S.)."
+  },
+  {
+   "composer": "Pyotr Ilyich Tchaikovsky",
+   "work": "The Nutcracker, Op. 71",
+   "match": "nutcracker|casse noisette|\\bop 71a?\\b",
+   "date": "1892-12-18",
+   "place": "Mariinsky Theatre, St Petersburg",
+   "source": "https://en.wikipedia.org/wiki/The_Nutcracker",
+   "note": "18 December 1892 N.S. (6 December O.S.)."
+  },
+  {
+   "composer": "Pyotr Ilyich Tchaikovsky",
+   "work": "Symphony No. 6 'Pathétique', Op. 74",
+   "match": "symphony no 6\\b|\\bop 74\\b|pathetique",
+   "date": "1893-10-28",
+   "place": "St Petersburg",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._6_(Tchaikovsky)",
+   "note": "28 October 1893 N.S. (16 October O.S.), conducted by the composer nine days before his death."
+  },
+  {
+   "composer": "Modest Mussorgsky",
+   "work": "Boris Godunov",
+   "match": "boris godunov",
+   "date": "1874-02-08",
+   "place": "Mariinsky Theatre, St Petersburg",
+   "source": "https://en.wikipedia.org/wiki/Boris_Godunov_(opera)",
+   "note": "8 February 1874 N.S. (27 January O.S.)."
+  },
+  {
+   "composer": "Modest Mussorgsky",
+   "work": "Night on Bald Mountain (Rimsky-Korsakov's version)",
+   "match": "bald mountain|lysaya gora|kahlen berge|mont chauve",
+   "date": "1886-10-27",
+   "place": "Kononov Hall, St Petersburg",
+   "source": "https://en.wikipedia.org/wiki/Night_on_Bald_Mountain",
+   "note": "27 October 1886 N.S. (15 October O.S.), conducted by Rimsky-Korsakov, five years after Mussorgsky's death."
+  },
+  {
+   "composer": "Antonín Dvořák",
+   "work": "Symphony No. 8, Op. 88",
+   "match": "symphony no 8\\b|\\bop 88\\b",
+   "date": "1890-02-02",
+   "place": "Rudolfinum, Prague",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._8_(Dvo%C5%99%C3%A1k)"
+  },
+  {
+   "composer": "Antonín Dvořák",
+   "work": "Symphony No. 9 'From the New World', Op. 95",
+   "match": "symphony no 9\\b|\\bop 95\\b|new world",
+   "date": "1893-12-16",
+   "place": "Carnegie Hall, New York",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._9_(Dvo%C5%99%C3%A1k)"
+  },
+  {
+   "composer": "Antonín Dvořák",
+   "work": "Cello Concerto, Op. 104",
+   "match": "cello concerto|\\bop 104\\b",
+   "date": "1896-03-19",
+   "place": "Queen's Hall, London",
+   "source": "https://en.wikipedia.org/wiki/Cello_Concerto_(Dvo%C5%99%C3%A1k)"
+  },
+  {
+   "composer": "Antonín Dvořák",
+   "work": "Rusalka, Op. 114",
+   "match": "rusalka|\\bop 114\\b",
+   "date": "1901-03-31",
+   "place": "National Theatre, Prague",
+   "source": "https://en.wikipedia.org/wiki/Rusalka_(opera)"
+  },
+  {
+   "composer": "Anton Bruckner",
+   "work": "Symphony No. 4 'Romantic'",
+   "match": "symphony no 4\\b|romantic",
+   "date": "1881-02-20",
+   "place": "Vienna",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._4_(Bruckner)"
+  },
+  {
+   "composer": "Anton Bruckner",
+   "work": "Symphony No. 7",
+   "match": "symphony no 7\\b",
+   "date": "1884-12-30",
+   "place": "Leipzig",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._7_(Bruckner)"
+  },
+  {
+   "composer": "Anton Bruckner",
+   "work": "Symphony No. 8",
+   "match": "symphony no 8\\b",
+   "date": "1892-12-18",
+   "place": "Musikverein, Vienna",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._8_(Bruckner)"
+  },
+  {
+   "composer": "Gustav Mahler",
+   "work": "Symphony No. 1",
+   "match": "symphony no 1\\b|titan",
+   "date": "1889-11-20",
+   "place": "Budapest",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._1_(Mahler)"
+  },
+  {
+   "composer": "Gustav Mahler",
+   "work": "Symphony No. 2 'Resurrection'",
+   "match": "symphony no 2\\b|resurrection|auferstehung",
+   "date": "1895-12-13",
+   "place": "Berlin",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._2_(Mahler)"
+  },
+  {
+   "composer": "Gustav Mahler",
+   "work": "Symphony No. 4",
+   "match": "symphony no 4\\b",
+   "date": "1901-11-25",
+   "place": "Munich",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._4_(Mahler)"
+  },
+  {
+   "composer": "Gustav Mahler",
+   "work": "Symphony No. 5",
+   "match": "symphony no 5\\b",
+   "date": "1904-10-18",
+   "place": "Gürzenich, Cologne",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._5_(Mahler)"
+  },
+  {
+   "composer": "Gustav Mahler",
+   "work": "Symphony No. 6 'Tragic'",
+   "match": "symphony no 6\\b|tragic",
+   "date": "1906-05-27",
+   "place": "Essen",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._6_(Mahler)"
+  },
+  {
+   "composer": "Gustav Mahler",
+   "work": "Symphony No. 8 'Symphony of a Thousand'",
+   "match": "symphony no 8\\b|of a thousand",
+   "date": "1910-09-12",
+   "place": "Neue Musik-Festhalle, Munich",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._8_(Mahler)"
+  },
+  {
+   "composer": "Gustav Mahler",
+   "work": "Symphony No. 9",
+   "match": "symphony no 9\\b",
+   "date": "1912-06-26",
+   "place": "Vienna",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._9_(Mahler)"
+  },
+  {
+   "composer": "Edward Elgar",
+   "work": "Enigma Variations, Op. 36",
+   "match": "enigma|\\bop 36\\b",
+   "date": "1899-06-19",
+   "place": "St James's Hall, London",
+   "source": "https://en.wikipedia.org/wiki/Enigma_Variations"
+  },
+  {
+   "composer": "Edward Elgar",
+   "work": "Cello Concerto, Op. 85",
+   "match": "cello concerto|\\bop 85\\b",
+   "date": "1919-10-27",
+   "place": "Queen's Hall, London",
+   "source": "https://en.wikipedia.org/wiki/Cello_Concerto_(Elgar)",
+   "note": "Felix Salmond with the London Symphony Orchestra, conducted by the composer."
+  },
+  {
+   "composer": "Richard Strauss",
+   "work": "Also sprach Zarathustra, Op. 30",
+   "match": "zarathustra|\\bop 30\\b",
+   "date": "1896-11-27",
+   "place": "Frankfurt",
+   "source": "https://en.wikipedia.org/wiki/Also_sprach_Zarathustra_(Strauss)"
+  },
+  {
+   "composer": "Richard Strauss",
+   "work": "Salome, Op. 54",
+   "match": "\\bsalome\\b|\\bop 54\\b",
+   "date": "1905-12-09",
+   "place": "Semperoper, Dresden",
+   "source": "https://en.wikipedia.org/wiki/Salome_(opera)"
+  },
+  {
+   "composer": "Richard Strauss",
+   "work": "Der Rosenkavalier, Op. 59",
+   "match": "rosenkavalier|\\bop 59\\b",
+   "date": "1911-01-26",
+   "place": "Semperoper, Dresden",
+   "source": "https://en.wikipedia.org/wiki/Der_Rosenkavalier"
+  },
+  {
+   "composer": "Giacomo Puccini",
+   "work": "La bohème",
+   "match": "\\bboheme\\b",
+   "date": "1896-02-01",
+   "place": "Teatro Regio, Turin",
+   "source": "https://en.wikipedia.org/wiki/La_boh%C3%A8me"
+  },
+  {
+   "composer": "Giacomo Puccini",
+   "work": "Tosca",
+   "match": "\\btosca\\b",
+   "date": "1900-01-14",
+   "place": "Teatro Costanzi, Rome",
+   "source": "https://en.wikipedia.org/wiki/Tosca"
+  },
+  {
+   "composer": "Giacomo Puccini",
+   "work": "Madama Butterfly",
+   "match": "madama butterfly",
+   "date": "1904-02-17",
+   "place": "La Scala, Milan",
+   "source": "https://en.wikipedia.org/wiki/Madama_Butterfly"
+  },
+  {
+   "composer": "Giacomo Puccini",
+   "work": "Turandot",
+   "match": "turandot",
+   "date": "1926-04-25",
+   "place": "La Scala, Milan",
+   "source": "https://en.wikipedia.org/wiki/Turandot"
+  },
+  {
+   "composer": "Pietro Mascagni",
+   "work": "Cavalleria rusticana",
+   "match": "cavalleria",
+   "date": "1890-05-17",
+   "place": "Teatro Costanzi, Rome",
+   "source": "https://en.wikipedia.org/wiki/Cavalleria_rusticana"
+  },
+  {
+   "composer": "Ruggero Leoncavallo",
+   "work": "Pagliacci",
+   "match": "pagliacci",
+   "date": "1892-05-21",
+   "place": "Teatro Dal Verme, Milan",
+   "source": "https://en.wikipedia.org/wiki/Pagliacci"
+  },
+  {
+   "composer": "Engelbert Humperdinck",
+   "work": "Hänsel und Gretel",
+   "match": "hansel",
+   "date": "1893-12-23",
+   "place": "Weimar",
+   "source": "https://en.wikipedia.org/wiki/H%C3%A4nsel_und_Gretel_(opera)"
+  },
+  {
+   "composer": "Claude Debussy",
+   "work": "Prélude à l'après-midi d'un faune",
+   "match": "apres midi|faune|afternoon of a faun",
+   "date": "1894-12-22",
+   "place": "Société Nationale de Musique, Paris",
+   "source": "https://en.wikipedia.org/wiki/Pr%C3%A9lude_%C3%A0_l%27apr%C3%A8s-midi_d%27un_faune"
+  },
+  {
+   "composer": "Claude Debussy",
+   "work": "La mer",
+   "match": "\\bla mer\\b",
+   "date": "1905-10-15",
+   "place": "Concerts Lamoureux, Paris",
+   "source": "https://en.wikipedia.org/wiki/La_mer_(Debussy)"
+  },
+  {
+   "composer": "Jean Sibelius",
+   "work": "Symphony No. 2, Op. 43",
+   "match": "symphony no 2\\b|\\bop 43\\b",
+   "date": "1902-03-08",
+   "place": "Helsinki",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._2_(Sibelius)"
+  },
+  {
+   "composer": "Jean Sibelius",
+   "work": "Violin Concerto, Op. 47",
+   "match": "violin concerto|\\bop 47\\b",
+   "date": "1904-02-08",
+   "place": "Helsinki",
+   "source": "https://en.wikipedia.org/wiki/Violin_Concerto_(Sibelius)",
+   "note": "The original version; the revision followed in Berlin on 19 October 1905."
+  },
+  {
+   "composer": "Sergei Rachmaninoff",
+   "work": "Piano Concerto No. 2, Op. 18",
+   "match": "piano concerto no 2\\b|\\bop 18\\b",
+   "date": "1901-11-09",
+   "place": "Moscow",
+   "source": "https://en.wikipedia.org/wiki/Piano_Concerto_No._2_(Rachmaninoff)",
+   "note": "9 November 1901 N.S. (27 October O.S.), with the composer as soloist."
+  },
+  {
+   "composer": "Sergei Rachmaninoff",
+   "work": "Piano Concerto No. 3, Op. 30",
+   "match": "piano concerto no 3\\b|\\bop 30\\b",
+   "date": "1909-11-28",
+   "place": "New Theatre, New York",
+   "source": "https://en.wikipedia.org/wiki/Piano_Concerto_No._3_(Rachmaninoff)"
+  },
+  {
+   "composer": "Sergei Rachmaninoff",
+   "work": "Symphonic Dances, Op. 45",
+   "match": "symphonic dances|\\bop 45\\b",
+   "date": "1941-01-03",
+   "place": "Academy of Music, Philadelphia",
+   "source": "https://en.wikipedia.org/wiki/Symphonic_Dances_(Rachmaninoff)"
+  },
+  {
+   "composer": "Igor Stravinsky",
+   "work": "The Firebird",
+   "match": "firebird|oiseau de feu|zhar ptitsa",
+   "date": "1910-06-25",
+   "place": "Palais Garnier, Paris",
+   "source": "https://en.wikipedia.org/wiki/The_Firebird"
+  },
+  {
+   "composer": "Igor Stravinsky",
+   "work": "Petrushka",
+   "match": "petrushka|petrouchka",
+   "date": "1911-06-13",
+   "place": "Théâtre du Châtelet, Paris",
+   "source": "https://en.wikipedia.org/wiki/Petrushka_(ballet)"
+  },
+  {
+   "composer": "Igor Stravinsky",
+   "work": "The Rite of Spring",
+   "match": "rite of spring|sacre du printemps",
+   "date": "1913-05-29",
+   "place": "Théâtre des Champs-Élysées, Paris",
+   "source": "https://en.wikipedia.org/wiki/The_Rite_of_Spring"
+  },
+  {
+   "composer": "Maurice Ravel",
+   "work": "Daphnis et Chloé",
+   "match": "daphnis",
+   "date": "1912-06-08",
+   "place": "Théâtre du Châtelet, Paris",
+   "source": "https://en.wikipedia.org/wiki/Daphnis_et_Chlo%C3%A9_(Ravel)"
+  },
+  {
+   "composer": "Maurice Ravel",
+   "work": "Boléro",
+   "match": "\\bbolero\\b",
+   "date": "1928-11-22",
+   "place": "Palais Garnier, Paris",
+   "source": "https://en.wikipedia.org/wiki/Bol%C3%A9ro"
+  },
+  {
+   "composer": "Béla Bartók",
+   "work": "Bluebeard's Castle, Sz. 48",
+   "match": "bluebeard|kekszakallu|\\bsz 48\\b",
+   "date": "1918-05-24",
+   "place": "Royal Hungarian Opera House, Budapest",
+   "source": "https://en.wikipedia.org/wiki/Bluebeard%27s_Castle"
+  },
+  {
+   "composer": "Béla Bartók",
+   "work": "Concerto for Orchestra, Sz. 116",
+   "match": "concerto for orchestra|\\bsz 116\\b",
+   "date": "1944-12-01",
+   "place": "Symphony Hall, Boston",
+   "source": "https://en.wikipedia.org/wiki/Concerto_for_Orchestra_(Bart%C3%B3k)"
+  },
+  {
+   "composer": "Sergei Prokofiev",
+   "work": "Peter and the Wolf, Op. 67",
+   "match": "peter and the wolf|\\bop 67\\b",
+   "date": "1936-05-02",
+   "place": "Moscow",
+   "source": "https://en.wikipedia.org/wiki/Peter_and_the_Wolf"
+  },
+  {
+   "composer": "Sergei Prokofiev",
+   "work": "Romeo and Juliet, Op. 64",
+   "match": "romeo|\\bop 64\\b",
+   "date": "1938-12-30",
+   "place": "Brno",
+   "source": "https://en.wikipedia.org/wiki/Romeo_and_Juliet_(Prokofiev)"
+  },
+  {
+   "composer": "Sergei Prokofiev",
+   "work": "Symphony No. 5, Op. 100",
+   "match": "symphony no 5\\b|\\bop 100\\b",
+   "date": "1945-01-13",
+   "place": "Moscow Conservatory",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._5_(Prokofiev)"
+  },
+  {
+   "composer": "George Gershwin",
+   "work": "Rhapsody in Blue",
+   "match": "rhapsody in blue",
+   "date": "1924-02-12",
+   "place": "Aeolian Hall, New York",
+   "source": "https://en.wikipedia.org/wiki/Rhapsody_in_Blue"
+  },
+  {
+   "composer": "Dmitri Shostakovich",
+   "work": "Symphony No. 1, Op. 10",
+   "match": "symphony no 1\\b|\\bop 10\\b",
+   "date": "1926-05-12",
+   "place": "Leningrad",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._1_(Shostakovich)"
+  },
+  {
+   "composer": "Dmitri Shostakovich",
+   "work": "Symphony No. 5, Op. 47",
+   "match": "symphony no 5\\b|\\bop 47\\b",
+   "date": "1937-11-21",
+   "place": "Leningrad",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._5_(Shostakovich)"
+  },
+  {
+   "composer": "Dmitri Shostakovich",
+   "work": "Symphony No. 7 'Leningrad', Op. 60",
+   "match": "symphony no 7\\b|\\bop 60\\b|leningrad",
+   "date": "1942-03-05",
+   "place": "Kuibyshev",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._7_(Shostakovich)"
+  },
+  {
+   "composer": "Dmitri Shostakovich",
+   "work": "Symphony No. 8, Op. 65",
+   "match": "symphony no 8\\b|\\bop 65\\b",
+   "date": "1943-11-04",
+   "place": "Moscow",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._8_(Shostakovich)"
+  },
+  {
+   "composer": "Dmitri Shostakovich",
+   "work": "Symphony No. 10, Op. 93",
+   "match": "symphony no 10\\b|\\bop 93\\b",
+   "date": "1953-12-17",
+   "place": "Leningrad",
+   "source": "https://en.wikipedia.org/wiki/Symphony_No._10_(Shostakovich)"
+  },
+  {
+   "composer": "Dmitri Shostakovich",
+   "work": "Violin Concerto No. 1, Op. 77",
+   "match": "violin concerto no 1\\b|\\bop 77\\b|\\bop 99\\b",
+   "date": "1955-10-29",
+   "place": "Leningrad",
+   "source": "https://en.wikipedia.org/wiki/Violin_Concerto_No._1_(Shostakovich)",
+   "note": "David Oistrakh with the Leningrad Philharmonic under Yevgeny Mravinsky."
+  },
+  {
+   "composer": "Dmitri Shostakovich",
+   "work": "Cello Concerto No. 1, Op. 107",
+   "match": "cello concerto no 1\\b|\\bop 107\\b",
+   "date": "1959-10-04",
+   "place": "Leningrad",
+   "source": "https://en.wikipedia.org/wiki/Cello_Concerto_No._1_(Shostakovich)"
+  },
+  {
+   "composer": "Aaron Copland",
+   "work": "Appalachian Spring",
+   "match": "appalachian spring",
+   "date": "1944-10-30",
+   "place": "Library of Congress, Washington",
+   "source": "https://en.wikipedia.org/wiki/Appalachian_Spring"
+  },
+  {
+   "composer": "Samuel Barber",
+   "work": "Adagio for Strings",
+   "match": "adagio for strings",
+   "date": "1938-11-05",
+   "place": "NBC Studio 8H, New York",
+   "source": "https://en.wikipedia.org/wiki/Adagio_for_Strings"
+  },
+  {
+   "composer": "Benjamin Britten",
+   "work": "War Requiem, Op. 66",
+   "match": "war requiem|\\bop 66\\b",
+   "date": "1962-05-30",
+   "place": "Coventry Cathedral",
+   "source": "https://en.wikipedia.org/wiki/War_Requiem"
+  }
+ ]
+}

@@ -222,3 +222,14 @@ Each entry says what the plan asked for, what was built instead, and why.
   ingress).
 - **The work page's recording list is compact.** Credits omit `kind`, and `instrument` appears only when it is
   set. The page derives performer ids from the credits. This keeps a 400-recording work under 400 KB of JSON.
+- **Themed curation (§5.9) is a simpler, stateless first cut.** `classical_core/curation.py` builds four shelves
+  (On this day, For the season, For <weekday>, Acclaimed recordings) on demand. There is no `themes.yaml`, no
+  stored `theme_day` assignments, no `classical://playlist/today` and no household spacing. Picks are seeded
+  by the date (sha256 of date, shelf and work), so the same day gives the same shelves for every user with the
+  same visible sources. The cache key is date, visibility and hemisphere, for 5 minutes. Weights come from the
+  accolades `pick_score` plus evidence quality (complete, matched recordings first). There is one composer per
+  shelf, and a work shows only once across shelves, even when it is indexed twice. The rules are in the spirit
+  of Sethster's, written fresh: liturgical Sundays (Bach cantatas), Mozart/Messiah Mondays, Concerto Tuesdays,
+  Halloween and "Optoberfest", a hemisphere option (default north) and a bundled `premieres.json` list
+  (Wikipedia-sourced). US civic holidays are left out. The companion UI opens on a new Today tab, and MA's
+  home shows the same shelves as `today/<id>` recommendation rows.

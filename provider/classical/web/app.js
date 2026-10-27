@@ -258,13 +258,28 @@
     return typeof url === "string" && /^https:\/\/[^\s"'<>\\]+$/i.test(url) ? url : null;
   }
 
+  /** A Today pick's lines: title, "composer · recording", and why it was chosen (never repeating the title). */
+  function pickLines(p) {
+    p = p || {};
+    var sub = [p.composer, p.recording_label && p.recording_label !== p.title ? p.recording_label : ""]
+      .filter(Boolean).join(" · ");
+    return { title: p.title || "", sub: sub, why: p.reason || "" };
+  }
+
+  /** The Today page's subtitle: "Sunday after Trinity 21 · Autumn" (season capitalised; empties dropped). */
+  function daySubtitle(d) {
+    d = d || {};
+    var season = d.season ? String(d.season).charAt(0).toUpperCase() + String(d.season).slice(1) : "";
+    return [d.liturgical, season].filter(Boolean).join(" · ");
+  }
+
   var pure = {
     BUCKETS: BUCKETS, parseHash: parseHash, formatHash: formatHash, takeCode: takeCode, fmtDuration: fmtDuration,
     lifeDates: lifeDates, yearText: yearText, workSubtitle: workSubtitle, recordingMatches: recordingMatches,
     filterRecordings: filterRecordings, sortRecordings: sortRecordings, creditGroups: creditGroups,
     reviewSubtitle: reviewSubtitle, badgeText: badgeText, anyAcclaim: anyAcclaim, safeHref: safeHref,
     byLetter: byLetter, playArgs: playArgs, loginReturnUrl: loginReturnUrl, choosePlayer: choosePlayer, errorText: errorText, imageSrc: imageSrc,
-    plural: plural,
+    plural: plural, pickLines: pickLines, daySubtitle: daySubtitle,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = pure;
   if (typeof document === "undefined") return;
@@ -595,12 +610,13 @@
   // ---- router ---------------------------------------------------------------------------------------------
 
   var TABS = [
+    { id: "today", label: "Today", icon: "☀" },
     { id: "composers", label: "Composers", icon: "♩" },
     { id: "works", label: "Works", icon: "♪" },
     { id: "performers", label: "Performers", icon: "♫" },
     { id: "review", label: "Review", icon: "✓" },
   ];
-  var TAB_OF = { composers: "composers", composer: "composers", works: "works", work: "works", recording: "works",
+  var TAB_OF = { today: "today", composers: "composers", composer: "composers", works: "works", work: "works", recording: "works",
     performers: "performers", performer: "performers", review: "review" };
   var VIEWS = {};
   var renderId = 0;
@@ -617,9 +633,9 @@
 
   async function render() {
     var route = parseHash(location.hash);
-    var name = route.path[0] || "composers";
-    var view = VIEWS[name] || VIEWS.composers;
-    renderTabs(TAB_OF[name] || "composers");
+    var name = route.path[0] || "today";
+    var view = VIEWS[name] || VIEWS.today;
+    renderTabs(TAB_OF[name] || "today");
     var id = ++renderId;
     var main = $("view");
     main.setAttribute("aria-busy", "true");
@@ -673,6 +689,38 @@
       h("h1", { text: title }),
       sub ? h("p", { class: "sub", text: sub }) : null);
   }
+
+  // ---- today ----------------------------------------------------------------------------------------------
+
+  /** PLAN.md §5.9: the day's shelves (on this day, season, weekday, acclaimed); each pick plays a whole work. */
+  VIEWS.today = async function () {
+    var res = await call("classical/today");
+    var wrap = h("div", { class: "page" }, header(res.label || "Today", daySubtitle(res)));
+    var shelves = (res.shelves || []).filter(function (s) { return s.picks && s.picks.length; });
+    if (!shelves.length) {
+      wrap.appendChild(empty("Nothing to suggest yet. Shelves fill in once the index has works with recordings."));
+      return wrap;
+    }
+    shelves.forEach(function (s) {
+      var list = h("div", { class: "list" });
+      s.picks.forEach(function (p) {
+        var t = pickLines(p);
+        list.appendChild(h("div", { class: "row pick" },
+          img(p.image_url, "thumb"),
+          h("a", { class: "row-main", href: formatHash(["work", p.work_id]) },
+            h("span", { class: "row-title", text: t.title }),
+            t.sub ? h("span", { class: "row-sub", text: t.sub }) : null,
+            t.why ? h("span", { class: "pick-why", text: t.why }) : null),
+          h("button", { type: "button", class: "icon-btn", "aria-label": "Play " + t.title, text: "▶",
+            onclick: function () { play({ id: p.recording_id, play_uri: p.play_uri }); } })));
+      });
+      wrap.appendChild(h("section", { class: "shelf" },
+        h("h2", { class: "shelf-head", text: s.title }),
+        s.subtitle ? h("p", { class: "shelf-sub", text: s.subtitle }) : null,
+        list));
+    });
+    return wrap;
+  };
 
   // ---- composers ------------------------------------------------------------------------------------------
 

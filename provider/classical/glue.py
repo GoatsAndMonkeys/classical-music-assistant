@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import contextvars
+import datetime as dt
 import os
 import time
 from collections.abc import Callable, Sequence
@@ -19,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 from music_assistant.controllers.webserver.helpers.auth_middleware import get_current_user
 from music_assistant.models.plugin import PluginProvider
 from music_assistant_models.auth import Scope
-from music_assistant_models.config_entries import ConfigEntry
+from music_assistant_models.config_entries import ConfigEntry, ConfigValueOption
 from music_assistant_models.enums import ConfigEntryType, EventType, ProviderFeature
 from music_assistant_models.errors import InvalidDataError, MediaNotFoundError
 from music_assistant_models.media_items import (
@@ -33,7 +34,7 @@ from music_assistant_models.media_items import (
 )
 
 from classical_core import __version__ as CORE_VERSION
-from classical_core import accolades, views
+from classical_core import accolades, curation, views
 from classical_core import browse as tree
 from classical_core.index import AlbumIn, Index, MappingIn, TrackIn
 from classical_core.mb import MBClient, MBTransientError
@@ -58,6 +59,9 @@ CONF_ACC_WIKIDATA = "accolades_wikidata"
 CONF_ACC_CRITIQUEBRAINZ = "accolades_critiquebrainz"
 CONF_ACC_DISCOGS = "accolades_discogs"
 CONF_DISCOGS_TOKEN = "discogs_token"
+CONF_HEMISPHERE = "hemisphere"
+TODAY_TTL = 300                      # seconds the day's shelves are reused (they change with the library)
+TODAY_WAIT = 2.5                     # home rows wait this long for fresh shelves (MA gives rows 5 s)
 NET_CHUNK = 20                         # albums per enrichment job; the job re-queues itself behind other work
 CONF_PROVIDERS = "providers"          # MA's raw provider-config key (controllers/config)
 PAGE = 500
@@ -182,6 +186,17 @@ class ClassicalProvider(CompanionUI, PluginProvider):
                 required=False,
                 depends_on=CONF_ACC_DISCOGS,
                 advanced=True,
+            ),
+            ConfigEntry(
+                key=CONF_HEMISPHERE,
+                type=ConfigEntryType.STRING,
+                label="Hemisphere for the seasonal picks",
+                description="Spring, summer, autumn and winter shelves follow your hemisphere; church feasts "
+                "and dates stay on the calendar.",
+                options=[ConfigValueOption(title="Northern", value="north"),
+                         ConfigValueOption(title="Southern", value="south")],
+                default_value="north",
+                required=False,
             ),
             *self._ui_config_entries(),
         )
@@ -659,9 +674,48 @@ class ClassicalProvider(CompanionUI, PluginProvider):
 
     # ---- home rows ---------------------------------------------------------------------------------------
 
+    def _hemisphere(self) -> str:
+        try:
+            v = str(self.config.get_value(CONF_HEMISPHERE, "north") or "north")
+        except Exception:  # noqa: BLE001 - no config (tests): the default
+            v = "north"
+        return v if v in curation.HEMISPHERES else "north"
+
+    async def _today(self, day: dt.date | None = None) -> list[dict]:
+        """The day's shelves (classical_core.curation), cached per day, visible sources and hemisphere."""
+        vis = self._vis()  # on the loop
+        day = day or dt.date.today()
+        hemi = self._hemisphere()
+        key = (day.isoformat(), None if vis is None else tuple(sorted(vis)), hemi)
+        cache: dict = getattr(self, "_today_cache", None) or {}
+        hit = cache.get(key)
+        if hit and time.monotonic() - hit[0] < TODAY_TTL:
+            return hit[1]
+        shelves = await self._read(lambda ix: curation.shelves(ix, day, hemi, vis))
+        cache = {k: v for k, v in cache.items() if k[0] == key[0]}    # other days' entries are dropped
+        cache[key] = (time.monotonic(), shelves)
+        self._today_cache = cache
+        return shelves
+
     async def get_recommendations(self) -> list[RecommendationFolder]:
-        """Home rows: recently added works, composers in your library."""
+        """Home rows: today's shelves (on this day, the season, the weekday, acclaimed), recently added
+        works, composers in your library. The shelves get a short wait; on a cold cache their names come
+        from the date alone and the picks are computed in the background for the items call."""
+        today: list[RecommendationFolder] = []
+        task = asyncio.ensure_future(self._today())
+        done, _ = await asyncio.wait({task}, timeout=TODAY_WAIT)
+        if task in done and not task.exception():
+            for s in task.result():
+                today.append(RecommendationFolder(item_id=f"today/{s['id']}", provider=self.instance_id,
+                                                  name=s["title"], subtitle=s["subtitle"]))
+        elif task in done:
+            self.logger.warning("Classical: today's shelves failed: %s", task.exception())
+        else:
+            self._today_pending = task          # keep a reference; it fills the cache when it finishes
+            today = [RecommendationFolder(item_id=f"today/{sid}", provider=self.instance_id, name=title)
+                     for sid, title in curation.titles(dt.date.today())]
         return [
+            *today,
             RecommendationFolder(item_id="recent_works", provider=self.instance_id, name="Recently added works",
                                  translation_key="classical_recent_works"),
             RecommendationFolder(item_id="composers", provider=self.instance_id, name="Composers in your library",
@@ -672,7 +726,15 @@ class ClassicalProvider(CompanionUI, PluginProvider):
         """Items for one home row."""
         vis = self._vis()
         items: UniqueList[MediaItemType | ItemMapping | BrowseFolder] = UniqueList()
-        if item_id == "recent_works":
+        if item_id.startswith("today/"):
+            shelf = next((s for s in await self._today() if s["id"] == item_id[6:]), None)
+            for p in shelf["picks"] if shelf else []:
+                items.append(self._folder(tree.Node(
+                    "folder", tree.recording_item_id(p["work_id"], p["recording_id"]), p["title"],
+                    version=f"{p['composer'] or ''} · {p['reason']}",
+                    item_id=tree.recording_item_id(p["work_id"], p["recording_id"]), playable=True,
+                    image=p.get("image"))))
+        elif item_id == "recent_works":
             def recent(ix: Index) -> list[tuple[dict, dict]]:
                 out = []
                 for w in ix.recently_added_works(vis, limit=20):

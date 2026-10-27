@@ -259,6 +259,12 @@ select.input {
 .art-empty::after { content: "\266A"; font-size: 18px; }
 .cover.art-empty::after { font-size: 34px; }
 .dur { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 14px; }
+.shelf { margin: 18px 0 0; }
+.shelf-head { margin: 0; font: 600 20px/1.2 var(--serif); }
+.shelf-sub { margin: 2px 0 8px; color: var(--muted); font-size: 14px; }
+.pick .row-main:active { opacity: .7; }
+.pick-why { color: var(--accent); font-size: 13px; margin-top: 2px; overflow-wrap: anywhere; }
+.pick .icon-btn { color: var(--accent); }
 .row-actions .btn { min-height: 38px; padding: 0 14px; font-size: 14px; }
 .more-link { display: inline-block; margin-top: 8px; color: var(--accent); font-weight: 600; font-size: 14px; }
 
