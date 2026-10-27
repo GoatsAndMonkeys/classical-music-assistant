@@ -36,6 +36,7 @@ from classical_core import __version__ as CORE_VERSION
 from classical_core import browse as tree
 from classical_core.index import AlbumIn, Index, MappingIn, TrackIn
 from classical_core.mb import MBClient
+from classical_core.names import LLMClient
 from classical_core.store import Database, SqliteMBCache
 
 if TYPE_CHECKING:
@@ -45,6 +46,10 @@ SUPPORTED_FEATURES: set[ProviderFeature] = {ProviderFeature.BROWSE, ProviderFeat
 
 CONF_MUSICBRAINZ = "musicbrainz"
 CONF_MB_CONTACT = "mb_contact"
+CONF_LLM = "llm_names"
+CONF_LLM_BASE_URL = "llm_base_url"
+CONF_LLM_MODEL = "llm_model"
+CONF_LLM_API_KEY = "llm_api_key"
 CONF_PROVIDERS = "providers"          # MA's raw provider-config key (controllers/config)
 PAGE = 500
 DEBOUNCE = 2.0                         # seconds to let a burst of library events settle
@@ -86,6 +91,44 @@ class ClassicalProvider(PluginProvider):
                 required=False,
                 depends_on=CONF_MUSICBRAINZ,
             ),
+            ConfigEntry(
+                key=CONF_LLM,
+                type=ConfigEntryType.BOOLEAN,
+                label="Ask a language model about composer names nothing else resolves",
+                description="Off by default. Only the unresolved names and a little album context are sent. "
+                "Answers are proposals: applied only when confident and confirmed by MusicBrainz or the "
+                "built-in composer list, otherwise listed for review.",
+                default_value=False,
+                required=False,
+                advanced=True,
+            ),
+            ConfigEntry(
+                key=CONF_LLM_BASE_URL,
+                type=ConfigEntryType.STRING,
+                label="OpenAI-compatible API base URL (e.g. http://localhost:11434/v1)",
+                default_value="",
+                required=False,
+                depends_on=CONF_LLM,
+                advanced=True,
+            ),
+            ConfigEntry(
+                key=CONF_LLM_MODEL,
+                type=ConfigEntryType.STRING,
+                label="Model name",
+                default_value="",
+                required=False,
+                depends_on=CONF_LLM,
+                advanced=True,
+            ),
+            ConfigEntry(
+                key=CONF_LLM_API_KEY,
+                type=ConfigEntryType.SECURE_STRING,
+                label="API key (optional)",
+                default_value="",
+                required=False,
+                depends_on=CONF_LLM,
+                advanced=True,
+            ),
         )
 
     async def handle_async_init(self) -> None:
@@ -110,7 +153,16 @@ class ClassicalProvider(PluginProvider):
                 # MB's policy wants a real contact in the User-Agent: no placeholder, no lookups without one
                 self._mb_note = "set a contact (email or URL) in the Classical settings to enable MusicBrainz"
                 self.logger.warning("Classical: MusicBrainz lookups are off: %s", self._mb_note)
-        self.index = Index(self._con, self._mb, db=self._db)
+        self._llm = None
+        if self.config.get_value(CONF_LLM, False):
+            base = str(self.config.get_value(CONF_LLM_BASE_URL, "") or "").strip()
+            model = str(self.config.get_value(CONF_LLM_MODEL, "") or "").strip()
+            if base and model:
+                key = str(self.config.get_value(CONF_LLM_API_KEY, "") or "") or None
+                self._llm = LLMClient(base, model, api_key=key)
+            else:
+                self.logger.warning("Classical: language-model name resolution needs a base URL and a model")
+        self.index = Index(self._con, self._mb, db=self._db, llm=self._llm)
 
     async def loaded_in_mass(self) -> None:
         """Register commands and subscriptions, start the worker and queue the initial scan."""
@@ -120,6 +172,8 @@ class ClassicalProvider(PluginProvider):
             reg("classical/search", self.cmd_search, required_scope=Scope.LIBRARY_READ),
             reg("classical/composer", self.cmd_composer, required_scope=Scope.LIBRARY_READ),
             reg("classical/reindex", self.cmd_reindex, required_scope=Scope.LIBRARY_MANAGE),
+            reg("classical/merge_composers", self.cmd_merge_composers, required_scope=Scope.LIBRARY_MANAGE),
+            reg("classical/composer_name", self.cmd_composer_name, required_scope=Scope.LIBRARY_MANAGE),
             self.mass.subscribe(self._on_sync_completed, EventType.MUSIC_SYNC_COMPLETED),
             self.mass.subscribe(self._on_providers_updated, EventType.PROVIDERS_UPDATED),
             self.mass.subscribe(
@@ -565,6 +619,34 @@ class ClassicalProvider(PluginProvider):
         """Queue a full library scan (force re-reads every file and MB response)."""
         self._enqueue("scan:force" if force else "scan")
         return {"queued": list(self._jobs)}
+
+    @staticmethod
+    def _user_name() -> str | None:
+        user = get_current_user()
+        return getattr(user, "username", None) or getattr(user, "user_id", None) if user else None
+
+    async def cmd_merge_composers(self, source_id: str, target_id: str) -> dict[str, Any]:
+        """A user correction: every occurrence of one composer becomes another (§5.11 f)."""
+        await self._write(self.index.merge_composers, source_id, target_id, self._user_name())
+        return {"merged": source_id, "into": self.index.resolve("composer", target_id)}
+
+    async def cmd_composer_name(self, name: str, composer_id: str) -> dict[str, Any]:
+        """A user correction: this credit string always means this composer; affected albums re-derive."""
+        user = self._user_name()
+
+        def apply(ix: Index) -> list[str]:
+            ix.con.execute("BEGIN IMMEDIATE")
+            try:
+                out = ix.set_name_identity(name, composer_id, user)
+                ix.con.execute("COMMIT")
+                return out
+            except BaseException:
+                ix.con.execute("ROLLBACK")
+                raise
+
+        albums = await self._write(apply, self.index)
+        self._enqueue("scan")
+        return {"albums": len(albums), "queued": list(self._jobs)}
 
 
 def mb_contact(value: Any) -> str | None:

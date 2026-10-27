@@ -27,13 +27,28 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from . import catalogue as cat
-from .composers import find_in_credit, lookup
+from .composers import PERFORMING, by_surname, find_in_credit, lookup
 from .grouping import Slot, group_album
 from .ids import new_id
 from .mb import MBClient, MBError, MBTransientError, RecordingInfo, WorkInfo, is_mbid, parse_recording, parse_work
-from .sethster_canonical import form_key
+from .names import (
+    LLM_AUTO_CONFIDENCE,
+    LLMClient,
+    NameCandidate,
+    NameContext,
+    album_name_prefix,
+    authority_match,
+    compatible,
+    given_name_conflict,
+    is_lone_surname,
+    mb_artist_confirms,
+    parse_names,
+    parse_one,
+    pick_mb_artist,
+)
+from .sethster_canonical import _CAT_RE, CATALOGUE_COMPOSER, form_key
 from .tags import Person, TagInfo, read_tags, year_of
-from .text import fold, norm_key, sort_name
+from .text import fold, norm_key, sort_name, surname
 from .titles import find_act, is_talk, parse_act, parse_movement, parse_title, shared_prefix_runs
 
 log = logging.getLogger("classical.index")
@@ -41,6 +56,8 @@ log = logging.getLogger("classical.index")
 FOLDER_CAP = 500
 MAX_PARENT_DEPTH = 3
 CUE_TRACK = "::track"                  # MA's CUE-sheet track item_id delimiter (file.cue::trackNN)
+# bumped when derivation changes, so every album re-derives once (tags are not re-read)
+DERIVE_VERSION = 2
 
 
 # ---- inputs from the glue ------------------------------------------------------------------------------
@@ -213,9 +230,14 @@ class Index:
     event loop only awaits; without it (tests, read-only instances) the steps run inline."""
 
     def __init__(self, con: sqlite3.Connection, mb: MBClient | None = None,
-                 tag_reader: Callable[[str], TagInfo] = read_tags, db: Any = None) -> None:
+                 tag_reader: Callable[[str], TagInfo] = read_tags, db: Any = None,
+                 llm: LLMClient | None = None) -> None:
         self.con = con
         self.mb = mb
+        self.llm = llm
+        self._name_ctx = NameContext()
+        self._name_memo: dict[str, tuple[str, str | None]] = {}
+        self._reviews: list = []
         self.tag_reader = tag_reader
         self.db = db
 
@@ -519,6 +541,7 @@ class Index:
             await self.refresh_mb_recording(rid, stats)
         for wid in sorted(work_ids):
             await self.refresh_mb_work_chain(wid, stats)
+        await self.prefetch_names(album, tracks, stats)
         # a transient MB failure leaves the signature unset, so the next scan retries the album
         await self._w(self._finish_album, album, tracks, stats, None if stats.mb_failures else sig)
         return stats
@@ -638,6 +661,223 @@ class Index:
         self.con.execute(f"DELETE FROM track_credit WHERE occurrence_id IN {occ}", (album_id,))
         self.con.execute("DELETE FROM review_item WHERE album_library_id=?", (album_id,))
 
+    # -- names (§5.11) --
+
+    def _album_names(self, album: AlbumIn, tracks: list[TrackIn]) -> tuple[list[str], list[str]]:
+        """(raw composer credits, titles) of one album, from the live tag evidence."""
+        raws: list[str] = []
+        titles: list[str] = [album.name or ""]
+        for t in tracks:
+            titles.append(t.title or "")
+            tags = self.track_tags(t.library_track_id)[0]
+            if tags:
+                raws += tags.composers
+                if tags.work:
+                    titles.append(tags.work)
+        prefix = album_name_prefix(album.name)
+        if prefix:
+            raws.append(prefix)
+        return raws, titles
+
+    @staticmethod
+    def name_context(titles: Iterable[str], raws: Iterable[str]) -> NameContext:
+        ctx = NameContext()
+        for t in titles:
+            for m in _CAT_RE.finditer(fold(t or "")):
+                ns = m.group(1).lower()
+                if (len(ns) > 1 or ns == "k") and ns in CATALOGUE_COMPOSER:
+                    ctx.catalogue_surnames.add(CATALOGUE_COMPOSER[ns])
+        for c in parse_names(list(raws)):
+            k = lookup(c.name)
+            if k is not None and not is_lone_surname(c.name):
+                ctx.siblings.add(k.name)
+        return ctx
+
+    def _name_override(self, key: str) -> tuple[str, str | None] | None:
+        r = self._one("SELECT payload_json FROM override WHERE entity='name' AND entity_id=? AND op='composer' "
+                      "ORDER BY id DESC LIMIT 1", (key,))
+        if not r:
+            return None
+        cid = self.resolve("composer", json.loads(r[0])["composer_id"])
+        row = self._one("SELECT name FROM composer WHERE id=?", (cid,))
+        return (row[0], f"cid:{cid}") if row else None
+
+    def _names_to_search(self, album: AlbumIn, tracks: list[TrackIn]) -> list[NameCandidate]:
+        """Full names the local tiers cannot resolve (MB/LLM prefetch candidates)."""
+        raws, titles = self._album_names(album, tracks)
+        ctx = self.name_context(titles, raws)
+        out: dict[str, NameCandidate] = {}
+        for c in parse_names(raws):
+            if is_lone_surname(c.name) or self._name_override(c.key) or authority_match(c, ctx)[0]:
+                continue
+            out[c.key] = c
+        return list(out.values())
+
+    async def prefetch_names(self, album: AlbumIn, tracks: list[TrackIn], stats: AlbumStats) -> None:
+        """Tiers (c) and (e): MB artist search, then the optional LLM, for names still unresolved. Results
+        are stored as evidence ('name', key); derivation reads them synchronously."""
+        if self.mb is None and self.llm is None:
+            return
+        todo = await self._w(self._names_to_search, album, tracks)
+        ask_llm: list[NameCandidate] = []
+        for c in todo:
+            fields = {r["field"] for r in await self._w(self._live, "name", c.key)}
+            if "identity" in fields:
+                continue
+            if self.mb is not None and "mb_miss" not in fields:
+                try:
+                    url, data = await self.mb.search_artist(c.name)
+                except MBTransientError as e:
+                    log.info("MusicBrainz artist search deferred for %r: %s", c.name, e)
+                    stats.mb_failures += 1
+                    continue
+                except MBError as e:
+                    log.info("MusicBrainz artist search failed for %r: %s", c.name, e)
+                    url, data = None, None
+                stats.mb_requests += 1
+                if url is not None:
+                    art, why = pick_mb_artist(c, data)
+                    row = (("name", c.key, "identity", json.dumps(
+                        {"mbid": art.mbid, "name": art.name, "born": art.born, "died": art.died}, sort_keys=True), "")
+                        if art else ("name", c.key, "mb_miss", why, ""))
+                    await self._w(self.replace_origin, url, "mb", [row])
+                    if art:
+                        continue
+            if "llm_proposal" not in fields:
+                ask_llm.append(c)
+        if self.llm is not None and ask_llm:
+            await self._llm_names(ask_llm, album, tracks)
+
+    async def _llm_names(self, cands: list[NameCandidate], album: AlbumIn, tracks: list[TrackIn]) -> None:
+        assert self.llm is not None
+        context = [t.title for t in tracks[:3]]
+        got = await self.llm.resolve([{"id": c.key, "name": c.raw, "album": album.name, "tracks": context}
+                                      for c in cands])
+        for c in cands:
+            p = got.get(c.key)
+            if p is None:
+                continue
+            confirmed = None
+            if p.canonical and p.confidence >= LLM_AUTO_CONFIDENCE:
+                if lookup(p.canonical) is not None:
+                    confirmed = "authority"
+                elif p.mbid and self.mb is not None:
+                    try:
+                        if mb_artist_confirms(await self.mb.artist(p.mbid), p.canonical):
+                            confirmed = "musicbrainz"
+                    except MBError as e:
+                        log.info("MusicBrainz could not confirm %s: %s", p.mbid, e)
+            payload = json.dumps({"canonical": p.canonical, "mbid": p.mbid, "confidence": p.confidence,
+                                  "confirmed": confirmed}, sort_keys=True)
+            await self._w(self.replace_origin, f"llm:{self.llm.model}:{c.key}", "llm",
+                          [("name", c.key, "llm_proposal", payload, "")])
+
+    def _composers_from(self, raws: Iterable[str]) -> list[tuple[str, str | None]]:
+        out: list[tuple[str, str | None]] = []
+        for c in parse_names(list(raws)):
+            ident = self._name_memo.get(c.key)
+            if ident is None:
+                ident = self._name_memo[c.key] = self._identity(c, self._reviews)
+            if ident not in out:
+                out.append(ident)
+        return out
+
+    def _identity(self, c: NameCandidate, reviews: list) -> tuple[str, str | None]:
+        """(display name, mbid or 'cid:<composer id>') — (f) override > (b) authority > (c) MB > (e) LLM > raw."""
+        ov = self._name_override(c.key)
+        if ov:
+            return ov
+        k, how = authority_match(c, self._name_ctx)
+        if k is not None:
+            return k.name, k.mbid
+        live = {r["field"]: r["value"] for r in self._live("name", c.key)}
+        if "identity" in live:
+            d = json.loads(live["identity"])
+            if lookup(d["name"]) is None or lookup(d["name"]).name == d["name"]:
+                return d["name"], d["mbid"]
+            return lookup(d["name"]).name, d["mbid"]
+        if "llm_proposal" in live:
+            d = json.loads(live["llm_proposal"])
+            if d.get("canonical") and d.get("confirmed") and (d.get("confidence") or 0) >= LLM_AUTO_CONFIDENCE:
+                known = lookup(d["canonical"])
+                return (known.name if known else d["canonical"]), d.get("mbid") or (known.mbid if known else None)
+            if d.get("canonical"):
+                reviews.append(("composer name proposed by the language model", "name", c.key,
+                                {"name": c.name, "proposal": d["canonical"], "confidence": d.get("confidence")}))
+        # (d) unresolved: keep the parsed name; similar names are proposed for review, never merged
+        if how in ("ambiguous surname", "surname shared outside the list", "life dates disagree with the list"):
+            reviews.append((f"composer not resolved: {how}", "name", c.key,
+                            {"name": c.name, "candidates": [h.name for h in by_surname(c.name)]}))
+        g = given_name_conflict(c)
+        if g is not None:
+            reviews.append(("composer name may be wrong", "name", c.key, {"name": c.name, "known": g.name}))
+        sk = norm_key(surname(c.name, particles=False))
+        if sk:
+            for r in self._q("SELECT id, name FROM composer WHERE name LIKE ? LIMIT 50", (f"%{sk}%",)):
+                why = compatible(c.name, r["name"])
+                if why:
+                    reviews.append(("possible same composer", "composer", r["id"],
+                                    {"name": c.name, "other": r["name"], "why": why}))
+        return c.name, None
+
+    def _context_composer(self, f: OccFacts, album: AlbumIn, hint: str | None) -> str | None:
+        """A composer for a track whose tags name none: the title's composer prefix, the album name's
+        ('Beethoven/Fidelio'), else the track or album artist unless that is a performer (a conductor
+        credited on the track, or a composer best known as a performer: Bernstein)."""
+        for raw in (hint, album_name_prefix(album.name)):
+            c = parse_one(raw) if raw else None
+            if c is not None:
+                k = authority_match(c, self._name_ctx)[0]
+                if k is not None:
+                    return k.name
+        conductors = {norm_key(p.name) for p in f.credits if p.role == "conductor"}
+        for artist in (f.track["artist"], album.artist):
+            k = find_in_credit(artist)
+            if k is not None and k.name not in PERFORMING and norm_key(k.name) not in conductors:
+                return k.name
+        return None
+
+    # -- user corrections (f) --
+
+    def merge_composers(self, src: str, dst: str, user: str | None = None) -> None:
+        """Every occurrence of `src` becomes `dst`, now and on every later derivation (redirect)."""
+        src, dst = self.resolve("composer", src), self.resolve("composer", dst)
+        if src == dst:
+            return
+        own_tx = not self.con.in_transaction
+        if own_tx:
+            self.con.execute("BEGIN IMMEDIATE")
+        try:
+            now = time.time()
+            self.con.execute("INSERT OR REPLACE INTO redirect(entity, old_id, new_id, reason, at) VALUES (?,?,?,?,?)",
+                             ("composer", src, dst, "user merge", now))
+            self.con.execute("UPDATE redirect SET new_id=? WHERE entity='composer' AND new_id=?", (dst, src))
+            self.con.execute("UPDATE alias SET entity_id=? WHERE entity='composer' AND entity_id=?", (dst, src))
+            self.con.execute("INSERT OR IGNORE INTO work_composer(work_id, composer_id, ord) "
+                             "SELECT work_id, ?, ord FROM work_composer WHERE composer_id=?", (dst, src))
+            self.con.execute("DELETE FROM work_composer WHERE composer_id=?", (src,))
+            self.con.execute("INSERT INTO correction_log(op, payload_json, user, at) VALUES (?,?,?,?)",
+                             ("merge_composers", json.dumps({"src": src, "dst": dst}), user, now))
+            if own_tx:
+                self.con.execute("COMMIT")
+        except BaseException:
+            if own_tx:
+                self.con.execute("ROLLBACK")
+            raise
+
+    def set_name_identity(self, raw: str, composer_id: str, user: str | None = None) -> list[str]:
+        """Pin a credit string to a composer (wins over every tier). Returns the albums to re-derive."""
+        keys = [c.key for c in parse_names(raw)] or [norm_key(raw)]
+        now = time.time()
+        for k in keys:
+            self.con.execute("INSERT INTO override(entity, entity_id, op, payload_json, created_at, by_user) "
+                             "VALUES ('name', ?, 'composer', ?, ?, ?)",
+                             (k, json.dumps({"composer_id": composer_id}), now, user))
+        self.con.execute("INSERT INTO correction_log(op, payload_json, user, at) VALUES (?,?,?,?)",
+                         ("name_identity", json.dumps({"raw": raw, "composer_id": composer_id}), user, now))
+        self.con.execute("UPDATE album_info SET signature=NULL")
+        return [r[0] for r in self._q("SELECT album_library_id FROM album_info")]
+
     # -- derivation --
 
     def _derive_album(self, album: AlbumIn, tracks: list[TrackIn], stats: AlbumStats) -> None:
@@ -743,6 +983,14 @@ class Index:
 
     def _assign_candidates(self, facts: list[OccFacts], album: AlbumIn,
                            reviews: list[tuple[str, str | None, str | None, dict]]) -> None:
+        raws = [n for f in facts if f.tags for n in f.tags.composers]
+        prefix = album_name_prefix(album.name)
+        self._name_ctx = self.name_context(
+            [album.name or ""] + [f.track["title"] or "" for f in facts] + [f.tags.work for f in facts
+                                                                             if f.tags and f.tags.work],
+            raws + ([prefix] if prefix else []))
+        self._name_memo = {}
+        self._reviews = reviews
         # MB chains for every occurrence that has one (from a recording link or a work-MBID tag)
         chains: list[list[str] | None] = []
         for f in facts:
@@ -875,7 +1123,7 @@ class Index:
     def _tag_cand(self, f: OccFacts, mb_cand: Cand | None) -> Cand:
         t = f.tags
         assert t is not None and t.work
-        composers = [(n, None) for n in t.composers]
+        composers = self._composers_from(t.composers)
         if not composers and mb_cand:
             composers = mb_cand.composers
         cats = cat.parse_catalogues(t.work)
@@ -929,12 +1177,11 @@ class Index:
             number, movement = parse_movement(title[len(prefix):].lstrip(" :,-–—/"))
         elif parsed:
             work, number, movement, hint = parsed.work, parsed.movement_no, parsed.movement_name, parsed.composer_hint
-        composers: list[tuple[str, str | None]] = [(n, None) for n in (t.composers if t else [])]
+        composers = self._composers_from(t.composers) if t and t.composers else []
         if not composers:
-            known = (find_in_credit(f.track["artist"]) or find_in_credit(album.artist)
-                     or (lookup(hint) if hint else None))
+            known = self._context_composer(f, album, hint)
             if known:
-                composers = [(known.name, None)]
+                composers = self._composers_from([known])
         if not composers:
             return None  # no composer evidence: not treated as classical (keeps false positives down)
         if work is None:
@@ -953,6 +1200,8 @@ class Index:
     # -- identity --
 
     def _composer_for(self, name: str, mbid: str | None) -> str:
+        if mbid and mbid.startswith("cid:"):
+            return self.resolve("composer", mbid[4:])   # a user's name override
         known = lookup(name)
         canonical = known.name if known else name
         cid = self._alias("composer", "mbid", mbid) if mbid else None
@@ -1023,7 +1272,9 @@ class Index:
             self._add_alias("work", wid, "local", f"{album_id}|{c.key}")
         for pa in c.part_aliases:
             self._add_alias("work", wid, "part_mbid", pa)
-        for ord_, cid in enumerate(cids):
+        # the composers of the current derivation replace earlier ones (a re-resolved name moves the work)
+        self.con.execute("DELETE FROM work_composer WHERE work_id=?", (wid,))
+        for ord_, cid in enumerate(dict.fromkeys(cids)):
             self.con.execute("INSERT OR IGNORE INTO work_composer(work_id, composer_id, ord) VALUES (?,?,?)",
                              (wid, cid, ord_))
         # derived descriptive fields (never the display title: first spelling wins)
@@ -1265,7 +1516,7 @@ def album_signature(album: AlbumIn) -> str:
     """What an album's indexing depends on from MA's side; unchanged signature = nothing to do."""
     import hashlib
 
-    data = [album.name, album.artist, album.year, album.image,
+    data = [DERIVE_VERSION, album.name, album.artist, album.year, album.image,
             sorted([t.library_track_id, t.disc, t.position, t.title, t.artist, t.duration, t.mbid,
                     sorted([m.provider_instance, m.item_id, m.fingerprint, m.path is not None, m.available]
                            for m in t.mappings)] for t in album.tracks)]

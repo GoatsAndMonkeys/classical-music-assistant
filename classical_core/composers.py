@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .text import norm_key
+from .text import norm_key, surname
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,11 +129,27 @@ _DATA: list[tuple[str, int, int | None, tuple[str, ...]]] = [
     ("Gregorio Allegri", 1582, 1652, ()),
 ]
 
+# Composers who are also prominent performers (conductors, pianists, violinists): an artist credit naming
+# one of them is performer evidence first, so it never makes them the composer on its own (§5.11).
+PERFORMING = frozenset({
+    "Leonard Bernstein", "Benjamin Britten", "Igor Stravinsky", "Richard Strauss", "Edward Elgar",
+    "Sergei Rachmaninoff", "Aaron Copland", "Gustav Mahler", "Franz Liszt", "Hector Berlioz",
+})
+# surnames shared by several notable composers outside this list (Leopold Mozart, Michael Haydn, Alessandro
+# Scarlatti): a bare one resolves only with album context, never as "the only plausible match"
+WORLD_AMBIGUOUS = frozenset({"mozart", "haydn", "scarlatti", "couperin", "gabrieli", "stamitz", "benda",
+                             "graun", "boulanger", "berkeley", "adams", "williams", "weber", "berg", "franck",
+                             "wolf", "byrd", "glass", "reich"})
+
 _BY_KEY: dict[str, KnownComposer] = {}
+_BY_SURNAME: dict[str, list[KnownComposer]] = {}
 for _name, _born, _died, _alts in _DATA:
-    _c = KnownComposer(_name, _born, _died)
+    _c = _BY_KEY.get(norm_key(_name)) or KnownComposer(_name, _born, _died)
     for _s in (_name, *_alts):
         _BY_KEY[norm_key(_s)] = _c
+    _sk = norm_key(surname(_name, particles=False))
+    if _c not in _BY_SURNAME.setdefault(_sk, []):
+        _BY_SURNAME[_sk].append(_c)
 
 
 def lookup(name: str | None) -> KnownComposer | None:
@@ -151,3 +167,12 @@ def find_in_credit(artist: str | None) -> KnownComposer | None:
 
     hits = {c.name: c for part in re.split(r"\s*(?:;|/|,|&|\band\b|\x00)\s*", artist) if (c := lookup(part))}
     return next(iter(hits.values())) if len(hits) == 1 else None
+
+
+def by_surname(name: str | None) -> list[KnownComposer]:
+    """Every listed composer with this surname ('Strauss' -> Johann II and Richard)."""
+    return list(_BY_SURNAME.get(norm_key(surname(name or "", particles=False)), [])) if name else []
+
+
+def all_known() -> list[KnownComposer]:
+    return list(dict.fromkeys(_BY_KEY.values()))

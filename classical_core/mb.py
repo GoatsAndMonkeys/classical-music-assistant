@@ -295,6 +295,16 @@ class MBClient:
     async def work(self, mbid: str) -> dict:
         return await self.get(self.url("work", mbid, WORK_INC))
 
+    async def artist(self, mbid: str) -> dict:
+        return await self.get(self.url("artist", mbid, "aliases"))
+
+    async def search_artist(self, name: str) -> tuple[str, dict]:
+        """(url, response) for a Person artist search; the url is the cache key and evidence origin."""
+        from .names import mb_search_url
+
+        url = mb_search_url(self.base_url, name)
+        return url, await self.get(url)
+
     async def get(self, url: str) -> dict:
         if url in self._inflight:
             return await asyncio.shield(self._inflight[url])

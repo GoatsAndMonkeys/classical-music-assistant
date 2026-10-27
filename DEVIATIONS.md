@@ -70,6 +70,14 @@ Each entry says what the plan asked for, what was built instead, and why.
 - **A forced reindex starts from the first album.** The scan job row records whether it was forced, so an
   interrupted forced scan resumes forced; a normal scan never resumes a forced one as normal.
 - **MusicBrainz canonical titles** replace tag titles once a work is matched.
+- **Name resolution (§5.11) is an addition to the plan.** Composer credits go through a tiered resolver:
+  parsing, the authority list, MB artist search, an optional LLM, and review-only clustering, with user
+  corrections winning. Identities are stored as evidence on ('name', key).
+  - Composers best known as performers are never taken from the artist field. A Bernstein album of his own
+    music therefore needs a composer tag.
+  - The LLM API key is a `SECURE_STRING` entry. MA 2.10.8 has no `SECRET` entry type.
+  - `classical/composer_name` clears every album signature, so the next scan re-derives the whole
+    library. This is simple but slow on a large library.
 - **`read_error` mappings stay playable.** A tag read failure hides nothing that MA can still play.
 - **Album signature skip.** An album whose MA-side signature is unchanged is not re-derived, unless a forced
   reindex is requested.
