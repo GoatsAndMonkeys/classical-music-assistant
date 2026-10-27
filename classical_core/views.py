@@ -16,6 +16,7 @@ import re
 from collections import Counter, defaultdict
 from collections.abc import Iterable
 
+from . import accolades as acc
 from .browse import NotFound, letter_of, play_uri
 from .catalogue import WORK_TYPES
 from .index import Index, _fmt_duration, recording_label
@@ -256,13 +257,31 @@ def _summary(r: dict, credits: list[dict], wid: str) -> dict:
     }
 
 
-def _best(recs: list[dict]) -> tuple[dict, str] | None:
-    """The fixed §6 ranking, as `Index.best_recording` (complete, confirmed, most evidence, lowest id)."""
-    if not recs:
+def _best(recs: list[dict], accs: dict[str, list[dict]] | None = None) -> tuple[dict, str] | None:
+    """The §6 ranking with acclaim, as `Index.best_recording` (complete, acclaim, confirmed, most evidence,
+    lowest id)."""
+    return acc.best_pick(recs, accs)
+
+
+def _with_accolades(s: dict, accs: list[dict]) -> dict:
+    s["accolades"] = accs
+    s["acclaim"] = acc.acclaim(accs)
+    return s
+
+
+def _acclaim_summary(summaries: list[dict]) -> dict | None:
+    """The work header's line: how many recordings carry counted accolades, and the distinct awards."""
+    awards: dict[str, int] = {}
+    n = 0
+    for s in summaries:
+        counted = [a for a in s["accolades"] if a["counts"]]
+        n += bool(counted)
+        for a in counted:
+            if a["kind"] == "award":
+                awards[a["award"]] = awards.get(a["award"], 0) + 1
+    if not n:
         return None
-    r = min(recs, key=lambda r: (-r["complete"], r["status"] != "confirmed", -r["evidence_fields"], r["id"]))
-    reason = ("complete movement set" if r["complete"] else "most evidence") if len(recs) > 1 else "only recording"
-    return r, reason
+    return {"recordings": n, "awards": [{"award": k, "n": v} for k, v in sorted(awards.items(), key=lambda x: (-x[1], x[0]))]}
 
 
 def _facets(summaries: list[dict]) -> dict:
@@ -309,8 +328,9 @@ def work(ix: Index, wid: str, vis=None, scope: str | list[str] | None = None) ->
     extra = ix.contained_tracks(wid, vis)
     if not recs and not extra:
         raise NotFound(wid)
-    summaries = [_summary(r, credits.get(r["id"], []), wid) for r in recs]
-    best = _best(recs)
+    accs = acc.for_recordings(ix.con, recs)
+    summaries = [_with_accolades(_summary(r, credits.get(r["id"], []), wid), accs.get(r["id"], [])) for r in recs]
+    best = _best(recs, accs)
     ids = [s for s in (scope.split(",") if isinstance(scope, str) else (scope or [])) if s]
     on_work = {c["id"] for s in summaries for c in s["credits"]}
     people = [p for p in _people(ix, dict.fromkeys(ids)) if p["id"] in on_work]
@@ -321,6 +341,7 @@ def work(ix: Index, wid: str, vis=None, scope: str | list[str] | None = None) ->
         "recordings": summaries,
         "facets": _facets(summaries),
         "best": {"recording_id": best[0]["id"], "reason": best[1], "label": best[0]["label"]} if best else None,
+        "acclaim": _acclaim_summary(summaries),
         "contained_tracks": [{"track_id": t["library_track_id"], "title": t["title"],
                               "track_uri": f"library://track/{t['library_track_id']}"} for t in extra],
         "scope": {"ids": [p["id"] for p in people], "people": people} if people else None,
@@ -350,7 +371,43 @@ def recording(ix: Index, rid: str, vis=None) -> dict:
     s["work"] = {"id": r["work_id"], "title": w.get("title"), "composers": w.get("composers") or [],
                  "catalogue": w.get("catalogue_display"), "key": w.get("key"), "work_type": w.get("work_type")}
     s["merged"] = ix.merged_into(r["id"])
+    _with_accolades(s, acc.for_recordings(ix.con, recs).get(r["id"], []))
+    s["awards"] = [a for a in s["accolades"] if a["kind"] == "award"]
+    s["reviews"] = [a for a in s["accolades"] if a["kind"] == "review"]
+    s["ratings"] = [a for a in s["accolades"] if a["kind"] == "rating"]
+    links = acc.links_for(ix.con, r.get("album_library_id"))
+    s["links"] = links
+    principal = next((c["name"] for c in r["credits"] if c.get("role") == "conductor"), None) \
+        or next((c["name"] for c in r["credits"] if c.get("group") == "soloists"), None) \
+        or r.get("album_artist")
+    comp = (w.get("composers") or [{}])[0].get("name") if w.get("composers") else None
+    s["review_links"] = acc.review_links(comp, w.get("title") or "", principal, links)
     return s
+
+
+def accolades(ix: Index, recording_id: str | None = None, work_id: str | None = None, vis=None) -> dict:
+    """`classical/accolades`: one recording's awards, reviews, ratings and review links, or every recording of
+    a work with its acclaim and pick score (the curation hook, §5.9)."""
+    if bool(recording_id) == bool(work_id):
+        raise ValueError("give recording_id or work_id")
+    if recording_id:
+        r = recording(ix, recording_id, vis)
+        return {"recording_id": r["id"], "accolades": r["accolades"], "acclaim": r["acclaim"],
+                "links": r["links"], "review_links": r["review_links"], "dataset": acc.dataset_info()}
+    w = ix.work(work_id)
+    if w is None:
+        raise NotFound(work_id)
+    recs, _ = _recordings(ix, w["id"], vis)
+    if not recs:
+        raise NotFound(work_id)
+    accs = acc.for_recordings(ix.con, recs)
+    best = _best(recs, accs)
+    return {"work_id": w["id"],
+            "recordings": [{"id": r["id"], "label": r["label"], "accolades": accs.get(r["id"], []),
+                            "acclaim": acc.acclaim(accs.get(r["id"], [])),
+                            "pick_score": acc.pick_score(r, accs.get(r["id"], []))} for r in recs],
+            "best": {"recording_id": best[0]["id"], "reason": best[1]} if best else None,
+            "dataset": acc.dataset_info()}
 
 
 # ---- performers -----------------------------------------------------------------------------------------
@@ -507,6 +564,9 @@ def review(ix: Index, vis=None) -> dict:
         "JOIN recording_slot s ON s.occurrence_id=v.entity_id JOIN recording r ON r.id=s.recording_id "
         f"WHERE v.entity='occurrence' AND {Index._VIS_REC}", _vis_args(vis))}
     visible_names = {norm_key(c["name"]) for c in comps}
+    rec_work = {r["id"]: r["work_id"] for r in ix._q(
+        "SELECT r.id, r.work_id FROM review_item v JOIN recording r ON r.id=v.entity_id "
+        f"WHERE v.entity='recording' AND {Index._VIS_REC}", _vis_args(vis))}
 
     def comp_ref(name: str | None) -> dict | None:
         c = by_name.get(norm_key(name or "")) if name else None
@@ -528,6 +588,10 @@ def review(ix: Index, vis=None) -> dict:
             c = comp_ids.get(ix.resolve("composer", it["entity_id"]))
             if c:
                 link = {"kind": "composer", "id": c["id"]}
+        elif it["entity"] == "recording" and it.get("entity_id"):
+            r = rec_work.get(it["entity_id"])
+            if r:
+                link = {"kind": "recording", "id": it["entity_id"], "work_id": r}
         actions: list[dict] = []
         hint = None
         if it["entity"] == _NAME_REASONS and d.get("name"):
@@ -541,6 +605,12 @@ def review(ix: Index, vis=None) -> dict:
                 b = {"id": b["id"], "name": b["name"]}
                 actions += [{"op": "merge_composers", "source": a, "target": b},
                             {"op": "merge_composers", "source": b, "target": a}]
+        elif it["reason"] == "accolade_match":
+            if link:
+                actions += [{"op": "accolade_decide", "entry": d.get("entry"), "recording_id": it["entity_id"],
+                             "decision": "confirm", "label": "Same recording"},
+                            {"op": "accolade_decide", "entry": d.get("entry"), "recording_id": it["entity_id"],
+                             "decision": "reject", "label": "Not this recording"}]
         else:
             hint = _GROUPING_HINT
         # `other` names another composer or work, which may sit only on sources this caller can't see

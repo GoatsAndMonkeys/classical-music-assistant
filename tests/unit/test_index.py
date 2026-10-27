@@ -545,8 +545,8 @@ def test_schema_2_upgrades_a_version_1_index_in_place(tmp_path):
     con.execute("INSERT INTO override(entity, entity_id, op, payload_json, created_at, by_user) "
                 "VALUES ('composer', 'c1', 'name', '{}', 1, 'seth')")
     con.execute("INSERT INTO redirect(entity, old_id, new_id, reason, at) VALUES ('composer', 'c2', 'c1', 'user', 1)")
-    assert migrate(con) == 2
-    assert migrate(con) == 2
+    assert migrate(con) == 3
+    assert migrate(con) == 3
     w = con.execute("SELECT work_type, work_type_rank FROM work WHERE id='w1'").fetchone()
     assert tuple(w) == ("Opera & Stage", -1)
     assert con.execute("SELECT COUNT(*) FROM override").fetchone()[0] == 1
@@ -554,3 +554,5 @@ def test_schema_2_upgrades_a_version_1_index_in_place(tmp_path):
     cols = {r[1] for r in con.execute("PRAGMA table_info(recording)")}
     assert "source_work_id" in cols
     assert "detail" in {r[1] for r in con.execute("PRAGMA table_info(track_credit)")}
+    assert {"label", "mb_release_group", "enriched_at"} <= {r[1] for r in con.execute("PRAGMA table_info(album_info)")}
+    assert con.execute("SELECT COUNT(*) FROM accolade").fetchone()[0] == 0

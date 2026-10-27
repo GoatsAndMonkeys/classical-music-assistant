@@ -122,25 +122,29 @@ class Database:
 
 class SqliteMBCache:
     """`mb_cache` table as the MB client's cache (good 90 days, errors 1 day). `run` executes the SQL off the
-    event loop (the writer thread); without it the calls run inline (tests)."""
+    event loop (the writer thread); without it the calls run inline (tests). `table='web_cache'` serves the
+    clients for the other hosts (accolades)."""
 
     def __init__(self, con: sqlite3.Connection,
-                 run: Callable[..., Awaitable[Any]] | None = None) -> None:
+                 run: Callable[..., Awaitable[Any]] | None = None, table: str = "mb_cache") -> None:
+        if table not in ("mb_cache", "web_cache"):
+            raise ValueError(table)
         self.con = con
         self._run = run
+        self.table = table
 
     async def _call(self, fn: Callable[..., T], *args: Any) -> T:
         return fn(*args) if self._run is None else await self._run(fn, *args)
 
     def _get(self, url: str) -> tuple[int, bytes] | None:
-        row = self.con.execute("SELECT status, body_zlib, expires_at FROM mb_cache WHERE url=?", (url,)).fetchone()
+        row = self.con.execute(f"SELECT status, body_zlib, expires_at FROM {self.table} WHERE url=?", (url,)).fetchone()
         if row is None or row["expires_at"] < time.time():
             return None
         return row["status"], zlib.decompress(row["body_zlib"]) if row["body_zlib"] else b""
 
     def _put(self, url: str, status: int, body: bytes, ttl: int) -> None:
         now = time.time()
-        self.con.execute("INSERT OR REPLACE INTO mb_cache(url, status, body_zlib, fetched_at, expires_at) "
+        self.con.execute(f"INSERT OR REPLACE INTO {self.table}(url, status, body_zlib, fetched_at, expires_at) "
                          "VALUES (?,?,?,?,?)", (url, status, zlib.compress(body) if body else None, now, now + ttl))
 
     async def get(self, url: str) -> tuple[int, bytes] | None:

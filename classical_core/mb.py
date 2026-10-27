@@ -262,11 +262,16 @@ class MBClient:
 
     def __init__(self, contact: str, cache: MBCache | None = None, base_url: str = DEFAULT_BASE,
                  fetch: Callable[[str, dict[str, str]], Awaitable[tuple]] | None = None,
-                 interval: float = 1.0, session: Any = None) -> None:
+                 interval: float = 1.0, session: Any = None, good_ttl: int = GOOD_TTL,
+                 extra_headers: dict[str, str] | None = None) -> None:
+        # also the client for the other polite JSON APIs (Wikidata, CritiqueBrainz, Discogs: docs/accolades.md),
+        # each with its own instance, cache table, interval and TTL; secrets go in extra_headers, never in URLs
         self.base_url = base_url.rstrip("/")
         self.cache = cache
         self.interval = interval
-        self.headers = {"User-Agent": f"ClassicalMusicAssistant/0.1 ( {contact} )", "Accept": "application/json"}
+        self.good_ttl = good_ttl
+        self.headers = {"User-Agent": f"ClassicalMusicAssistant/0.1 ( {contact} )", "Accept": "application/json",
+                        **(extra_headers or {})}
         self._fetch = fetch or self._aiohttp_fetch
         self._session = session
         self._lock = asyncio.Lock()
@@ -355,7 +360,7 @@ class MBClient:
                 except ValueError as e:
                     raise MBTransientError(f"bad JSON from {url}") from e
                 if self.cache is not None:
-                    await self.cache.put(url, 200, body, GOOD_TTL)
+                    await self.cache.put(url, 200, body, self.good_ttl)
                 return data
             if status in (503, -1, 429):
                 retry_after = parse_retry_after(headers.get("retry-after"))

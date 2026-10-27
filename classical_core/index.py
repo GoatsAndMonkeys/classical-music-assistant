@@ -713,6 +713,8 @@ class Index:
             self._clear_derived(album_id)
             self.con.execute("UPDATE occurrence SET present=0 WHERE album_library_id=?", (album_id,))
             self.con.execute("DELETE FROM album_info WHERE album_library_id=?", (album_id,))
+            self.con.execute("DELETE FROM accolade WHERE album_library_id=?", (album_id,))
+            self.con.execute("DELETE FROM link WHERE entity='album' AND entity_id=?", (album_id,))
             self.con.execute("COMMIT")
         except BaseException:
             self.con.execute("ROLLBACK")
@@ -761,6 +763,8 @@ class Index:
         self.con.execute(f"DELETE FROM work_link WHERE occurrence_id IN {occ}", (album_id,))
         self.con.execute(f"DELETE FROM track_credit WHERE occurrence_id IN {occ}", (album_id,))
         self.con.execute("DELETE FROM review_item WHERE album_library_id=?", (album_id,))
+        # dataset matches point at recording ids that may change: the accolades job rebuilds them
+        self.con.execute("DELETE FROM accolade WHERE album_library_id=? AND source='dataset'", (album_id,))
 
     # -- names (§5.11) --
 
@@ -2067,14 +2071,17 @@ class Index:
         return [dict(r) | {"detail": json.loads(r["detail_json"])} for r in rows]
 
     def best_recording(self, wid: str, vis=None) -> tuple[dict, str] | None:
-        """Fixed ranking (§6): complete set, confirmed, most evidence fields, lowest id."""
+        """Fixed ranking (§6) with acclaim (§5.9): complete set, acclaim, confirmed, most evidence fields,
+        lowest id."""
+        from . import accolades
+
         recs = self.recordings(wid, vis)
-        if not recs:
-            return None
-        recs.sort(key=lambda r: (-r["complete"], r["status"] != "confirmed", -r["evidence_fields"], r["id"]))
-        r = recs[0]
-        reason = ("complete movement set" if r["complete"] else "most evidence") if len(recs) > 1 else "only recording"
-        return r, reason
+        return accolades.best_pick(recs, accolades.for_recordings(self.con, recs))
+
+    def accolades(self, recs: list[dict]) -> dict[str, list[dict]]:
+        from . import accolades
+
+        return accolades.for_recordings(self.con, recs)
 
     def search(self, query: str, kind: str = "work", vis=None, limit: int = 25) -> list[dict]:
         q = fold(query)
