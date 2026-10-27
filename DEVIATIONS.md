@@ -326,6 +326,12 @@ Each entry says what the plan asked for, what was built instead, and why.
   `classical/separate_discs` ("Keep discs separate" on the recording page) stores "separate" for each
   adjacent pair. Both are logged in `correction_log`. A forced join still refuses different works, and still
   needs the earlier recording to end its disc and the later one to start its disc.
+- **No guessed joins between copies or sources.** When the evidence offers a disc more than one continuation
+  (two copies of a set as separate albums), none of them is joined by the evidence; each pair is queued, and a
+  user's join settles the rest. Discs whose tracks do not all play from the same provider instances are queued
+  too, since a joined recording is shown only to a user who can play every disc. A later disc's recording id
+  (browse path, play URI) opens the joined recording. An award on the recording and on a later disc's album
+  shows once.
 - **Incremental.** Deriving or removing an album unjoins every group it touches, then re-joins that album's
   set, so a disc that arrives later joins the existing recording. The `accolades` job is queued after a
   correction. Only the lead recording is visible; follower albums still show their award badges, without

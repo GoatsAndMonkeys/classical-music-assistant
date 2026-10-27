@@ -7,7 +7,7 @@ the work and movements in the tags.
 import asyncio
 
 from classical_core import accolades as A
-from classical_core import discs, views
+from classical_core import browse, discs, views
 from classical_core.index import AlbumIn, MappingIn, TrackIn
 from classical_core.tags import Person, TagInfo
 from classical_core.titles import disc_marker
@@ -24,7 +24,7 @@ M2_MOVEMENTS = ["Allegro maestoso", "Andante moderato", "In ruhig fließender Be
 _n = 0
 
 
-def album(idx, r, name, rows, artist, year, disc, total=None, aid=None, positions=None):
+def album(idx, r, name, rows, artist, year, disc, total=None, aid=None, positions=None, provider="filesystem_local"):
     """rows: (title, TagInfo kwargs). Every track carries DISCNUMBER `disc` (and TOTALDISCS `total`)."""
     global _n
     _n += 1
@@ -33,19 +33,21 @@ def album(idx, r, name, rows, artist, year, disc, total=None, aid=None, position
     for i, (title, tg) in enumerate(rows):
         path = f"{aid}/{i}"
         tracks.append(TrackIn(f"{aid}-{i}", disc, positions[i] if positions else i + 1, title, artist, 600,
-                              mappings=[MappingIn("filesystem_local", path, fingerprint="f", path=path)]))
+                              mappings=[MappingIn(provider, path, fingerprint="f", path=path)]))
         r.tags[path] = TagInfo(**{"title": title, "disc": disc, "disc_total": total, **tg})
     a = AlbumIn(aid, name, artist, year, None, tracks)
     asyncio.run(idx.index_album(a))
     return a
 
 
-def mahler_disc(idx, r, n, performers=SOLTI, year=1981, name=None, artist="Sir Georg Solti", movements=None):
+def mahler_disc(idx, r, n, performers=SOLTI, year=1981, name=None, artist="Sir Georg Solti", movements=None,
+                aid=None, provider="filesystem_local"):
     movements = movements or ([1, 2, 3] if n == 1 else [4, 5])
     rows = [(f"Symphony No. 2: {['I', 'II', 'III', 'IV', 'V'][m - 1]}. {M2_MOVEMENTS[m - 1]}",
              {"composers": MAHLER, "work": M2, "movement_name": M2_MOVEMENTS[m - 1], "movement_no": m,
               "movement_total": 5, "performers": performers}) for m in movements]
-    return album(idx, r, name or f"Mahler: Symphony No. 2 \"Resurrection\" [Disc {n}]", rows, artist, year, n, 2)
+    return album(idx, r, name or f"Mahler: Symphony No. 2 \"Resurrection\" [Disc {n}]", rows, artist, year, n, 2,
+                 aid=aid, provider=provider)
 
 
 def visible(idx, title="Symphony No. 2"):
@@ -230,3 +232,61 @@ def test_the_award_shows_once_on_the_joined_recording(tmp_path, monkeypatch):
     assert [a["text"] for a in awards] == ["Grammy winner 1982"]
     rows = idx._q("SELECT recording_id FROM accolade WHERE source='dataset'")
     assert [x[0] for x in rows] == [rec["id"]]
+
+
+def test_two_copies_of_a_set_are_never_cross_joined_by_a_guess(tmp_path):
+    """Both copies of a two-disc set as four MA albums: each disc 1 could continue on either disc 2. Whatever
+    the album ids, nothing is joined by the evidence; once a user joins one pair, the other pair is clear."""
+    for ids in (("A1", "A2", "B1", "B2"), ("A1", "B4", "B2", "A3")):    # the second order once paired A1 with B
+        idx, r = new_index(tmp_path / "".join(ids))
+        a1 = mahler_disc(idx, r, 1, aid=ids[0])
+        a2 = mahler_disc(idx, r, 2, aid=ids[1])
+        mahler_disc(idx, r, 1, aid=ids[2])
+        mahler_disc(idx, r, 2, aid=ids[3])
+        assert sorted(x["tracks"] for x in visible(idx)) == [2, 2, 3, 3]
+        items = idx._q("SELECT detail_json FROM review_item WHERE reason=?", (discs.CONTINUATION,))
+        assert len(items) == 4 and all("more than one disc" in x[0] for x in items)
+        first = idx._one("SELECT id FROM recording WHERE album_library_id=?", (a1.library_album_id,))[0]
+        second = idx._one("SELECT id FROM recording WHERE album_library_id=?", (a2.library_album_id,))[0]
+        idx.join_discs(first, second, "seth")
+        assert sorted(x["tracks"] for x in visible(idx)) == [5, 5]
+        groups = sorted(sorted(d["id"] for d in idx.recording_discs(x["id"])) for x in visible(idx))
+        assert groups == [sorted(ids[:2]), sorted(ids[2:])]
+        assert not idx._q("SELECT 1 FROM review_item WHERE reason=?", (discs.CONTINUATION,))
+
+
+def test_discs_on_different_sources_are_queued_not_joined(tmp_path):
+    """Disc 1 local, disc 2 only on a streaming service: joined, a user who sees only the local files would
+    lose disc 1 too. So the evidence alone never joins them; a user can."""
+    idx, r = new_index(tmp_path)
+    mahler_disc(idx, r, 1)
+    mahler_disc(idx, r, 2, provider="qobuz--abc")
+    assert sorted(x["tracks"] for x in visible(idx)) == [2, 3]
+    item = idx._one("SELECT detail_json FROM review_item WHERE reason=?", (discs.CONTINUATION,))
+    assert "different sources" in item[0]
+
+
+def test_a_later_discs_browse_path_still_plays_the_joined_recording(tmp_path):
+    idx, r = new_index(tmp_path)
+    mahler_disc(idx, r, 1)
+    d2 = mahler_disc(idx, r, 2)
+    rec = visible(idx)[0]
+    follower = idx._one("SELECT id FROM recording WHERE album_library_id=?", (d2.library_album_id,))[0]
+    assert follower != rec["id"]
+    nodes = browse.browse(idx, browse.recording_item_id(rec["work_id"], follower))
+    assert len(nodes) == 5
+    assert idx.recording(follower)["id"] == rec["id"]
+
+
+def test_an_entry_on_the_recording_and_on_a_later_discs_album_shows_once(tmp_path):
+    idx, r = new_index(tmp_path)
+    mahler_disc(idx, r, 1)
+    d2 = mahler_disc(idx, r, 2)
+    rec = visible(idx)[0]
+    for i, (target, rid, aid) in enumerate((("recording", rec["id"], rec["album_library_id"]),
+                                            ("album", None, d2.library_album_id))):
+        idx.con.execute(
+            "INSERT INTO accolade(id, target, recording_id, album_library_id, kind, award, year, result, source, "
+            "source_ref, grade, fetched_at) VALUES (?,?,?,?,'award','Grammy',1982,'winner','wikidata','Q1/P166/x',"
+            "'this_release',0)", (f"a{i}", target, rid, aid))
+    assert len(views.recording(idx, rec["id"])["awards"]) == 1

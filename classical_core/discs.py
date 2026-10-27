@@ -27,6 +27,7 @@ from __future__ import annotations
 import itertools
 import json
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -105,6 +106,7 @@ class Disc:
     release: str | None
     first: Rec | None = None       # the recording that starts the album's placed tracks
     last: Rec | None = None        # the recording that ends them
+    sources: frozenset[str] = frozenset()   # provider instances that play every placed track of the album
 
 
 def _year(v: Any) -> int | None:
@@ -162,6 +164,12 @@ def _disc(ix: Index, row: Any) -> Disc:
     if placed:
         d.first = _rec(ix, placed[0][0])
         d.last = d.first if placed[-1][0] == placed[0][0] else _rec(ix, placed[-1][0])
+        per_track: dict[str, set[str]] = {}
+        for m in ix._q("SELECT o.id, m.provider_instance FROM recording_slot s JOIN occurrence o "
+                       "ON o.id=s.occurrence_id LEFT JOIN mapping_state m ON m.library_track_id=o.library_track_id "
+                       "AND m.status IN ('ok','read_error') WHERE o.album_library_id=? AND o.present=1", (d.aid,)):
+            per_track.setdefault(m[0], set()).update([m[1]] if m[1] else [])
+        d.sources = frozenset(set.intersection(*per_track.values())) if per_track else frozenset()
     return d
 
 
@@ -227,6 +235,9 @@ def judge(a: Disc, b: Disc, forced: bool = False) -> tuple[str | None, str]:
         doubts.append("a movement seems to be missing between the discs")
     if split_number:
         doubts.append("one movement continues across the discs")
+    if a.sources != b.sources:
+        # a joined recording is shown only to a user who can play all of it: never hide a disc by a guess
+        doubts.append("the discs play from different sources")
     return ("review", "; ".join(doubts)) if doubts else ("join", "the discs continue")
 
 
@@ -369,21 +380,31 @@ def join_sets(ix: Index, aids: list[str]) -> list[str]:
             edges.append((a, b, op == "together"))
         elif verdict == "review":
             reviews.append((a, b, why))
-    # chains: each recording follows at most one and is followed by at most one
+    # chains: each recording follows at most one and is followed by at most one. Where the evidence offers
+    # two (a duplicate disc, two copies of a set) no guess is joined: a user's decision first, else a review.
     nxt: dict[str, Rec] = {}
     prev: dict[str, Rec] = {}
     recs: dict[str, Rec] = {}
     forced_from: set[str] = set()
-    for a, b, forced in edges:
-        ra, rb = a.last, b.first
-        assert ra is not None and rb is not None
-        if ra.id in nxt or rb.id in prev:
-            reviews.append((a, b, "more than one disc could continue here"))
-            continue
+
+    def link(ra: Rec, rb: Rec) -> None:
         nxt[ra.id], prev[rb.id] = rb, ra
         recs[ra.id], recs[rb.id] = ra, rb
-        if forced:
-            forced_from.add(ra.id)
+
+    for a, b, forced in edges:
+        if forced and a.last and b.first and a.last.id not in nxt and b.first.id not in prev:
+            link(a.last, b.first)
+            forced_from.add(a.last.id)
+    guesses = [(a, b) for a, b, forced in edges if not forced and a.last and b.first
+               and a.last.id not in nxt and b.first.id not in prev]       # a user's decision settles the rest
+    outs, ins = Counter(a.last.id for a, _ in guesses), Counter(b.first.id for _, b in guesses)
+    for a, b in guesses:
+        ra, rb = a.last, b.first
+        assert ra is not None and rb is not None
+        if outs[ra.id] > 1 or ins[rb.id] > 1:
+            reviews.append((a, b, "more than one disc could continue here"))
+            continue
+        link(ra, rb)
     leads: list[str] = []
     joined: set[str] = set()
     for rid, r in recs.items():

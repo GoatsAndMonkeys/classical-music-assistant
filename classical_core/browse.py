@@ -214,7 +214,7 @@ def recording_nodes(index: Index, rid: str, vis) -> list[Node]:
     w = index.work(r["work_id"])
     title = w["title"] if w else ""
     return [Node("track", "", t["movement_name"] or t["title"] or "", version=title, track_id=t["library_track_id"])
-            for t in index.recording_tracks(rid, vis)]
+            for t in index.recording_tracks(r["id"], vis)]
 
 
 def review_nodes(index: Index, rest: list[str], vis, page: int | None) -> list[Node]:

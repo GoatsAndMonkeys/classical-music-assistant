@@ -2196,6 +2196,7 @@ class Index:
         return out
 
     def recording(self, rid: str, vis=None) -> dict | None:
+        rid = self.resolve("recording", rid)        # a later disc's id opens the recording it was joined to
         r = self._one(f"SELECT r.* FROM recording r WHERE r.id=:rid AND {self._VIS_REC}", {"rid": rid, **self._vis(vis)})
         if not r:
             return None

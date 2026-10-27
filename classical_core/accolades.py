@@ -872,13 +872,16 @@ def for_recordings(con, recs: list[dict], now: float | None = None) -> dict[str,
         "WHERE album_library_id IN (SELECT value FROM json_each(?)) GROUP BY album_library_id", (json.dumps(aids),))}
     out: dict[str, list[dict]] = defaultdict(list)
     by_album: dict[str, list[dict]] = defaultdict(list)
+    rec_rows: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
         if row["target"] == "recording":
             out[row["recording_id"]].append(_badge(row, False))
+            rec_rows[row["recording_id"]].append(row)
         else:
             by_album[row["album_library_id"]].append(row)
     for r in recs:
-        seen: set[tuple[str, str]] = set()
+        # the same entry found on two discs of one recording, or on the recording and an album: one badge
+        seen: set[tuple[str, str]] = {(b["source"], b["source_ref"]) for b in rec_rows.get(r["id"], [])}
         for own, aid in albums_of.get(r["id"], []):
             for row in by_album.get(aid, []):
                 only = (json.loads(row["why_json"] or "{}") or {}).get("recordings") if row["source"] == "dataset" \
@@ -886,7 +889,7 @@ def for_recordings(con, recs: list[dict], now: float | None = None) -> dict[str,
                 if only is not None and own not in only and r["id"] not in only:
                     continue              # a dataset album award shows on the recordings it was matched on
                 if (row["source"], row["source_ref"]) in seen:
-                    continue              # the same entry found on two discs of one recording
+                    continue
                 seen.add((row["source"], row["source_ref"]))
                 out[r["id"]].append(_badge(row, single.get(aid, False)))
     return dict(out)
