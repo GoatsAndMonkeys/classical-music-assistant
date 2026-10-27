@@ -62,6 +62,7 @@ CONF_DISCOGS_TOKEN = "discogs_token"
 CONF_HEMISPHERE = "hemisphere"
 TODAY_TTL = 300                      # seconds the day's shelves are reused (they change with the library)
 TODAY_WAIT = 2.5                     # home rows wait this long for fresh shelves (MA gives rows 5 s)
+TODAY_KEEP = 8                       # (day, sources, hemisphere) entries kept
 NET_CHUNK = 20                         # albums per enrichment job; the job re-queues itself behind other work
 CONF_PROVIDERS = "providers"          # MA's raw provider-config key (controllers/config)
 PAGE = 500
@@ -682,36 +683,60 @@ class ClassicalProvider(CompanionUI, PluginProvider):
         return v if v in curation.HEMISPHERES else "north"
 
     async def _today(self, day: dt.date | None = None) -> list[dict]:
-        """The day's shelves (classical_core.curation), cached per day, visible sources and hemisphere."""
+        """The day's shelves (classical_core.curation), cached per day, visible sources and hemisphere.
+
+        `day` defaults to the MA server's local date (its TZ; UTC in a container without TZ); the
+        companion UI passes the browser's own date. One computation per key runs at a time (callers
+        share it), a stale entry is served while it refreshes, and a few days are kept side by side
+        so a UI in another timezone doesn't evict the server's day."""
         vis = self._vis()  # on the loop
         day = day or dt.date.today()
         hemi = self._hemisphere()
         key = (day.isoformat(), None if vis is None else tuple(sorted(vis)), hemi)
-        cache: dict = getattr(self, "_today_cache", None) or {}
+        cache: dict = self.__dict__.setdefault("_today_cache", {})
+        tasks: dict = self.__dict__.setdefault("_today_tasks", {})
         hit = cache.get(key)
-        if hit and time.monotonic() - hit[0] < TODAY_TTL:
+        fresh = hit is not None and time.monotonic() - hit[0] < TODAY_TTL
+        if fresh:
             return hit[1]
-        shelves = await self._read(lambda ix: curation.shelves(ix, day, hemi, vis))
-        cache = {k: v for k, v in cache.items() if k[0] == key[0]}    # other days' entries are dropped
+        task = tasks.get(key)
+        if task is None:
+            task = tasks[key] = asyncio.ensure_future(self._today_compute(key, day, hemi, vis))
+            task.add_done_callback(lambda t, k=key: (tasks.pop(k, None), t.cancelled() or t.exception()))
+        if hit is not None:
+            return hit[1]                       # stale: serve it, the refresh fills the cache
+        return await asyncio.shield(task)       # an MA timeout must not cancel the shared computation
+
+    async def _today_compute(self, key: tuple, day: dt.date, hemi: str, vis) -> list[dict]:
+        try:
+            shelves = await self._read(lambda ix: curation.shelves(ix, day, hemi, vis))
+        except Exception as err:
+            self.logger.warning("Classical: today's shelves failed: %s", err)
+            raise
+        cache: dict = self.__dict__.setdefault("_today_cache", {})
+        cache.pop(key, None)
         cache[key] = (time.monotonic(), shelves)
-        self._today_cache = cache
+        while len(cache) > TODAY_KEEP:
+            cache.pop(next(iter(cache)))        # oldest first
         return shelves
 
     async def get_recommendations(self) -> list[RecommendationFolder]:
         """Home rows: today's shelves (on this day, the season, the weekday, acclaimed), recently added
         works, composers in your library. The shelves get a short wait; on a cold cache their names come
-        from the date alone and the picks are computed in the background for the items call."""
+        from the date alone and the picks are computed in the background for the items call. "Today"
+        is the MA server's local date (set TZ on a container)."""
         today: list[RecommendationFolder] = []
         task = asyncio.ensure_future(self._today())
         done, _ = await asyncio.wait({task}, timeout=TODAY_WAIT)
-        if task in done and not task.exception():
+        if task in done and not task.cancelled() and task.exception() is None:
             for s in task.result():
                 today.append(RecommendationFolder(item_id=f"today/{s['id']}", provider=self.instance_id,
                                                   name=s["title"], subtitle=s["subtitle"]))
         elif task in done:
-            self.logger.warning("Classical: today's shelves failed: %s", task.exception())
+            pass                                # logged by _today_compute; the other rows still show
         else:
             self._today_pending = task          # keep a reference; it fills the cache when it finishes
+            task.add_done_callback(lambda t: t.cancelled() or t.exception())
             today = [RecommendationFolder(item_id=f"today/{sid}", provider=self.instance_id, name=title)
                      for sid, title in curation.titles(dt.date.today())]
         return [

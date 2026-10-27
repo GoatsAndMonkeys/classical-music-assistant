@@ -192,3 +192,15 @@ test("Today picks and the day line read cleanly", () => {
   assert.equal(app.daySubtitle({ liturgical: null, season: "autumn" }), "Autumn");
   assert.equal(app.daySubtitle({}), "");
 });
+
+test("Today asks for the browser's local day, not the UTC one", () => {
+  assert.equal(app.localDate(new Date(2026, 9, 27, 23, 59)), "2026-10-27");
+  assert.equal(app.localDate(new Date(2027, 0, 5, 0, 1)), "2027-01-05");
+  assert.match(app.localDate(), /^\d{4}-\d{2}-\d{2}$/);
+});
+
+test("sign-in probes stored tokens first outside ingress; the credential-less probe runs last", () => {
+  assert.deepEqual(app.probeOrder("/classical/", "t1", "t2"), ["own", "borrowed", "ingress"]);
+  assert.deepEqual(app.probeOrder("/classical/", null, null), ["ingress"]);
+  assert.deepEqual(app.probeOrder("/api/hassio_ingress/abc/classical/", "t1", null), ["ingress", "own"]);
+});

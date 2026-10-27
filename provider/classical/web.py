@@ -25,6 +25,9 @@ FILES: dict[str, tuple[str, str]] = {
     "manifest.webmanifest": (os.path.join(WEB_DIR, "manifest.webmanifest"), "application/manifest+json"),
 }
 INDEX = os.path.join(WEB_DIR, "index.html")
+# WebKit (Safari/iOS, Playwright WebKit) logs "Refused to apply a stylesheet ... Content Security Policy" once
+# per native <select>: the engine's own shadow stylesheet for the control trips style-src 'self'. Nothing
+# of ours is blocked (the page renders identically without the CSP), so style-src stays strict.
 CSP = ("default-src 'self'; img-src 'self' data:; connect-src 'self'; script-src 'self'; style-src 'self'; "
        "manifest-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'self'")
 HEADERS = {

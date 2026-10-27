@@ -273,13 +273,32 @@
     return [d.liturgical, season].filter(Boolean).join(" · ");
   }
 
+  /** The browser's own calendar day as YYYY-MM-DD (local time, not UTC: "today" is the listener's day). */
+  function localDate(d) {
+    d = d || new Date();
+    var pad = function (n) { return (n < 10 ? "0" : "") + n; };
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+  }
+
+  /** Which credentials to try, in order. Under HA ingress the proxy's own session comes first; elsewhere a
+   * credential-less probe always fails (one expected 401), so it only runs when no token is stored. */
+  function probeOrder(pathname, own, borrowed) {
+    var ingress = /\/hassio_ingress\//.test(pathname || "");
+    var out = [];
+    if (ingress) out.push("ingress");
+    if (own) out.push("own");
+    if (borrowed) out.push("borrowed");
+    if (!ingress) out.push("ingress");
+    return out;
+  }
+
   var pure = {
     BUCKETS: BUCKETS, parseHash: parseHash, formatHash: formatHash, takeCode: takeCode, fmtDuration: fmtDuration,
     lifeDates: lifeDates, yearText: yearText, workSubtitle: workSubtitle, recordingMatches: recordingMatches,
     filterRecordings: filterRecordings, sortRecordings: sortRecordings, creditGroups: creditGroups,
     reviewSubtitle: reviewSubtitle, badgeText: badgeText, anyAcclaim: anyAcclaim, safeHref: safeHref,
     byLetter: byLetter, playArgs: playArgs, loginReturnUrl: loginReturnUrl, choosePlayer: choosePlayer, errorText: errorText, imageSrc: imageSrc,
-    plural: plural, pickLines: pickLines, daySubtitle: daySubtitle,
+    plural: plural, pickLines: pickLines, daySubtitle: daySubtitle, localDate: localDate, probeOrder: probeOrder,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = pure;
   if (typeof document === "undefined") return;
@@ -407,12 +426,14 @@
       storage("cma_token", taken.code);
       storage("cma_no_borrow", null);
     }
-    if (await probe(null)) { state.source = "ingress"; return true; }
     var own = storage("cma_token");
-    if (own && await probe(own)) { state.token = own; state.source = "own"; return true; }
-    if (own) storage("cma_token", null);
     var borrowed = storage("cma_no_borrow") ? null : storage("ma_access_token");
-    if (borrowed && await probe(borrowed)) { state.token = borrowed; state.source = "borrowed"; return true; }
+    var order = probeOrder(location.pathname, own, borrowed);
+    for (var i = 0; i < order.length; i++) {
+      var src = order[i], token = src === "own" ? own : src === "borrowed" ? borrowed : null;
+      if (await probe(token)) { state.token = token; state.source = src; return true; }
+      if (src === "own") storage("cma_token", null);
+    }
     return false;
   }
 
@@ -694,7 +715,7 @@
 
   /** PLAN.md §5.9: the day's shelves (on this day, season, weekday, acclaimed); each pick plays a whole work. */
   VIEWS.today = async function () {
-    var res = await call("classical/today");
+    var res = await call("classical/today", { date: localDate() });
     var wrap = h("div", { class: "page" }, header(res.label || "Today", daySubtitle(res)));
     var shelves = (res.shelves || []).filter(function (s) { return s.picks && s.picks.length; });
     if (!shelves.length) {

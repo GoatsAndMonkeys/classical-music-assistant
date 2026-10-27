@@ -98,6 +98,43 @@ def test_another_release_of_the_same_recording_is_labelled_so():
     assert match(e, reissue) == "uncertain"
 
 
+def test_a_concert_dated_after_the_award_is_never_the_awarded_recording():
+    # Gardiner's 1991 Gramophone Missa solemnis vs a 2012 Carnegie Hall concert by the same forces
+    assert A.performance_year("Beethoven: Missa solemnis in D major — Carnegie Hall, 2012-11-17") == 2012
+    assert A.performance_year("Missa solemnis (live, 17 November 2012)") == 2012
+    assert A.performance_year("Missa solemnis, November 17th, 2012") == 2012
+    assert A.performance_year("Fidelio — Salzburg 17.8.1950") == 1950
+    for undated in ("Missa solemnis (2012 remaster)", "Fidelio - Wien, '70 (1)", "Symphonies 1-9", None):
+        assert A.performance_year(undated) is None
+    e = entry(award="Gramophone Award", year=1991, work="Missa solemnis", category="Choral",
+              performers=("John Eliot Gardiner", "Monteverdi Choir", "English Baroque Soloists"))
+    gardiner = (("John Eliot Gardiner", "conductor"), ("Monteverdi Choir", "chorus"),
+                ("English Baroque Soloists", "orchestra"))
+    concert = facts(titles=["Missa solemnis in D major"], released=2012, credits=gardiner,
+                    recorded=A.performance_year("Missa solemnis — Carnegie Hall, 2012-11-17"))
+    assert match(e, concert) is None
+    # the awarded session reissued later (recorded inside the window) still counts
+    assert match(e, facts(titles=["Missa solemnis in D major"], released=2012, recorded=1989,
+                          credits=gardiner)) == "other_release"
+
+
+def test_refresh_reads_a_concert_date_from_the_album_name(awarded):
+    idx, _ = awarded
+    A.refresh(idx.con)
+    unsure = idx.con.execute("SELECT recording_id, album_library_id FROM accolade WHERE grade='uncertain'").fetchone()
+    assert unsure is not None
+    # no session date in the tags: a later album of the same forces stays a doubt (it may be a reissue) ...
+    idx.con.execute("UPDATE recording SET recorded_start=NULL WHERE id=?", (unsure["recording_id"],))
+    assert A.refresh(idx.con)["recording:uncertain"] == 1
+    # ... until the album names its concert date, after the award
+    idx.con.execute("UPDATE album_info SET name = name || ' — live, 2031-05-04' WHERE album_library_id=?",
+                    (unsure["album_library_id"],))
+    stats = A.refresh(idx.con)
+    assert "recording:uncertain" not in stats
+    assert idx.con.execute("SELECT COUNT(*) FROM accolade WHERE recording_id=?", (unsure["recording_id"],)
+                           ).fetchone()[0] == 0
+
+
 def test_thin_evidence_goes_to_review_not_to_a_badge():
     # only the conductor's surname, in the album name
     f = facts(album="Fidelio (Klemperer, disc 1)", artists=["Various Artists"])

@@ -418,6 +418,24 @@ def _year(v: Any) -> int | None:
         return None
 
 
+_MONTH = (r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?"
+          r"|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)")
+_DATED = re.compile(
+    r"\b(?P<a>1[89]\d\d|20\d\d)-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])\b"                 # 2012-11-17
+    r"|\b(?:0?[1-9]|[12]\d|3[01])[./](?:0?[1-9]|1[0-2])[./](?P<b>1[89]\d\d|20\d\d)\b"          # 17.11.2012
+    rf"|\b(?:0?[1-9]|[12]\d|3[01])(?:st|nd|rd|th)? {_MONTH}\.?,? (?P<c>1[89]\d\d|20\d\d)\b"   # 17 November 2012
+    rf"|\b{_MONTH}\.? (?:0?[1-9]|[12]\d|3[01])(?:st|nd|rd|th)?,? (?P<d>1[89]\d\d|20\d\d)\b",   # November 17, 2012
+    re.IGNORECASE)
+
+
+def performance_year(text: str | None) -> int | None:
+    """The year of a performance date written out to the day in an album or recording name ("Carnegie Hall,
+    2012-11-17"): a live recording's own date, so it is when the music was recorded. A bare year is not
+    enough (it may be the release or a reissue)."""
+    m = _DATED.search(text or "")
+    return int(next(g for g in m.group("a", "b", "c", "d") if g)) if m else None
+
+
 def label_match(a: str | None, b: str | None) -> bool:
     ta = {t for t in norm_key(a).split() if len(t) > 2 and t not in {"records", "classics", "classical", "music", "cd"}}
     tb = {t for t in norm_key(b).split() if len(t) > 2}
@@ -510,7 +528,8 @@ def _facts(con) -> dict[str, Facts]:
         pool = Pool()
         out[r["id"]] = Facts(
             r["id"], r["work_id"], r["aid"], [t for t in (r["title"], r["parent_title"]) if t],
-            [c for c in (r["composers"] or "").split(";") if c], _year(r["recorded_start"]),
+            [c for c in (r["composers"] or "").split(";") if c],
+            _year(r["recorded_start"]) or performance_year(r["album"]),
             _year(r["release_year"]) or _year(r["album_year"]), r["label"] or r["album_label"], pool)
         pool.add_text(r["album_artist"] or "")
         pool.add_text(r["album"] or "", names=False)

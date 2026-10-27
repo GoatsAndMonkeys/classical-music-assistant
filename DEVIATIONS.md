@@ -226,7 +226,10 @@ Each entry says what the plan asked for, what was built instead, and why.
   (On this day, For the season, For <weekday>, Acclaimed recordings) on demand. There is no `themes.yaml`, no
   stored `theme_day` assignments, no `classical://playlist/today` and no household spacing. Picks are seeded
   by the date (sha256 of date, shelf and work), so the same day gives the same shelves for every user with the
-  same visible sources. The cache key is date, visibility and hemisphere, for 5 minutes. Weights come from the
+  same visible sources. The cache key is date, visibility and hemisphere, for 5 minutes (eight keys kept; one
+  computation per key at a time; a stale entry is served while it refreshes). The companion UI sends the
+  browser's local date. MA's home rows can't carry one, so they use the MA server's local date: set `TZ` on
+  a container, which is otherwise UTC. Weights come from the
   accolades `pick_score` plus evidence quality (complete, matched recordings first). There is one composer per
   shelf, and a work shows only once across shelves, even when it is indexed twice. The rules are in the spirit
   of Sethster's, written fresh: liturgical Sundays (Bach cantatas), Mozart/Messiah Mondays, Concerto Tuesdays,

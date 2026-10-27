@@ -1,8 +1,10 @@
 """Companion UI glue (provider/classical/ui.py, web.py) without Music Assistant: MA's modules are stubbed."""
 
 import asyncio
+import datetime as dt
 import importlib
 import sys
+import time
 import types
 from unittest.mock import MagicMock
 
@@ -192,6 +194,45 @@ def test_today_command(mods, tmp_path):
     assert asyncio.run(p.cmd_today("2027-05-07")) == res and len(reads) == 1      # cached for the day
     with pytest.raises(sys.modules["music_assistant_models.errors"].InvalidDataError):
         asyncio.run(p.cmd_today("7 May"))
+
+
+def test_today_cache_is_shared_kept_per_day_and_refreshed_in_the_background(mods, tmp_path, monkeypatch):
+    p, reads = _today_provider(mods, tmp_path)
+    day, other = dt.date(2027, 5, 7), dt.date(2027, 5, 8)
+
+    async def scenario():
+        a, b = await asyncio.gather(p._today(day), p._today(day))     # concurrent callers share one read
+        assert a == b and len(reads) == 1
+        await p._today(other)                                          # a second day doesn't evict the first
+        await p._today(day)
+        assert len(reads) == 2
+        clock = time.monotonic() + mods.glue.TODAY_TTL + 1
+        monkeypatch.setattr(mods.glue, "time", types.SimpleNamespace(monotonic=lambda: clock))
+        assert await p._today(day) == a and p._today_tasks              # stale: served at once, refreshed behind
+        for _ in range(3):
+            await asyncio.sleep(0)                                     # the refresh, then its done callback
+        assert len(reads) == 3 and not p._today_tasks
+        assert await p._today(day) == a and len(reads) == 3            # the refresh is now fresh
+
+    asyncio.run(scenario())
+    for i in range(mods.glue.TODAY_KEEP + 2):
+        asyncio.run(p._today(day + dt.timedelta(days=i)))
+    assert len(p._today_cache) == mods.glue.TODAY_KEEP
+
+
+def test_today_failure_is_logged_not_cached(mods, tmp_path):
+    p, reads = _today_provider(mods, tmp_path)
+
+    async def boom(fn, *a):
+        reads.append(fn)
+        raise RuntimeError("index busy")
+
+    p._read = boom
+    for _ in range(2):
+        with pytest.raises(RuntimeError):
+            asyncio.run(p._today(dt.date(2027, 5, 7)))
+    assert len(reads) == 2 and not p._today_cache and not p._today_tasks
+    p.logger.warning.assert_called()
 
 
 def test_today_home_rows_and_items(mods, tmp_path, monkeypatch):

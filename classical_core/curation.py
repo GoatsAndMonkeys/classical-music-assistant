@@ -211,11 +211,16 @@ _NOT_MUSIC = re.compile(r"\b(?:remarks|interview|applause|talk|announcements?|sp
 
 def _is(c: Cand, who: str) -> bool:
     """Is the work by this composer? Canonical names when both are known, else the surname."""
+    return _same_composer(who, c.kc.name if c.kc else None, c.composer)
+
+
+@lru_cache(maxsize=8192)
+def _same_composer(who: str, known: str | None, composer: str | None) -> bool:
     want = composers.lookup(who)
-    if want and c.kc:
-        return want.name == c.kc.name
-    return bool(c.composer) and norm_key(surname(who, particles=False)) == \
-        norm_key(surname(c.composer or "", particles=False))
+    if want and known:
+        return want.name == known
+    return bool(composer) and norm_key(surname(who, particles=False)) == \
+        norm_key(surname(composer or "", particles=False))
 
 
 # ---- themes --------------------------------------------------------------------------------------------

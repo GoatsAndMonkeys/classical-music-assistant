@@ -282,7 +282,7 @@ select.input {
 }
 .mov:active { background: var(--surface-2); }
 .mov-n { flex: none; width: 22px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; font-size: 14px; }
-.mov-name { flex: 1; min-width: 0; }
+.mov-name { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; }  /* long "(Chor/Florestan/…" titles wrap, never under .dur */
 
 .album-card {
   display: flex; gap: 14px; align-items: center; padding: 12px; margin: 4px 0 8px;
