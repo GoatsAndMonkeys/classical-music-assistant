@@ -1002,7 +1002,7 @@
     wrap.appendChild(albums);
     var asort = "title";
     function drawAlbums() {
-      call("classical/albums", { composer_id: cid, sort: asort, limit: 1000 }).then(function (ar) {
+      call("classical/albums", { composer_id: cid, sort: asort, limit: ALBUM_PAGE }).then(function (ar) {
         clear(albums);
         if (!ar.items.length) return;
         albums.appendChild(h("h2", null, "Albums (" + ar.total + ")"));
@@ -1010,8 +1010,8 @@
           chip("By title", asort === "title", function () { asort = "title"; drawAlbums(); }),
           chip("By year", asort === "year", function () { asort = "year"; drawAlbums(); })));
         var al = h("div", { class: "list box-discs" });
-        ar.items.forEach(function (a) { al.appendChild(albumBlock(a, cid)); });
         albums.appendChild(al);
+        moreAlbums(albums, ar, { composer_id: cid, sort: asort }, function (a) { al.appendChild(albumBlock(a, cid)); });
       }, function () { /* the section is optional */ });
     }
     drawAlbums();
@@ -1030,9 +1030,29 @@
     return det;
   }
 
+  var ALBUM_PAGE = 200;
+
+  /** Add a page of albums with `add`, then a "Load more" button under `wrap` while more are left. */
+  function moreAlbums(wrap, res, args, add) {
+    res.items.forEach(add);
+    var offset = res.items.length;
+    if (offset >= res.total) return;
+    var more = h("button", { type: "button", class: "btn wide", text: "Load more", onclick: async function () {
+      more.disabled = true;
+      try {
+        var next = await call("classical/albums", Object.assign({}, args, { offset: offset, limit: ALBUM_PAGE }));
+        next.items.forEach(add);
+        offset += next.items.length;
+        if (offset >= next.total || !next.items.length) more.remove();
+      } catch (e) { toast(e.message); }
+      more.disabled = false;
+    } });
+    wrap.appendChild(more);
+  }
+
   VIEWS.albums = async function (args, query) {
     var sort = ["title", "year"].indexOf(query.sort) >= 0 ? query.sort : "composer";
-    var res = await call("classical/albums", { sort: sort, limit: 1000 });
+    var res = await call("classical/albums", { sort: sort, limit: ALBUM_PAGE });
     var wrap = h("div", { class: "page" }, header("Albums", plural(res.total, sort === "composer" ? "entry" : "album", sort === "composer" ? "entries" : null),
       { href: formatHash(["works"]), label: "Works" }));
     wrap.appendChild(h("div", { class: "chips" },
@@ -1040,18 +1060,20 @@
       chip("By title", sort === "title", function () { go(["albums"], { sort: "title" }, true); }),
       chip("By year", sort === "year", function () { go(["albums"], { sort: "year" }, true); })));
     if (!res.items.length) wrap.appendChild(empty("No albums yet."));
+    // sections by composer, carried on across pages; the "Load more" button stays below them
+    var body = h("div");
+    wrap.appendChild(body);
     var sec = null, last = null;
-    res.items.forEach(function (a) {
+    moreAlbums(wrap, res, { sort: sort }, function (a) {
       var c = a.composer;
       if (!sec || (c && c.id !== last)) {
         sec = h("div", { class: "list box-discs" });
-        if (c) wrap.appendChild(h("h2", { class: "letter-head" }, link(["composer", c.id], null, c.name)));
-        wrap.appendChild(sec);
+        if (c) body.appendChild(h("h2", { class: "letter-head" }, link(["composer", c.id], null, c.name)));
+        body.appendChild(sec);
         last = c && c.id;
       }
       sec.appendChild(albumBlock(a, c ? c.id : null));
     });
-    if (res.total > res.items.length) wrap.appendChild(h("p", { class: "fine", text: "Showing the first " + res.items.length + "." }));
     return wrap;
   };
 

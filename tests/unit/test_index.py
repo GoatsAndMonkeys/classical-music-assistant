@@ -547,8 +547,8 @@ def test_schema_2_upgrades_a_version_1_index_in_place(tmp_path):
     con.execute("INSERT INTO redirect(entity, old_id, new_id, reason, at) VALUES ('composer', 'c2', 'c1', 'user', 1)")
     con.execute("INSERT INTO recording(id, work_id, album_library_id, tier) VALUES ('r1', 'w1', 'A1', 'title')")
     con.execute("INSERT INTO recording_slot(recording_id, occurrence_id, ord) VALUES ('r1', 'o1', 3)")
-    assert migrate(con) == 8
-    assert migrate(con) == 8
+    assert migrate(con) == 9
+    assert migrate(con) == 9
     assert con.execute("SELECT COUNT(*) FROM mb_work_match").fetchone()[0] == 0      # 0006: an empty table
     # 0004: a slot's home is where it was derived; nothing is joined across discs yet
     assert tuple(con.execute("SELECT home_id, home_ord FROM recording_slot").fetchone()) == ("r1", 3)
@@ -566,4 +566,7 @@ def test_schema_2_upgrades_a_version_1_index_in_place(tmp_path):
     # 0008: box evidence columns, empty until the album is derived again (DERIVE_VERSION 10)
     assert {"box_id", "box_title", "box_disc", "box_total"} <= {r[1] for r in con.execute("PRAGMA table_info(album_info)")}
     assert "album_info_box" in {r[1] for r in con.execute("PRAGMA index_list(album_info)")}
+    # 0009: the track's mappings indexed with the status and provider the visibility check reads
+    assert {r[1] for r in con.execute("PRAGMA index_list(mapping_state)")} >= {"mapping_state_vis"}
+    assert "mapping_state_track" not in {r[1] for r in con.execute("PRAGMA index_list(mapping_state)")}
     assert con.execute("SELECT COUNT(*) FROM accolade").fetchone()[0] == 0

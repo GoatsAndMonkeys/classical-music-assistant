@@ -23,6 +23,7 @@ from .browse import NotFound, letter_of, play_uri
 from .catalogue import WORK_TYPES
 from .discs import CONTINUATION
 from .index import Index, _fmt_duration, recording_label
+from .index import sort_key as _sort_key
 from .streaming import source
 from .text import fold, norm_key
 from .work_link import REASON as MB_LINK
@@ -50,10 +51,6 @@ def bucket(role: str, kind: str | None) -> str:
     if role == "performer":
         return "other"
     return "soloists"
-
-
-def _sort_key(name: str | None) -> str:
-    return fold(name or "").lower()
 
 
 def _words(q: str | None) -> list[str]:
@@ -620,33 +617,37 @@ def albums(ix: Index, vis=None, composer_id: str | None = None, sort: str = "com
     limit = max(1, min(int(limit or 200), MAX_LIMIT))
     header = None
     if composer_id:
-        cid = ix.resolve("composer", composer_id)
-        c = next((c for c in ix.composers(vis) if c["id"] == cid), None)
-        if c is None:
+        found = ix.composers(vis, cid=ix.resolve("composer", composer_id))
+        if not found:
             raise NotFound(composer_id)
-        header = _composer(c)
+        header = _composer(found[0])
     entries = ix.composer_albums(header["id"] if header else None, vis)
     if sort != "composer" and not header:
         once: dict[str, dict] = {}
         for e in entries:
-            prev = once.setdefault(e["id"], {**e, "recordings": [], "composer_id": None})
-            prev["recordings"] += [r for r in e["recordings"] if r not in prev["recordings"]]
+            prev = once.get(e["id"])
+            if prev is None:
+                once[e["id"]] = {**e, "recordings": list(e["recordings"]), "composer_id": None}
+            else:
+                prev["recordings"] += [r for r in e["recordings"] if r not in prev["recordings"]]
         entries = list(once.values())
     if sort != "composer":
-        entries.sort(key=lambda e: _sort_key(e["name"]))
+        entries.sort(key=lambda e: (_sort_key(e["name"]), e["id"]))
     if sort == "year":
         entries.sort(key=lambda e: (e["year"] is None, e["year"] or 0))
     page = entries[offset:offset + limit]
-    recs = {r["id"]: r for r in _box_recordings(ix, sorted({e["id"] for e in page}), vis)} if page else {}
+    on_album: dict[str, list[dict]] = defaultdict(list)
+    for r in _box_recordings(ix, sorted({e["id"] for e in page}), vis) if page else []:
+        on_album[r["album_library_id"]].append(r)
     items = []
     for e in page:
         keep = set(e["recordings"])
+        recs = [r for r in on_album[e["id"]] if r["id"] in keep]
         items.append({
             "id": e["id"], "name": e["name"], "artist": e["artist"], "year": e["year"], "image": e["image"],
             "composer": {"id": e["composer_id"], "name": e["composer"]} if e["composer_id"] else None,
-            "composers": e["composers"], "works": len({r["work_id"] for r in recs.values() if r["id"] in keep}),
-            "recordings": [_box_item(r, None) for r in recs.values()
-                           if r["id"] in keep and r["album_library_id"] == e["id"]]})
+            "composers": e["composers"], "works": len({r["work_id"] for r in recs}),
+            "recordings": [_box_item(r, None) for r in recs]})
     return {"total": len(entries), "offset": offset, "limit": limit, "sort": sort, "composer": header,
             "items": items}
 
