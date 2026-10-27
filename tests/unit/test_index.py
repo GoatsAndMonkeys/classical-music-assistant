@@ -137,6 +137,10 @@ def test_tier3_never_merges_across_albums(tmp_path):
     ws = by_title(idx, "Symphony No. 1")
     assert len(ws) == 2 and all(w["identity_tier"] == "title" for w in ws)
     assert any(v["reason"] == "possible same work on another album" for v in idx.review())
+    # a forced reindex finds the works again (no new work): the review item must survive, still once
+    for aid, base in (("A", 0), ("B", 10)):
+        run(idx.index_album(album(aid, titles, base=base, artist="Johannes Brahms"), force=True))
+    assert sum(v["reason"] == "possible same work on another album" for v in idx.review()) == 1
 
 
 def test_collection_level_opus_goes_to_review_not_merge(tmp_path):

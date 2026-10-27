@@ -152,20 +152,20 @@ def group_album(slots: list[Slot], ambiguous: bool = False) -> GroupingResult:
             first = slots[cur[0]]
             prev = slots[cur[-1]]
             reason = None
+            # one number spread over adjacent tracks, each a partial performance per MB, continues that number
+            same_part = bool(s.part_key and s.partial and prev.partial and prev.part_key == s.part_key)
             if first.work_key != s.work_key:
                 reason = "new work"
             elif not _evidence(s) or not _evidence(prev):
                 reason = "no movement evidence"
-            elif s.part_key and any(slots[j].part_key == s.part_key for j in cur) and not (
-                    # one number spread over adjacent tracks, each a partial performance per MB: a continuation
-                    s.partial and prev.partial and prev.part_key == s.part_key):
+            elif s.part_key and any(slots[j].part_key == s.part_key for j in cur) and not same_part:
                 reason = "repeated movement (alternate take or second performance)"
             elif _whole(s) or any(_whole(slots[j]) for j in cur):
                 reason = "complete performance of the whole work"
             elif s.section is not None and prev.section is not None and s.section < prev.section:
                 reason = "acts go backwards"
             elif (s.movement_no is not None and prev.movement_no is not None and prev.parent_key == s.parent_key
-                  and s.movement_no <= prev.movement_no):
+                  and s.movement_no <= prev.movement_no and not same_part):
                 reason = "movement numbers restart"
             elif (prev.disc != s.disc and not (s.section is not None and prev.section is not None
                                                and s.section > prev.section)

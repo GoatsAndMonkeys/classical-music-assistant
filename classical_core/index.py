@@ -1642,15 +1642,17 @@ class Index:
             wid = new_id("w")
             self.con.execute("INSERT INTO work(id, title, sort_title, work_type, identity_tier, created_at) "
                              "VALUES (?,?,?,?,?,?)", (wid, c.title, norm_key(c.title), "Other", c.tier, time.time()))
-            # cross-album candidates by title are listed, never merged (§5.5)
-            others = [r[0] for r in self._q(
-                "SELECT w.id FROM work w JOIN work_composer wc ON wc.work_id=w.id "
-                "WHERE w.sort_title=? AND wc.composer_id=? AND w.id<>? "
-                "AND EXISTS (SELECT 1 FROM recording r WHERE r.work_id=w.id) ORDER BY w.id",
-                (norm_key(c.title), cids[0] if cids else "", wid))]
-            if others:      # one item per new work, not one per pair (ten Fidelios are not 45 items)
-                reviews.append(("possible same work on another album", "work", wid,
-                                {"other": others[0], "others": others, "title": c.title}))
+        # cross-album candidates by title are listed, never merged (§5.5). Each work lists the older ones
+        # (ids sort by creation), so ten Fidelios are nine items, not 45, and a reindex that finds the
+        # works again (no new work) still lists them.
+        others = [r[0] for r in self._q(
+            "SELECT w.id FROM work w JOIN work_composer wc ON wc.work_id=w.id "
+            "WHERE w.sort_title=? AND wc.composer_id=? AND w.id<? "
+            "AND EXISTS (SELECT 1 FROM recording r WHERE r.work_id=w.id) ORDER BY w.id",
+            (norm_key(c.title), cids[0] if cids else "", wid))]
+        if others:
+            reviews.append(("possible same work on another album", "work", wid,
+                            {"other": others[0], "others": others, "title": c.title}))
         if c.mbid:
             self._add_alias("work", wid, "mbid", c.mbid)
         if c.tier == "tags" and cids and primary and not c.mbid:

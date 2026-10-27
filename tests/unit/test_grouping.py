@@ -117,8 +117,8 @@ def test_ambiguous_album_work_respects_separate_constraints_and_contradictions()
 
 def test_one_number_split_over_adjacent_partial_tracks_is_one_recording():
     # MB: 'Nr. 6 Finale' performed partially by three consecutive tracks (Dorati's Holländer, disc 2)
-    sl = [s(0, part="n5", partial=True), s(1, part="n6", partial=True), s(2, part="n6", partial=True),
-          s(3, part="n6", partial=True), s(4, part="n7", partial=True)]
+    sl = [s(0, part="n5", no=5, partial=True), s(1, part="n6", no=6, partial=True),
+          s(2, part="n6", no=6, partial=True), s(3, part="n6", no=6, partial=True), s(4, part="n7", no=7, partial=True)]
     assert runs(sl) == [[0, 1, 2, 3, 4]]
     # a repeat that is not partial, or not adjacent, is still a second performance
     assert runs([s(0, part="n6"), s(1, part="n6")]) == [[0], [1]]
