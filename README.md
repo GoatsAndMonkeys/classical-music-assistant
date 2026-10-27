@@ -42,11 +42,13 @@ up your MA data directory before trying it.
 - **A review queue** for anything uncertain. Repeated questions are grouped into one card (for example, a bare
   "Schumann" on several albums: Robert or Clara?), with filters, sorting by how many tracks are affected, bulk
   hide or reject, and undo. Corrections persist across rescans.
-- **Browse → Classical** in the normal MA interface, with Composers, Works and Review folders.
+- **Browse → Classical** in the normal MA interface, with Composers, Works and Albums folders (and the review
+  queue last, for curators).
 - **Albums under every composer.** A compilation shows under each composer on it, and album lists can be
   sorted by composer.
-- **A companion page** at `/classical/` on MA's web server, with Today, Composers, Works, Performers and Review
-  tabs:
+- **A companion page** at `/classical/` on MA's web server, with Today, Composers, Works and Performers tabs.
+  Curation (the review queue and the edit buttons on pages) sits behind a small **Curate** button at the top,
+  so the page stays a plain place to browse and play:
   - Work pages list every recording, with filters by performer and decade, sorting by acclaim, full credits,
     and **Play whole work** (all movements in order, with shuffle off).
   - The Performers tab separates conductors, orchestras, chamber groups, choirs and soloists (with
@@ -175,13 +177,15 @@ docker compose -f docker/compose.dev.yml --profile stable up -d    # MA 2.10.8 o
 
 ## Usage
 
-1. In the provider's settings, turn on MusicBrainz lookups and give a contact email or URL for the
-   MusicBrainz User-Agent (MusicBrainz requires one). Lookups stay off without it.
+1. In the provider's settings, give your email address or website. MusicBrainz requires one, and online
+   lookups stay off without it. The other settings work as they are; the optional extras are under
+   **Advanced settings**.
 2. Let MA sync your library. The plugin indexes tracks as MA imports them; the first pass over a large library
    with MusicBrainz lookups takes a while, because of the 1-request-a-second limit.
 3. Open **Browse → Classical** in MA, or the companion page. Its address is shown in the provider's settings;
    it is `/classical/` on your MA server (for example `http://<ma-host>:8095/classical/`) and uses your MA login.
-4. Work through the **Review** tab. Your answers are stored and survive rescans.
+4. To tidy up, open **Curate** at the top of the companion page and work through the review queue. Your
+   answers are stored and survive rescans.
 5. Play a whole work from its work page, or pick a recording. Playback goes to the MA player you choose at the
    bottom of the page.
 

@@ -420,6 +420,12 @@
       href: "https://musicbrainz.org/work/" + link.mbid.toLowerCase() };
   }
 
+  /** The top bar's curation entry: "Curate" until curation is switched on, then the open review count. */
+  function curateLabel(on, n) {
+    if (!on) return "Curate";
+    return n ? "Review (" + n + ")" : "Review";
+  }
+
   /** A Today pick's lines: title, "composer · recording", and why it was chosen (never repeating the title). */
   function pickLines(p) {
     p = p || {};
@@ -491,6 +497,7 @@
     actionCount: actionCount, tapGate: tapGate, historyLine: historyLine, mbWorkCandidates: mbWorkCandidates, mbLinkLine: mbLinkLine, badgeText: badgeText, anyAcclaim: anyAcclaim, safeHref: safeHref,
     byLetter: byLetter, playArgs: playArgs, loginReturnUrl: loginReturnUrl, choosePlayer: choosePlayer, errorText: errorText, imageSrc: imageSrc,
     plural: plural, pickLines: pickLines, boxLine: boxLine, boxSummary: boxSummary, albumSubtitle: albumSubtitle, discTitle: discTitle, daySubtitle: daySubtitle, localDate: localDate, probeOrder: probeOrder,
+    curateLabel: curateLabel,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = pure;
   if (typeof document === "undefined") return;
@@ -597,7 +604,10 @@
   // ---- auth and API ---------------------------------------------------------------------------------------
 
   var state = { token: null, source: null, info: null, players: [], playerId: storage("cma_player"), queue: null,
-    keep: false };
+    keep: false, curate: storage("cma_curate") === "1", reviewCount: null };
+
+  /** Curation controls (edit dates, unlink, keep separate, not a box set) show only once switched on. */
+  function curating() { return !!(state.info || {}).can_correct && state.curate; }
 
   async function probe(token) {
     try {
@@ -827,8 +837,7 @@
     { id: "composers", label: "Composers", icon: "♩" },
     { id: "works", label: "Works", icon: "♪" },
     { id: "performers", label: "Performers", icon: "♫" },
-    { id: "review", label: "Review", icon: "✓" },
-  ];
+  ];  // the review queue is reached from the top bar's Curate entry (renderTop)
   var TAB_OF = { today: "today", composers: "composers", composer: "composers", works: "works", work: "works", recording: "works",
     boxes: "works", box: "works", albums: "works", performers: "performers", performer: "performers", review: "review" };
   var VIEWS = {};
@@ -1151,12 +1160,17 @@
       ? (cov.composed || 0) + " of " + plural(cov.total || 0, "work") + " have a composition date"
       : null;
 
+    // period, decade and year range fold away until used
+    var moreSet = f.period || f.decade || f.date_from || f.date_to || f.date_kind !== "composed";
     wrap.appendChild(h("div", { class: "filters" },
       search,
       h("div", { class: "filter-row" }, typeSel, sortSel),
-      h("div", { class: "filter-row" }, periodSel, decadeSel),
-      h("div", { class: "filter-row" }, dk, from, h("span", { class: "dash", text: "–" }), to),
-      covText && (f.date_from || f.date_to || f.date_kind === "composed") ? h("p", { class: "fine", text: covText }) : null));
+      h("details", { class: "more-filters", open: moreSet ? true : null },
+        h("summary", { text: "Period and dates" }),
+        h("div", { class: "filters" },
+          h("div", { class: "filter-row" }, periodSel, decadeSel),
+          h("div", { class: "filter-row" }, dk, from, h("span", { class: "dash", text: "–" }), to),
+          covText && (f.date_from || f.date_to || f.date_kind === "composed") ? h("p", { class: "fine", text: covText }) : null))));
 
     if (res.composer || f.performer_id) {
       var tags = h("div", { class: "chips" });
@@ -1238,7 +1252,7 @@
         .join(", ") }));
     }
     var dl = datesLine(res.work.dates);
-    var canCorrect = (state.info || {}).can_correct;
+    var canCorrect = curating();
     if (dl || canCorrect) {
       actions.appendChild(h("p", { class: "dates" },
         dl ? h("span", { text: dl.text }) : null,
@@ -1448,7 +1462,9 @@
         clear(detail).appendChild(empty(e.message));
       }
     }
-    box.appendChild(head);
+    box.appendChild(h("div", { class: "rec-top" }, head,
+      h("button", { type: "button", class: "icon-btn play", "aria-label": "Play " + (r.who || r.album || "recording"),
+        text: "▶", onclick: function () { play(r); } })));
     box.appendChild(detail);
     if (expanded[r.id]) fillDetail();
     return box;
@@ -1585,14 +1601,14 @@
         badges(r.accolades), sourceBadges(r, true))));
     wrap.appendChild(recordingBody(r, false));
     wrap.appendChild(accoladesSection(r));
-    if (r.merged && (state.info || {}).can_correct) {
+    if (r.merged && curating()) {
       wrap.appendChild(h("section", { class: "section" },
         h("p", { class: "fine", text: "This album's " + (w.title || "work") +
           " was matched to the same work on other albums." }),
         h("div", { class: "actions" }, h("button", { type: "button", class: "btn", text: "Keep separate",
           onclick: function () { separateSheet(r, w); } }))));
     }
-    if (r.discs && r.discs.length > 1 && (state.info || {}).can_correct) {
+    if (r.discs && r.discs.length > 1 && curating()) {
       wrap.appendChild(h("section", { class: "section" },
         h("p", { class: "fine", text: "This recording continues across " + plural(r.discs.length, "disc") + ": " +
           r.discs.map(function (d) { return d.name; }).join(", ") + "." }),
@@ -1675,7 +1691,7 @@
       });
       wrap.appendChild(list);
     }
-    if ((state.info || {}).can_correct) {
+    if (curating()) {
       wrap.appendChild(h("section", { class: "section" },
         h("p", { class: "fine", text: "Grouped as a box set from the album titles and disc numbers." }),
         h("div", { class: "actions" }, h("button", { type: "button", class: "btn", text: "Not a box set",
@@ -1851,6 +1867,10 @@
     var res = await call("classical/review_triage", reviewArgs(query));
     var dismissed = query.status === "dismissed";
     var filtered = REVIEW_KEYS.some(function (k) { return k !== "sort" && k !== "status" && query[k]; });
+    if (!filtered && !dismissed && state.reviewCount !== res.cards_total) {
+      state.reviewCount = res.cards_total;
+      renderTop();
+    }
     var wrap = h("div", { class: "page" }, header("Review", res.total
       ? plural(res.items, "item") + " in " + plural(res.cards_total, "decision") +
         (res.items !== res.total ? " (of " + res.total + ")" : "") +
@@ -2188,9 +2208,15 @@
     var top = clear($("top"));
     var info = state.info || {};
     var user = info.user || {};
-    top.appendChild(h("a", { class: "brand", href: "#/composers" },
+    top.appendChild(h("a", { class: "brand", href: "#/today" },
       h("img", { src: "icon.svg", alt: "", class: "brand-icon" }), h("span", { text: "Classical" })));
-    top.appendChild(h("button", { type: "button", class: "user-btn", "aria-label": "Account",
+    var right = h("div", { class: "top-actions" });
+    top.appendChild(right);
+    if (info.can_correct) {
+      right.appendChild(h("button", { type: "button", class: "curate-btn", text: curateLabel(state.curate, state.reviewCount),
+        onclick: function () { if (state.curate) go(["review"]); else curateSheet(); } }));
+    }
+    right.appendChild(h("button", { type: "button", class: "user-btn", "aria-label": "Account",
       text: (user.display_name || user.username || "Me").charAt(0).toUpperCase(),
       onclick: function () {
         var body = h("div", null,
@@ -2198,10 +2224,44 @@
           h("p", { class: "fine", text: state.source === "ingress" ? "Signed in through Home Assistant."
             : state.source === "borrowed" ? "Using your Music Assistant web sign-in." : "Signed in on this device." }),
           h("p", { class: "fine", text: "Classical " + (info.version || "") }),
-          state.source === "ingress" ? null : h("button", { type: "button", class: "btn", text: "Sign out",
-            onclick: function () { close(); signOut(); } }));
+          info.can_correct ? curateToggle(function () { close(); }) : link(["review"], null, "Review queue ›", "more-link"),
+          state.source === "ingress" ? null : h("div", { class: "actions" }, h("button", { type: "button", class: "btn",
+            text: "Sign out", onclick: function () { close(); signOut(); } })));
         var close = sheet("Account", body);
       } }));
+  }
+
+  /** Switch curation on or off for this browser: the top bar then leads straight to the review queue, and
+   * pages show their editing buttons. */
+  function curateToggle(done) {
+    var box = h("input", { type: "checkbox", checked: state.curate ? true : null, onchange: function () {
+      state.curate = box.checked;
+      storage("cma_curate", state.curate ? "1" : null);
+      if (state.curate) refreshReviewCount(); else renderTop();
+      if (done) done();
+      refresh();
+    } });
+    return h("label", { class: "toggle" }, box,
+      h("span", null, h("span", { text: "Curation tools" }),
+        h("span", { class: "fine", text: "Editing buttons on pages, and the number of open questions at the top. On this device only." })));
+  }
+
+  function curateSheet() {
+    var body = h("div", null,
+      h("p", { text: "Curation is for tidying the library: answering questions about composer credits and " +
+        "matches, fixing dates, and keeping recordings apart." }),
+      h("div", { class: "actions" }, h("a", { class: "btn", href: "#/review", text: "Open the review queue",
+        onclick: function () { close(); } })),
+      curateToggle(function () { close(); }));
+    var close = sheet("Curate", body);
+  }
+
+  async function refreshReviewCount() {
+    try {
+      var res = await call("classical/review_triage", { sort: "impact", offset: 0, limit: 1 });
+      state.reviewCount = res.cards_total;
+    } catch (e) { state.reviewCount = null; }
+    renderTop();
   }
 
   async function boot() {
@@ -2210,6 +2270,7 @@
     $("app").hidden = false;
     try { state.info = await call("classical/ui_info"); } catch (e) { state.info = {}; }
     renderTop();
+    if (curating()) refreshReviewCount();
     window.addEventListener("hashchange", render);
     document.addEventListener("visibilitychange", function () {
       if (document.visibilityState === "hidden") stopPolling(); else startPolling();

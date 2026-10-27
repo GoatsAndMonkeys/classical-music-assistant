@@ -140,6 +140,21 @@ test("the script never parses data as HTML", () => {
   assert.doesNotMatch(src, /innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function/);
 });
 
+test("curation stays out of the way: no Review tab, a Curate entry, editing buttons only when switched on", () => {
+  assert.equal(app.curateLabel(false, 12), "Curate");
+  assert.equal(app.curateLabel(true, 12), "Review (12)");
+  assert.equal(app.curateLabel(true, 0), "Review");
+  assert.equal(app.curateLabel(true, null), "Review");
+  const src = readFileSync(APP, "utf8");
+  const tabs = src.slice(src.indexOf("var TABS = ["), src.indexOf("];", src.indexOf("var TABS = [")));
+  assert.match(tabs, /"today"/);
+  assert.doesNotMatch(tabs, /"review"/);
+  assert.match(src, /VIEWS\.review = /, "the review queue itself is still there");
+  // pages other than the review queue gate their editing buttons on curating(), never on the bare permission
+  const pages = src.slice(src.indexOf("VIEWS.today = "), src.indexOf("VIEWS.review = "));
+  assert.doesNotMatch(pages, /can_correct/);
+});
+
 test("credits show the character or context of a nested credit", () => {
   const g = app.creditGroups([
     { id: "a", name: "Ain Anger", role: "bass", group: "soloists", detail: "Pater Profundus" },
