@@ -82,7 +82,7 @@ Each entry says what the plan asked for, what was built instead, and why.
 - **Local works are keyed per album family.** A work with no MB id or catalogue number is keyed by the album
   title with disc marks removed ("Disc 2", "CD2", "(1)", "Akt II", a trailing digit) plus album artist and
   year. The discs of one set therefore share one work, while each disc album is still its own recording.
-  Joining a recording across separate MA albums is not done.
+  The discs are then joined into one recording when the evidence allows (see "Cross-disc recordings" below).
 - **Talk tails on tagged tracks.** A track whose work tag is set but whose title tail is broadcast talk
   ("Announcer introduction ...", "host wrap-up") is treated as talk, unless the tail also names music
   ("performance", "end of", "segment", "movement N", ...).
@@ -291,3 +291,48 @@ Each entry says what the plan asked for, what was built instead, and why.
   - Per-service credit parsing beyond the five shapes above.
   - A live test against a real streaming account (the M1 has none). Fixtures cover Qobuz, Apple Music and
     Spotify.
+
+## Cross-disc recordings
+
+- **One recording can span several MA albums** when a multi-disc set was ripped as one album per disc
+  (`classical_core/discs.py`, migration 0004). Each disc is still derived on its own. The first disc's
+  recording becomes the lead and takes the later discs' slots; a follower keeps its row with `joined_to`
+  and a `cross-disc` redirect, so its id still resolves. Slots keep `home_id`/`home_ord`, and the follower's
+  own fields are kept in `own_json`, so an unjoin restores everything exactly. Play order is disc, then track,
+  so "play whole work" runs across the discs.
+- **Which albums are a set.** Albums are candidates when they share a set key (album title with the disc mark
+  removed, plus album artist), a tagged MusicBrainz release id, or an enriched MB release. A user's
+  "together" link also adds an album. Disc numbers come from the title mark ("Disc 2 of 3", "CD2", "(2)",
+  "Fidelio1") or the DISCNUMBER/DISCTOTAL tags; the title wins over a tag that says 1, and any other
+  conflict leaves the disc unknown. Sets of more than 30 albums are not joined.
+- **Evidence rules for a pair (earlier disc A, later disc B).** A pair joins only when it passes every check:
+  - the same work;
+  - consecutive disc numbers with the same total, and no disc above the total;
+  - the same year, label, release id and album artist where both have them;
+  - A's recording ends its disc and B's starts its disc, and neither is already complete;
+  - no shared movement identity (MB work, tagged part, title part), except a single number split
+    across the disc break;
+  - movement numbers continue instead of restarting, and opera acts do not go backwards;
+  - no more parts than the work's total;
+  - performers agree: conductor and orchestra must overlap where both sides list them, and soloists when
+    neither side lists a conductor or orchestra;
+  - recorded years at most one apart.
+  A pair that fails a hard check is never joined, so a duplicated disc stays separate. A pair that passes
+  the hard checks but has a doubt goes to review as "possible continuation on another disc" and is not joined.
+  Doubts are: no disc numbers, no shared performers, no movement identities, a gap in movement numbers, or a
+  split number. Each disc has at most one successor and one predecessor.
+- **User corrections win and survive re-index.** `classical/join_discs` (from the review item: "Same recording:
+  join the discs" / "Different recordings") stores a `disc_pair` override, the latest for each pair.
+  `classical/separate_discs` ("Keep discs separate" on the recording page) stores "separate" for each
+  adjacent pair. Both are logged in `correction_log`. A forced join still refuses different works, and still
+  needs the earlier recording to end its disc and the later one to start its disc.
+- **Incremental.** Deriving or removing an album unjoins every group it touches, then re-joins that album's
+  set, so a disc that arrives later joins the existing recording. The `accolades` job is queued after a
+  correction. Only the lead recording is visible; follower albums still show their award badges, without
+  duplicates.
+- `DERIVE_VERSION` is now 8. Derivation itself is unchanged, but album evidence (`set_key`, `disc_no`,
+  `disc_total`, `release_mbid`) and the new slot columns are only written by a derive, so every album
+  re-derives once. DISCTOTAL and MUSICBRAINZ_ALBUMID are new tag fields. They are read only when a file's
+  tags are next read, but disc numbers from titles and DISCNUMBER work at once.
+- **Not done.** An MB release found later by enrichment does not trigger a re-join until the album next
+  re-derives. A user's award decision is keyed by the lead recording's album.

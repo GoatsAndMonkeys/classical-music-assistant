@@ -28,6 +28,7 @@ from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
 from . import catalogue as cat
+from . import discs
 from . import release as mbrel
 from . import work_identity as wi
 from .composers import PERFORMING, KnownComposer, by_surname, find_in_credit, lookup
@@ -79,7 +80,7 @@ FOLDER_CAP = 500
 MAX_PARENT_DEPTH = 3
 CUE_TRACK = "::track"                  # MA's CUE-sheet track item_id delimiter (file.cue::trackNN)
 # bumped when derivation changes, so every album re-derives once (tags are not re-read)
-DERIVE_VERSION = 7
+DERIVE_VERSION = 8
 _MB_FIELD = {"arrangement_of": "arranged_from"}          # WorkInfo field -> evidence field
 _MB_FIELD_BACK = {v: k for k, v in _MB_FIELD.items()}
 DATED = "dated:"                       # composer 'mbid' slot for an unlisted name with conflicting life dates
@@ -866,11 +867,17 @@ class Index:
     def remove_album(self, album_id: str) -> None:
         self.con.execute("BEGIN IMMEDIATE")
         try:
+            # the other discs of its set lose a join with it; the pass reruns on them once it is gone
+            siblings = [r["album_library_id"] for r in discs.members(self, [album_id])
+                        if r["album_library_id"] != album_id]
+            discs.unjoin_albums(self, [album_id])
             self._clear_derived(album_id)
             self.con.execute("UPDATE occurrence SET present=0 WHERE album_library_id=?", (album_id,))
             self.con.execute("DELETE FROM album_info WHERE album_library_id=?", (album_id,))
             self.con.execute("DELETE FROM accolade WHERE album_library_id=?", (album_id,))
             self.con.execute("DELETE FROM link WHERE entity='album' AND entity_id=?", (album_id,))
+            if siblings and len(siblings) < discs.MAX_SET:
+                discs.join_sets(self, siblings)
             self.con.execute("COMMIT")
         except BaseException:
             self.con.execute("ROLLBACK")
@@ -1238,6 +1245,7 @@ class Index:
 
     def _derive_album(self, album: AlbumIn, tracks: list[TrackIn], stats: AlbumStats) -> None:
         aid = album.library_album_id
+        discs.unjoin_albums(self, [aid])    # slots back on their own recordings before they are rebuilt
         old_rec = {r["occurrence_id"]: r["recording_id"] for r in self._q(
             "SELECT s.occurrence_id, s.recording_id FROM recording_slot s JOIN occurrence o ON o.id=s.occurrence_id "
             "WHERE o.album_library_id=?", (aid,))}
@@ -1315,19 +1323,20 @@ class Index:
             n_fields = sum(bool(v) for v in (recorded, rel, any(x.credits for x in fs), c.mbid, c.catalogues))
             self.con.execute(
                 "INSERT INTO recording(id, work_id, album_library_id, recorded_start, recorded_end, "
-                "recorded_precision, release_year, tier, complete, evidence_fields, source_work_id) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                "recorded_precision, release_year, tier, complete, evidence_fields, source_work_id, parts_total) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (rid, wid, aid, recorded[0] if recorded else None, recorded[-1] if recorded else None,
                  ("day" if len(recorded[0]) >= 10 else "month" if len(recorded[0]) >= 7 else "year") if recorded
-                 else None, rel, c.tier, int(complete), n_fields, src))
+                 else None, rel, c.tier, int(complete), n_fields, src, total or None))
             for ord_, x in enumerate(fs):
                 xc = x.cand
                 self.con.execute("INSERT INTO recording_slot(recording_id, occurrence_id, movement_no, movement_name, "
-                                 "ord) VALUES (?,?,?,?,?)",
+                                 "ord, home_id, home_ord, part_key, section) VALUES (?,?,?,?,?,?,?,?,?)",
                                  (rid, x.occ_id, xc.movement_no if xc else None,
                                   (xc.movement_name if xc else None)
                                   or movement_from_title(x.track["title"], xc.title if xc else None)
-                                  or x.track["title"], ord_))
+                                  or x.track["title"], ord_, rid, ord_, xc.part_key if xc else None,
+                                  xc.section if xc else None))
                 self.con.execute("INSERT OR IGNORE INTO work_link(occurrence_id, work_id, ord, partial, live, medley, "
                                  "source, source_ref) VALUES (?,?,?,?,?,?,?,?)",
                                  (x.occ_id, wid, 0, int(x.partial), int(x.live), int(x.medley), c.tier, x.tag_origin))
@@ -1368,6 +1377,19 @@ class Index:
                                                       json.dumps(detail, ensure_ascii=False)))
         stats.occurrences = len(facts)
         stats.review_items = len(reviews)
+        # the disc of a multi-disc set this album is, and its joins with the other discs (discs.py)
+        releases = {t.library_track_id: next((r["edge"].removeprefix("release:") for r in
+                                               self._live("release_track", t.library_track_id)
+                                               if r["edge"].startswith("release:")), None) for t in tracks}
+        ev = discs.album_evidence(
+            album.name, album.artist, [f.tags.disc if f.tags else None for f in facts],
+            [f.tags.disc_total if f.tags else None for f in facts], [t.disc for t in tracks],
+            [(f.tags.release_mbid if f.tags else None) or releases.get(t.library_track_id)
+             for f, t in zip(facts, tracks, strict=True)])
+        self.con.execute("UPDATE album_info SET set_key=?, disc_no=?, disc_total=?, release_mbid=? "
+                         "WHERE album_library_id=?",
+                         (ev["set_key"], ev["disc_no"], ev["disc_total"], ev["release_mbid"], aid))
+        discs.join_sets(self, [aid])
 
     def _assign_candidates(self, facts: list[OccFacts], album: AlbumIn,
                            reviews: list[tuple[str, str | None, str | None, dict]]) -> None:
@@ -2070,12 +2092,24 @@ class Index:
         self.con.executemany("UPDATE album_info SET signature=NULL WHERE album_library_id=?", [(a,) for a in albums])
         return albums
 
+    def join_discs(self, first: str, second: str, user: str | None = None, decision: str = "together") -> list[str]:
+        """A user correction: `second` continues `first` on the next disc ('together'), or never ('separate')."""
+        return discs.decide(self, self.resolve("recording", first), self.resolve("recording", second), decision, user)
+
+    def separate_discs(self, recording_id: str, user: str | None = None) -> list[str]:
+        """A user correction: the discs this recording spans are separate recordings, now and after re-index."""
+        return discs.separate(self, recording_id, user)
+
+    def recording_discs(self, recording_id: str) -> list[dict]:
+        """The albums a recording spans in play order (one when it is not joined across discs)."""
+        return discs.group(self, recording_id)
+
     # ---- reads (all filtered by visible provider instances) -------------------------------------------
 
     _VIS_OCC = ("o.present=1 AND EXISTS (SELECT 1 FROM mapping_state m WHERE m.library_track_id=o.library_track_id "
                 "AND m.status IN ('ok','read_error') AND (:vis IS NULL OR m.provider_instance IN (SELECT value FROM json_each(:vis))) "
                 "AND m.provider_instance NOT IN (SELECT provider_instance FROM provider_seen WHERE state<>'configured'))")
-    _VIS_REC = ("NOT EXISTS (SELECT 1 FROM recording_slot s2 JOIN occurrence o ON o.id=s2.occurrence_id "
+    _VIS_REC = ("r.joined_to IS NULL AND NOT EXISTS (SELECT 1 FROM recording_slot s2 JOIN occurrence o ON o.id=s2.occurrence_id "
                 "WHERE s2.recording_id=r.id AND NOT (" + _VIS_OCC + "))")
 
     @staticmethod
@@ -2297,7 +2331,8 @@ class Index:
             "schema_version": int(self._one("SELECT value FROM meta WHERE key='schema_version'")[0]),
             "albums": n("SELECT COUNT(*) FROM album_info"), "occurrences": n("SELECT COUNT(*) FROM occurrence WHERE present=1"),
             "composers": n("SELECT COUNT(DISTINCT wc.composer_id) FROM work_composer wc JOIN recording r ON r.work_id=wc.work_id"),
-            "works": n("SELECT COUNT(DISTINCT work_id) FROM recording"), "recordings": n("SELECT COUNT(*) FROM recording"),
+            "works": n("SELECT COUNT(DISTINCT work_id) FROM recording"),
+            "recordings": n("SELECT COUNT(*) FROM recording WHERE joined_to IS NULL"),
             "review_items": n("SELECT COUNT(*) FROM review_item"),
             "mappings": {r[0]: r[1] for r in self._q("SELECT status, COUNT(*) FROM mapping_state GROUP BY status")},
             "evidence_live": n("SELECT COUNT(*) FROM evidence WHERE retracted_at IS NULL"),

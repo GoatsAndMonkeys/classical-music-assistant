@@ -1291,8 +1291,31 @@
         h("div", { class: "actions" }, h("button", { type: "button", class: "btn", text: "Keep separate",
           onclick: function () { separateSheet(r, w); } }))));
     }
+    if (r.discs && r.discs.length > 1 && (state.info || {}).can_correct) {
+      wrap.appendChild(h("section", { class: "section" },
+        h("p", { class: "fine", text: "This recording continues across " + plural(r.discs.length, "disc") + ": " +
+          r.discs.map(function (d) { return d.name; }).join(", ") + "." }),
+        h("div", { class: "actions" }, h("button", { type: "button", class: "btn", text: "Keep discs separate",
+          onclick: function () { separateDiscsSheet(r); } }))));
+    }
     return wrap;
   };
+
+  function separateDiscsSheet(r) {
+    var body = h("div", null,
+      h("p", { text: "Each disc will be listed as its own recording. Future scans keep this choice." }),
+      h("div", { class: "actions" },
+        h("button", { type: "button", class: "btn primary", text: "Keep discs separate", onclick: async function () {
+          try {
+            await call("classical/separate_discs", { recording_id: r.id });
+            close();
+            toast("Discs kept separate");
+            render();
+          } catch (e) { toast(e.message); }
+        } }),
+        h("button", { type: "button", class: "btn", text: "Cancel", onclick: function () { close(); } })));
+    var close = sheet("Not one recording?", body);
+  }
 
   function separateSheet(r, w) {
     var body = h("div", null,
@@ -1441,7 +1464,8 @@
       tracks.forEach(function (t) { ul.appendChild(h("li", { text: t })); });
       box.appendChild(ul);
     }
-    if (it.reason === "accolade_match" && it.detail && it.detail.why) {
+    if ((it.reason === "accolade_match" || it.reason === "possible continuation on another disc") &&
+        it.detail && it.detail.why) {
       box.appendChild(h("p", { class: "fine", text: it.detail.why }));
     }
     var acts = h("div", { class: "actions" });
@@ -1456,6 +1480,15 @@
             await call("classical/accolade_decide", { entry_ref: a.entry, recording_id: a.recording_id,
               decision: a.decision });
             toast(a.decision === "confirm" ? "Award shown on this recording" : "Award hidden for this recording");
+            render();
+          } catch (e) { toast(e.message); }
+        } }));
+      } else if (a.op === "join_discs") {
+        acts.appendChild(h("button", { type: "button", class: "btn", text: a.label, onclick: async function () {
+          try {
+            await call("classical/join_discs", { first_recording_id: a.first_recording_id,
+              second_recording_id: a.second_recording_id, decision: a.decision });
+            toast(a.decision === "together" ? "Discs joined into one recording" : "Kept as separate recordings");
             render();
           } catch (e) { toast(e.message); }
         } }));

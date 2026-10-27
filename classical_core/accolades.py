@@ -522,7 +522,8 @@ def _facts(con) -> dict[str, Facts]:
         "(SELECT GROUP_CONCAT(c.name, ';') FROM work_composer wc JOIN composer c ON c.id=wc.composer_id "
         " WHERE wc.work_id IN (r.work_id, w.parent_work_id)) AS composers "
         "FROM recording r JOIN work w ON w.id=r.work_id LEFT JOIN work pw ON pw.id=w.parent_work_id "
-        "LEFT JOIN album_info a ON a.album_library_id=r.album_library_id").fetchall()
+        "LEFT JOIN album_info a ON a.album_library_id=r.album_library_id "
+        "WHERE r.joined_to IS NULL").fetchall()       # a later disc's recording is part of its lead's
     out: dict[str, Facts] = {}
     for r in rows:
         pool = Pool()
@@ -852,7 +853,13 @@ def for_recordings(con, recs: list[dict], now: float | None = None) -> dict[str,
         return {}
     now = time.time() if now is None else now
     rids = [r["id"] for r in recs]
-    aids = sorted({r["album_library_id"] for r in recs if r.get("album_library_id")})
+    # a recording joined across discs also shows what was found for its later discs' albums
+    albums_of: dict[str, list[tuple[str, str]]] = {r["id"]: [(r["id"], r["album_library_id"])] for r in recs
+                                                   if r.get("album_library_id")}
+    for x in con.execute("SELECT joined_to, id, album_library_id FROM recording WHERE joined_to IN "
+                         "(SELECT value FROM json_each(?))", (json.dumps(rids),)):
+        albums_of.setdefault(x[0], []).append((x[1], x[2]))
+    aids = sorted({a for v in albums_of.values() for _, a in v})
     rows = [dict(x) for x in con.execute(
         "SELECT * FROM accolade WHERE grade<>'uncertain' AND (expires_at IS NULL OR expires_at>?) AND "
         "(recording_id IN (SELECT value FROM json_each(?)) OR (target='album' AND album_library_id IN "
@@ -861,8 +868,8 @@ def for_recordings(con, recs: list[dict], now: float | None = None) -> dict[str,
     if not rows:
         return {}
     single = {r[0]: r[1] == 1 for r in con.execute(
-        "SELECT album_library_id, COUNT(*) FROM recording WHERE album_library_id IN (SELECT value FROM json_each(?)) "
-        "GROUP BY album_library_id", (json.dumps(aids),))}
+        "SELECT album_library_id, COUNT(DISTINCT COALESCE(joined_to, id)) FROM recording "
+        "WHERE album_library_id IN (SELECT value FROM json_each(?)) GROUP BY album_library_id", (json.dumps(aids),))}
     out: dict[str, list[dict]] = defaultdict(list)
     by_album: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
@@ -871,12 +878,17 @@ def for_recordings(con, recs: list[dict], now: float | None = None) -> dict[str,
         else:
             by_album[row["album_library_id"]].append(row)
     for r in recs:
-        for row in by_album.get(r.get("album_library_id"), []):
-            only = (json.loads(row["why_json"] or "{}") or {}).get("recordings") if row["source"] == "dataset" \
-                else None
-            if only is not None and r["id"] not in only:
-                continue                  # a dataset album award shows on the recordings it was matched on
-            out[r["id"]].append(_badge(row, single.get(row["album_library_id"], False)))
+        seen: set[tuple[str, str]] = set()
+        for own, aid in albums_of.get(r["id"], []):
+            for row in by_album.get(aid, []):
+                only = (json.loads(row["why_json"] or "{}") or {}).get("recordings") if row["source"] == "dataset" \
+                    else None
+                if only is not None and own not in only and r["id"] not in only:
+                    continue              # a dataset album award shows on the recordings it was matched on
+                if (row["source"], row["source_ref"]) in seen:
+                    continue              # the same entry found on two discs of one recording
+                seen.add((row["source"], row["source_ref"]))
+                out[r["id"]].append(_badge(row, single.get(aid, False)))
     return dict(out)
 
 

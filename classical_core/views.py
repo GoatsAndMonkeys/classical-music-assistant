@@ -19,6 +19,7 @@ from collections.abc import Iterable
 from . import accolades as acc
 from .browse import NotFound, letter_of, play_uri
 from .catalogue import WORK_TYPES
+from .discs import CONTINUATION
 from .index import Index, _fmt_duration, recording_label
 from .streaming import source
 from .text import fold, norm_key
@@ -395,6 +396,8 @@ def recording(ix: Index, rid: str, vis=None) -> dict:
     s["work"] = {"id": r["work_id"], "title": w.get("title"), "composers": w.get("composers") or [],
                  "catalogue": w.get("catalogue_display"), "key": w.get("key"), "work_type": w.get("work_type")}
     s["merged"] = ix.merged_into(r["id"])
+    # a recording joined across the separate albums of a multi-disc set: those albums, in play order
+    s["discs"] = [{"id": d["id"], "name": d["name"], "disc": d["disc_no"]} for d in ix.recording_discs(r["id"])]
     _with_accolades(s, acc.for_recordings(ix.con, recs).get(r["id"], []))
     s["awards"] = [a for a in s["accolades"] if a["kind"] == "award"]
     s["reviews"] = [a for a in s["accolades"] if a["kind"] == "review"]
@@ -591,6 +594,11 @@ def review(ix: Index, vis=None) -> dict:
     rec_work = {r["id"]: r["work_id"] for r in ix._q(
         "SELECT r.id, r.work_id FROM review_item v JOIN recording r ON r.id=v.entity_id "
         f"WHERE v.entity='recording' AND {Index._VIS_REC}", _vis_args(vis))}
+    # the earlier disc's recording a continuation item names must be visible too
+    rec_work |= {r["id"]: r["work_id"] for r in ix._q(
+        "SELECT r.id, r.work_id FROM review_item v JOIN recording r "
+        "ON r.id=json_extract(v.detail_json, '$.earlier_recording') "
+        f"WHERE v.reason=:reason AND {Index._VIS_REC}", {"reason": CONTINUATION, **_vis_args(vis)})}
 
     def comp_ref(name: str | None) -> dict | None:
         c = by_name.get(norm_key(name or "")) if name else None
@@ -629,6 +637,13 @@ def review(ix: Index, vis=None) -> dict:
                 b = {"id": b["id"], "name": b["name"]}
                 actions += [{"op": "merge_composers", "source": a, "target": b},
                             {"op": "merge_composers", "source": b, "target": a}]
+        elif it["reason"] == CONTINUATION:
+            first = d.get("earlier_recording")
+            if link and first and ix.resolve("recording", first) in rec_work:
+                for decision, label in (("together", "Same recording: join the discs"),
+                                        ("separate", "Different recordings")):
+                    actions.append({"op": "join_discs", "first_recording_id": first,
+                                    "second_recording_id": it["entity_id"], "decision": decision, "label": label})
         elif it["reason"] == "accolade_match":
             if link:
                 actions += [{"op": "accolade_decide", "entry": d.get("entry"), "recording_id": it["entity_id"],
