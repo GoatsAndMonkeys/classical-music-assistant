@@ -39,6 +39,8 @@ from classical_core.mb import MBClient
 from classical_core.names import LLMClient
 from classical_core.store import Database, SqliteMBCache
 
+from .ui import CompanionUI
+
 if TYPE_CHECKING:
     from music_assistant_models.event import MassEvent
 
@@ -58,7 +60,7 @@ SYNC_POLL = 20.0                       # seconds between library checks while an
 ALBUM_TRACKS_QUERY = "tracks.item_id IN (SELECT track_id FROM album_tracks WHERE album_id = :album_id)"
 
 
-class ClassicalProvider(PluginProvider):
+class ClassicalProvider(CompanionUI, PluginProvider):
     """Classical index and browse tree."""
 
     index: Index
@@ -130,6 +132,7 @@ class ClassicalProvider(PluginProvider):
                 depends_on=CONF_LLM,
                 advanced=True,
             ),
+            *self._ui_config_entries(),
         )
 
     async def handle_async_init(self) -> None:
@@ -183,6 +186,7 @@ class ClassicalProvider(PluginProvider):
                 (EventType.MEDIA_ITEM_ADDED, EventType.MEDIA_ITEM_UPDATED, EventType.MEDIA_ITEM_DELETED),
             ),
         ]
+        self._unsub += self._register_ui()
         # a fresh context: no current user or impersonation inherited from the loading request (§5.6)
         self._worker_task = asyncio.get_running_loop().create_task(
             self._worker(), name="classical-worker", context=contextvars.Context()
