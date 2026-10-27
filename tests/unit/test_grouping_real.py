@@ -359,7 +359,9 @@ def test_broadcast_log_shorthand_titles(tmp_path):
     rows = [(t, {}) for t in ("Intro", "Rands--Symphonic Fantasy", "A&C", "Britten VC", "Encore", "DSCH 13",
                               "Beethoven 9-1", "Beethoven 9-2", "Applause")]
     add(idx, r, "230506 BSO Babi Yar", rows)
-    assert set(titles(idx)) == {"Symphonic Fantasy", "Violin Concerto", "Symphony No. 13", "Symphony No. 9"}
+    # listed numbered works get their full titles, so other albums' 'Beethoven 9' join the same work
+    assert set(titles(idx)) == {"Symphonic Fantasy", "Violin Concerto", "Symphony No. 13 in B-flat minor, Op. 113",
+                                "Symphony No. 9 in D minor, Op. 125"}
     assert recs(idx, "Symphony No. 9")[1] == [2]
     assert {c["name"] for c in idx.composers()} >= {"Benjamin Britten", "Dmitri Shostakovich",
                                                     "Ludwig van Beethoven"}

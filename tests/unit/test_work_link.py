@@ -103,7 +103,9 @@ def linked(lib, title):
 SYM5 = mbw(1, "Symphony no. 5 in C minor, op. 67", "C minor")
 SYM6 = mbw(2, "Symphony no. 6 in F major, op. 68 “Pastorale”", "F major")
 SYM5_I = mbw(3, "Symphony no. 5 in C minor, op. 67: I. Allegro con brio", part_of=uid(1))
-SYM4 = mbw(4, "Symphony no. 4 in B-flat major, op. 60", "B-flat major")
+# not a listed numbered work (work_identity._NUMBERED), so a bare "Symphony No. 10" is no more than a form and number
+SYM10 = mbw(4, "Symphony no. 10 in E-flat major", "E-flat major")
+SYM4 = mbw(6, "Symphony no. 4 in B-flat major, op. 60", "B-flat major")
 PC4 = mbw(5, "Concerto for Piano and Orchestra no. 4 in G major, op. 58", "G major")
 
 
@@ -120,21 +122,32 @@ def test_a_matching_catalogue_number_links(lib):
 
 
 def test_the_same_title_number_and_key_links(lib):
-    lib.add("Symphony No. 4 in B-flat major")
+    lib.add("Symphony No. 10 in E-flat major")
     _arid(lib)
-    job(lib, WorksMB([SYM4, PC4, SYM5]))
-    assert linked(lib, "Symphony No. 4 in B-flat major") == uid(4)
-    assert "same title, number and key" in match(lib, "Symphony No. 4 in B-flat major")["how"]
+    job(lib, WorksMB([SYM10, PC4, SYM5]))
+    assert linked(lib, "Symphony No. 10 in E-flat major") == uid(4)
+    assert "same title, number and key" in match(lib, "Symphony No. 10 in E-flat major")["how"]
+
+
+def test_a_listed_numbered_work_links_by_its_catalogue_number(lib):
+    """'Beethoven 5' in a concert log is 'Symphony No. 5', Op. 67 (work_identity._NUMBERED); a song that
+    quotes it is no rival (the M1 index's three Fifths were review items over 'This Is the End')."""
+    lib.add("Symphony No. 5")
+    _arid(lib)
+    job(lib, WorksMB([SYM5, SYM4, mbw(13, "This Is the End (Beethoven’s “Symphony no. 5”)")]))
+    assert lib.row("Symphony No. 5 in C minor, Op. 67")["catalogue_display"] == "Op. 67"
+    assert linked(lib, "Symphony No. 5 in C minor, Op. 67") == uid(1)
+    assert "same catalogue number (Op. 67)" in match(lib, "Symphony No. 5 in C minor, Op. 67")["how"]
 
 
 def test_an_ambiguous_match_is_a_review_item_never_a_link(lib):
-    lib.add("Symphony No. 4")                           # no key: not enough to link
+    lib.add("Symphony No. 10")                           # no key: not enough to link
     lib.add("Symphony No. 7 in A major")                # MusicBrainz has it twice
     _arid(lib)
-    job(lib, WorksMB([SYM4, mbw(7, "Symphony no. 7 in A major, op. 92", "A major"),
+    job(lib, WorksMB([SYM10, mbw(7, "Symphony no. 7 in A major, op. 92", "A major"),
                       mbw(8, "Symphony no. 7 in A major, op. 92", "A major")]))
-    assert linked(lib, "Symphony No. 4") is None and linked(lib, "Symphony No. 7 in A major") is None
-    assert match(lib, "Symphony No. 4")["state"] == "review"
+    assert linked(lib, "Symphony No. 10") is None and linked(lib, "Symphony No. 7 in A major") is None
+    assert match(lib, "Symphony No. 10")["state"] == "review"
     assert {c["mbid"] for c in match(lib, "Symphony No. 7 in A major")["detail"]["candidates"]} == {uid(7), uid(8)}
     groups = {g["reason"]: g for g in views.review(lib.ix)["groups"]}
     items = {it["title"]: it for it in groups[wl.REASON]["items"]}
@@ -175,41 +188,41 @@ def test_a_name_alone_links_only_a_work_with_that_name_alone(lib):
 
 
 def test_a_rejection_survives_and_the_candidate_is_never_proposed_again(lib):
-    lib.add("Symphony No. 4")
+    lib.add("Symphony No. 10")
     _arid(lib)
-    mb = WorksMB([SYM4])
+    mb = WorksMB([SYM10])
     job(lib, mb)
-    wid = lib.wid("Symphony No. 4")
-    assert match(lib, "Symphony No. 4")["state"] == "review"
+    wid = lib.wid("Symphony No. 10")
+    assert match(lib, "Symphony No. 10")["state"] == "review"
     with pytest.raises(ValueError, match="not a MusicBrainz work proposed"):
         wl.set_user_link(lib.ix.con, wid, "seth", "accept", [uid(5)])
     wl.set_user_link(lib.ix.con, wid, "seth", "reject", [uid(4)])
     assert not lib.ix.con.execute("SELECT 1 FROM review_item WHERE id=?", (f"mbw:{wid}",)).fetchall()
     # forget the job's own decisions entirely (as a matcher change would): the person's still wins
     lib.ix.con.execute("DELETE FROM mb_work_match")
-    lib.add("Symphony No. 4")                            # and re-index
+    lib.add("Symphony No. 10")                            # and re-index
     job(lib, mb)
-    assert linked(lib, "Symphony No. 4") is None
-    assert match(lib, "Symphony No. 4")["state"] == "none"
+    assert linked(lib, "Symphony No. 10") is None
+    assert match(lib, "Symphony No. 10")["state"] == "none"
     assert not lib.ix.con.execute("SELECT 1 FROM review_item WHERE reason=?", (wl.REASON,)).fetchall()
 
 
 def test_a_rejected_auto_link_is_undone_and_an_accepted_one_kept(lib):
     lib.add("Symphony No. 5 in C minor, Op. 67")
-    lib.add("Symphony No. 4")
+    lib.add("Symphony No. 10")
     _arid(lib)
-    mb = WorksMB([SYM5, SYM4])
+    mb = WorksMB([SYM5, SYM10])
     job(lib, mb)
-    w5, w4 = lib.wid("Symphony No. 5 in C minor, Op. 67"), lib.wid("Symphony No. 4")
+    w5, w4 = lib.wid("Symphony No. 5 in C minor, Op. 67"), lib.wid("Symphony No. 10")
     wl.set_user_link(lib.ix.con, w5, "seth", "reject", [uid(1)])
     wl.set_user_link(lib.ix.con, w4, "seth", "accept", [uid(4)])
     job(lib, mb)
     assert linked(lib, "Symphony No. 5 in C minor, Op. 67") is None
-    assert linked(lib, "Symphony No. 4") == uid(4)
+    assert linked(lib, "Symphony No. 10") == uid(4)
     # the accepted link comes back if its alias row is lost
     lib.ix.con.execute("DELETE FROM alias WHERE entity='work' AND entity_id=?", (w4,))
     job(lib, mb)
-    assert linked(lib, "Symphony No. 4") == uid(4)
+    assert linked(lib, "Symphony No. 10") == uid(4)
     ops = [json.loads(r[0]) for r in lib.ix.con.execute("SELECT payload_json FROM override WHERE op='mb_link'")]
     assert ops == [{"decision": "reject", "mbid": uid(1)}, {"decision": "accept", "mbid": uid(4)}]
 
@@ -267,9 +280,9 @@ def test_a_composer_with_many_works_is_searched_work_by_work(lib):
 
 
 def test_a_hidden_work_has_no_review_item_for_the_caller(lib):
-    lib.add("Symphony No. 4")
+    lib.add("Symphony No. 10")
     _arid(lib)
-    job(lib, WorksMB([SYM4]))
+    job(lib, WorksMB([SYM10]))
     assert views.review(lib.ix)["total"] == 1
     assert views.review(lib.ix, vis=["nobody--x"])["total"] == 0
 
@@ -349,11 +362,11 @@ def test_an_unlisted_composer_found_by_alias_and_an_empty_search_asked_again(lib
 
 def test_unlinking_from_the_work_page(lib):
     lib.add("Symphony No. 5 in C minor, Op. 67")
-    lib.add("Symphony No. 4")
+    lib.add("Symphony No. 10")
     _arid(lib)
-    mb = WorksMB([SYM5, SYM4])
+    mb = WorksMB([SYM5, SYM10])
     job(lib, mb)
-    w5, w4 = lib.wid("Symphony No. 5 in C minor, Op. 67"), lib.wid("Symphony No. 4")
+    w5, w4 = lib.wid("Symphony No. 5 in C minor, Op. 67"), lib.wid("Symphony No. 10")
     assert views.work(lib.ix, w5)["mb_link"] == {"mbid": uid(1), "auto": True,
                                                   "title": "Symphony no. 5 in C minor, op. 67"}
     assert views.work(lib.ix, w4)["mb_link"] is None
@@ -363,7 +376,7 @@ def test_unlinking_from_the_work_page(lib):
     wl.set_user_link(lib.ix.con, w4, "seth", "reject", [uid(4)])
     wl.set_user_link(lib.ix.con, w5, "seth", "reject", [uid(1)])
     job(lib, mb)
-    assert linked(lib, "Symphony No. 4") is None and linked(lib, "Symphony No. 5 in C minor, Op. 67") is None
+    assert linked(lib, "Symphony No. 10") is None and linked(lib, "Symphony No. 5 in C minor, Op. 67") is None
     assert views.work(lib.ix, w5)["mb_link"] is None
     # a file's own tag is not the job's to offer undoing
     lib.ix.con.execute("INSERT INTO alias(entity, entity_id, kind, value) VALUES ('work', ?, 'mbid', ?)", (w4, uid(9)))

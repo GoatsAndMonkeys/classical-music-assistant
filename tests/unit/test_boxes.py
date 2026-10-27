@@ -75,7 +75,7 @@ def test_albums_of_one_box_are_one_box_with_their_own_works(tmp_path):
     assert [d["subtitle"] for d in page["discs"]][1] == "Leonore Part 1"
     assert page["box"]["works"] == 3 and page["box"]["composers"] == ["Ludwig van Beethoven"]
     [comp] = page["composers"]
-    assert {w["title"] for w in comp["works"]} == {"Leonore", "Fidelio, Op. 72", "Symphony No. 3"}
+    assert {w["title"] for w in comp["works"]} == {"Leonore", "Fidelio, Op. 72", "Symphony No. 3 in E-flat major, Op. 55"}
     # each disc keeps its own credits: Klemperer is on CD 12 only, nothing smeared
     who = {d["disc"]: d["recordings"][0]["who"] for d in page["discs"]}
     assert who[12].startswith("Otto Klemperer") and "Klemperer" not in who[61] + who[63]

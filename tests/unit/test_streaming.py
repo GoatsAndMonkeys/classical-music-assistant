@@ -188,9 +188,10 @@ def test_isrc_gives_the_recording_and_an_ambiguous_isrc_is_reviewed(tmp_path):
     run(ix.index_album(qobuz_album(isrcs=codes)))
     assert any("/isrc/" in u for u in mb.calls)
     # three tracks have one recording each; the fourth's ISRC names two, so it keeps only its title
+    # (its title still names the listed Symphony No. 5, so it joins the work, but not the recording)
     [w] = [w for w in ix.works() if w["title"] == WORK and w["identity_tier"] == "mb"]
-    [rec] = ix.recordings(w["id"])
-    assert [t["movement_no"] for t in ix.recording_tracks(rec["id"])] == [1, 2, 3]
+    movements = sorted([t["movement_no"] for t in ix.recording_tracks(r["id"])] for r in ix.recordings(w["id"]))
+    assert movements == [[1, 2, 3], [4]]
     items = [v for v in ix.review() if v["reason"] == "MusicBrainz ISRC match uncertain"]
     assert len(items) == 1 and items[0]["detail"]["recordings"] == sorted([uid(103), uid(300)])
 

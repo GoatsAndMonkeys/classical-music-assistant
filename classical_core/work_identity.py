@@ -8,10 +8,13 @@ composer:
 * the same full catalogue number ('Op. 72a' == 'op.72a', never 'Op. 72' or 'Op. 72b'; 'Op. 59 No. 1' is not
   'Op. 59 No. 2') *and* titles that agree on everything else they say: key, form, numbers outside the
   catalogue and at least one distinctive word ('Leonore Overture #3, Op. 72A' == 'Leonoren Overture Nr 3,
-  op. 72a'). A same-number pair whose titles disagree is a review item, never a merge.
+  op. 72a'). A same-number pair whose titles disagree is a review item, never a merge, or
+* a bundled list of numbered works whose form and number alone name one piece (Beethoven's 'Symphony No. 5'
+  is Op. 67), when the title contradicts nothing in the entry: key, catalogue number, instruments, nickname,
+  version or arrangement.
 
-Generic titles ('Violin Concerto', 'Piano Concerto No. 3') carry neither and never merge. A false merge is
-worse than a miss.
+Other generic titles ('Violin Concerto', Dvořák's or Bruckner's 'Symphony No. 4') carry none of these and
+never merge. A false merge is worse than a miss.
 """
 
 from __future__ import annotations
@@ -323,6 +326,9 @@ def cross_keys(composer: str | None, title: str, catalogues: list[cat.Catalogue]
     kw = known_work(composer, base)
     if kw:
         out.append(("known", f"known:{kw[0]}"))
+    nw = numbered_work(composer, title)
+    if nw:
+        out.append(("num", f"num:{nw.id}"))
     if catalogues:
         out.append(("cat", f"cat:{catalogues[0].key}"))
     return out
@@ -330,3 +336,157 @@ def cross_keys(composer: str | None, title: str, catalogues: list[cat.Catalogue]
 
 def has_act_suffix(title: str) -> bool:
     return split_act_suffix(title)[1] is not None
+
+
+# ---- numbered works whose number alone names them --------------------------------------------------------
+# 'Beethoven 5' in a concert log, 'Symphony No. 5' on one album and 'Symphony No. 5 in C minor, Op. 67' on
+# another are one work: for these composers the form and number name exactly one piece. Only numberings that
+# never changed are listed (no Dvořák or Schubert 7/8, whose numbers were reassigned, no Bruckner, whose
+# symphonies exist in several versions and editions, no Prokofiev 4, two works under one number, no Mahler
+# 10, several completions). Each entry carries its key and catalogue number: a title that contradicts
+# either is not that work, and a merged work gets them when no title said them.
+# composer -> form -> [(number, key or None, catalogue or None, nicknames...)]
+
+_NUMBERED: dict[str, dict[str, list[tuple]]] = {
+    "Ludwig van Beethoven": {
+        "Symphony": [(1, "C major", "Op. 21"), (2, "D major", "Op. 36"), (3, "E-flat major", "Op. 55", "eroica"),
+                     (4, "B-flat major", "Op. 60"), (5, "C minor", "Op. 67", "fate", "schicksal"),
+                     (6, "F major", "Op. 68", "pastoral", "pastorale"), (7, "A major", "Op. 92"),
+                     (8, "F major", "Op. 93"), (9, "D minor", "Op. 125", "choral")],
+        "Piano Concerto": [(1, "C major", "Op. 15"), (2, "B-flat major", "Op. 19"), (3, "C minor", "Op. 37"),
+                           (4, "G major", "Op. 58"), (5, "E-flat major", "Op. 73", "emperor")],
+    },
+    "Johannes Brahms": {
+        "Symphony": [(1, "C minor", "Op. 68"), (2, "D major", "Op. 73"), (3, "F major", "Op. 90"),
+                     (4, "E minor", "Op. 98")],
+        "Piano Concerto": [(1, "D minor", "Op. 15"), (2, "B-flat major", "Op. 83")],
+    },
+    "Gustav Mahler": {
+        "Symphony": [(1, "D major", None), (2, "C minor", None, "resurrection", "auferstehung"),
+                     (3, "D minor", None), (4, "G major", None), (5, "C-sharp minor", None),
+                     (6, "A minor", None, "tragic", "tragische"), (7, "E minor", None),
+                     (8, "E-flat major", None, "thousand", "tausend"), (9, "D major", None)],
+    },
+    "Pyotr Ilyich Tchaikovsky": {
+        "Symphony": [(1, "G minor", "Op. 13", "winter", "daydreams"),
+                     (2, "C minor", "Op. 17", "little", "russian", "ukrainian"), (3, "D major", "Op. 29", "polish"),
+                     (4, "F minor", "Op. 36"), (5, "E minor", "Op. 64"), (6, "B minor", "Op. 74", "pathetique")],
+        "Piano Concerto": [(1, "B-flat minor", "Op. 23"), (2, "G major", "Op. 44"), (3, "E-flat major", "Op. 75")],
+    },
+    "Dmitri Shostakovich": {
+        "Symphony": [(1, "F minor", "Op. 10"), (2, "B major", "Op. 14", "october"), (3, "E-flat major", "Op. 20"),
+                     (4, "C minor", "Op. 43"), (5, "D minor", "Op. 47"), (6, "B minor", "Op. 54"),
+                     (7, "C major", "Op. 60", "leningrad"), (8, "C minor", "Op. 65"), (9, "E-flat major", "Op. 70"),
+                     (10, "E minor", "Op. 93"), (11, "G minor", "Op. 103", "year"),
+                     (12, "D minor", "Op. 112", "year"), (13, "B-flat minor", "Op. 113", "babi", "yar"),
+                     (14, None, "Op. 135"), (15, "A major", "Op. 141")],
+        "Piano Concerto": [(1, "C minor", "Op. 35"), (2, "F major", "Op. 102")],
+        "Violin Concerto": [(1, "A minor", "Op. 77"), (2, "C-sharp minor", "Op. 129")],
+        "Cello Concerto": [(1, "E-flat major", "Op. 107"), (2, None, "Op. 126")],
+    },
+    "Jean Sibelius": {
+        "Symphony": [(1, "E minor", "Op. 39"), (2, "D major", "Op. 43"), (3, "C major", "Op. 52"),
+                     (4, "A minor", "Op. 63"), (5, "E-flat major", "Op. 82"), (6, None, "Op. 104"),
+                     (7, "C major", "Op. 105")],
+    },
+    "Sergei Prokofiev": {
+        "Symphony": [(1, "D major", "Op. 25", "classical"), (2, "D minor", "Op. 40"), (3, "C minor", "Op. 44"),
+                     (5, "B-flat major", "Op. 100"), (6, "E-flat minor", "Op. 111"), (7, "C-sharp minor", "Op. 131")],
+        "Piano Concerto": [(1, "D-flat major", "Op. 10"), (2, "G minor", "Op. 16"), (3, "C major", "Op. 26"),
+                           (4, "B-flat major", "Op. 53"), (5, "G major", "Op. 55")],
+        "Violin Concerto": [(1, "D major", "Op. 19"), (2, "G minor", "Op. 63")],
+    },
+    "Sergei Rachmaninoff": {
+        "Symphony": [(1, "D minor", "Op. 13"), (2, "E minor", "Op. 27"), (3, "A minor", "Op. 44")],
+        "Piano Concerto": [(2, "C minor", "Op. 18"), (3, "D minor", "Op. 30")],
+    },
+    "Wolfgang Amadeus Mozart": {
+        "Symphony": [(25, "G minor", "K. 183"), (29, "A major", "K. 201"), (31, "D major", "K. 297", "paris"),
+                     (35, "D major", "K. 385", "haffner"), (36, "C major", "K. 425", "linz", "linzer"),
+                     (38, "D major", "K. 504", "prague", "prager"), (39, "E-flat major", "K. 543"),
+                     (40, "G minor", "K. 550"), (41, "C major", "K. 551", "jupiter")],
+        "Piano Concerto": [(11, "F major", "K. 413"), (12, "A major", "K. 414"), (13, "C major", "K. 415"),
+                           (14, "E-flat major", "K. 449"), (15, "B-flat major", "K. 450"), (16, "D major", "K. 451"),
+                           (17, "G major", "K. 453"), (18, "B-flat major", "K. 456"), (19, "F major", "K. 459"),
+                           (20, "D minor", "K. 466"), (21, "C major", "K. 467"), (22, "E-flat major", "K. 482"),
+                           (23, "A major", "K. 488"), (24, "C minor", "K. 491"), (25, "C major", "K. 503"),
+                           (26, "D major", "K. 537", "coronation"), (27, "B-flat major", "K. 595")],
+    },
+    "Franz Schubert": {
+        "Symphony": [(1, "D major", "D. 82"), (2, "B-flat major", "D. 125"), (3, "D major", "D. 200"),
+                     (4, "C minor", "D. 417", "tragic", "tragische"), (5, "B-flat major", "D. 485"),
+                     (6, "C major", "D. 589", "little"), (9, "C major", "D. 944", "great", "grosse")],
+    },
+    "Frédéric Chopin": {"Piano Concerto": [(1, "E minor", "Op. 11"), (2, "F minor", "Op. 21")]},
+    "Max Bruch": {"Violin Concerto": [(1, "G minor", "Op. 26")]},
+    "Béla Bartók": {
+        "Piano Concerto": [(1, None, "Sz. 83"), (2, None, "Sz. 95"), (3, None, "Sz. 119")],
+        "Violin Concerto": [(2, None, "Sz. 112")],
+    },
+}
+_NUMBERED_FORMS = {"Symphony": ("symphony", frozenset()), "Piano Concerto": ("concerto", frozenset({"piano"})),
+                   "Violin Concerto": ("concerto", frozenset({"violin"})),
+                   "Cello Concerto": ("concerto", frozenset({"cello"}))}
+_SCORING_ALIAS = {"klavier": "piano", "violine": "violin", "violoncello": "cello"}
+_TUTTI_WORDS = {"orchestra", "orchester"}
+# a version, edition or completion of a numbered work is its own work (Sibelius 5 '(1915 version)')
+_VERSION = re.compile(r"\b(?:versions?|versione|fassung|edition|ed|edited|revised|revision|rev|original|urtext|"
+                      r"nowak|haas|cooke|completed|completion|reconstructed|reconstruction|fragments?|draft|"
+                      r"sketch(?:es)?|first|second|third|1st|2nd|3rd|early|alternative|alternate|unfinished)\b|"
+                      r"[(\[][^)\]]*\b1[6-9]\d\d\b")
+
+
+@dataclass(frozen=True, slots=True)
+class Numbered:
+    id: str                         # 'symphony-5', 'piano-concerto-23'
+    title: str                      # 'Symphony No. 5 in C minor, Op. 67'
+    key: str | None
+    catalogue: cat.Catalogue | None
+
+
+def _numbered_entries() -> dict[tuple[str, str, frozenset[str], int], tuple[Numbered, frozenset[str]]]:
+    out = {}
+    for comp, forms in _NUMBERED.items():
+        k = lookup(comp)
+        if k is None:                   # every listed composer is in composers._DATA (a test checks it)
+            continue
+        for label, entries in forms.items():
+            form, scoring = _NUMBERED_FORMS[label]
+            for n, key, catno, *nick in entries:
+                c = cat.parse_catalogues(catno)[0] if catno else None
+                title = f"{label} No. {n}" + (f" in {key}" if key else "") + (f", {c.display}" if c else "")
+                nw = Numbered(f"{norm_key(label).replace(' ', '-')}-{n}", title, key, c)
+                out[(norm_key(k.name), form, scoring, n)] = (nw, frozenset(nick))
+    return out
+
+
+_NUMBERED_INDEX = _numbered_entries()
+
+
+def numbered_work(composer: str | None, title: str | None) -> Numbered | None:
+    """The listed numbered work a title names by form and number alone ('Symphony No. 5', 'Symphony No. 5
+    in C minor', 'Symphony No. 9 in D minor 'Choral'', 'Concerto for Piano and Orchestra No. 5'), or None
+    when the title says anything that might make it another piece: another key or catalogue number, other
+    instruments, other forms or numbers, a name that is not the work's nickname, a version or an arrangement."""
+    k = lookup(composer)
+    if k is None or not title:
+        return None
+    t = strip_track_number(title)
+    if has_act_suffix(t) or ": " in t or ";" in t or is_arrangement(t) or _VERSION.search(fold(t)):
+        return None
+    sig = title_sig(t)
+    if len(sig.numbers) != 1 or len(sig.forms) != 1:
+        return None
+    scoring = frozenset(_SCORING_ALIAS.get(s, s) for s in sig.scoring) - _TUTTI_WORDS
+    hit = _NUMBERED_INDEX.get((norm_key(k.name), next(iter(sig.forms)), scoring, next(iter(sig.numbers))))
+    if hit is None:
+        return None
+    nw, nick = hit
+    if sig.key and nw.key and sig.key != nw.key:
+        return None                     # 'Symphony No. 8 in C major' is not Schubert's B minor No. 8
+    for c in cat.parse_catalogues(t):
+        if nw.catalogue and c.namespace == nw.catalogue.namespace and c.components[0] != nw.catalogue.components[0]:
+            return None                 # 'Op. 99' is not Op. 77 (Köchel's alternative number after it is)
+    if not all(any(_word_match(w, x) for x in nick) for w in sig.names):
+        return None                     # 'Symphony No. 5 "This Is the End"', a performer's name
+    return nw
