@@ -83,6 +83,8 @@ class CompanionUI:
             ("classical/works", self.cmd_works),
             ("classical/work", self.cmd_work),
             ("classical/recording", self.cmd_recording),
+            ("classical/boxes", self.cmd_boxes),
+            ("classical/box", self.cmd_box),
             ("classical/performers", self.cmd_performers),
             ("classical/performer", self.cmd_performer),
             ("classical/review", self.cmd_review),
@@ -166,6 +168,14 @@ class CompanionUI:
     async def cmd_recording(self, id: str) -> dict[str, Any]:
         """One recording: full credits, album, movements in order with track URIs."""
         return await self._view(views.recording, id)
+
+    async def cmd_boxes(self) -> dict[str, Any]:
+        """The box sets in the library (one item per box), with what the caller can play in each."""
+        return await self._view(views.boxes)
+
+    async def cmd_box(self, id: str) -> dict[str, Any]:
+        """One box set: its discs with the works on each, and the same recordings by composer and work."""
+        return await self._view(views.box, id)
 
     async def cmd_performers(self, role: str = "all", with_id: str | None = None,
                              q: str | None = None) -> dict[str, Any]:

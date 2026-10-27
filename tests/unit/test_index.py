@@ -547,8 +547,8 @@ def test_schema_2_upgrades_a_version_1_index_in_place(tmp_path):
     con.execute("INSERT INTO redirect(entity, old_id, new_id, reason, at) VALUES ('composer', 'c2', 'c1', 'user', 1)")
     con.execute("INSERT INTO recording(id, work_id, album_library_id, tier) VALUES ('r1', 'w1', 'A1', 'title')")
     con.execute("INSERT INTO recording_slot(recording_id, occurrence_id, ord) VALUES ('r1', 'o1', 3)")
-    assert migrate(con) == 7
-    assert migrate(con) == 7
+    assert migrate(con) == 8
+    assert migrate(con) == 8
     assert con.execute("SELECT COUNT(*) FROM mb_work_match").fetchone()[0] == 0      # 0006: an empty table
     # 0004: a slot's home is where it was derived; nothing is joined across discs yet
     assert tuple(con.execute("SELECT home_id, home_ord FROM recording_slot").fetchone()) == ("r1", 3)

@@ -17,6 +17,7 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable
 
 from . import accolades as acc
+from . import boxes as bx
 from . import dates as wd
 from .browse import NotFound, letter_of, play_uri
 from .catalogue import WORK_TYPES
@@ -394,6 +395,7 @@ def work(ix: Index, wid: str, vis=None, scope: str | list[str] | None = None) ->
         raise NotFound(wid)
     accs = acc.for_recordings(ix.con, recs)
     summaries = [_with_accolades(_summary(r, credits.get(r["id"], []), wid), accs.get(r["id"], [])) for r in recs]
+    _box_context(ix, recs, summaries)
     best = _best(recs, accs)
     ids = [s for s in (scope.split(",") if isinstance(scope, str) else (scope or [])) if s]
     on_work = {c["id"] for s in summaries for c in s["credits"]}
@@ -443,6 +445,7 @@ def recording(ix: Index, rid: str, vis=None) -> dict:
     r = recs[0]
     w = ix.work(r["work_id"]) or {}
     s = _summary(r, r["credits"], r["work_id"])
+    _box_context(ix, recs, [s])
     s["movements"] = [{
         "ord": t["ord"], "movement_no": t["movement_no"], "name": t["movement_name"] or t["title"] or "",
         "title": t["title"], "duration": int(t["duration"] or 0), "duration_text": _fmt_duration(t["duration"] or 0),
@@ -467,6 +470,139 @@ def recording(ix: Index, rid: str, vis=None) -> dict:
     comp = (w.get("composers") or [{}])[0].get("name") if w.get("composers") else None
     s["review_links"] = acc.review_links(comp, w.get("title") or "", principal, links)
     return s
+
+
+# ---- box sets (boxes.py) ------------------------------------------------------------------------------------
+
+
+def _box_context(ix: Index, recs: list[dict], summaries: list[dict]) -> None:
+    """'from Complete Works, CD 61' on each recording that sits on a box set's disc."""
+    inbox = bx.of_albums(ix.con, sorted({r["album_library_id"] for r in recs if r.get("album_library_id")}))
+    for r, s in zip(recs, summaries, strict=True):
+        hit = inbox.get(r.get("album_library_id"))
+        if hit:
+            box, disc = hit
+            # one MA album holding the whole box: the disc the recording starts on
+            s["box"] = bx.context(box, disc if not box.single else (r.get("first_pos") or 10000) // 10000)
+
+
+_BOX_RECS_SQL = (
+    "SELECT r.id, r.work_id, r.album_library_id, r.recorded_start, r.release_year, r.complete, "
+    "a.name AS album, a.artist AS album_artist, a.year AS album_year, w.title, w.catalogue_display, "
+    "w.catalogue_sort, w.sort_title, "
+    "(SELECT COALESCE(SUM(t.duration),0) FROM recording_slot s JOIN occurrence o ON o.id=s.occurrence_id "
+    " JOIN track_info t ON t.library_track_id=o.library_track_id WHERE s.recording_id=r.id) AS duration, "
+    "(SELECT COUNT(*) FROM recording_slot s WHERE s.recording_id=r.id) AS tracks, "
+    "(SELECT t.artist FROM recording_slot s JOIN occurrence o ON o.id=s.occurrence_id "
+    " JOIN track_info t ON t.library_track_id=o.library_track_id WHERE s.recording_id=r.id "
+    " ORDER BY s.ord LIMIT 1) AS track_artist, "
+    "(SELECT MIN(COALESCE(o.disc,1)*10000+COALESCE(o.position,0)) FROM recording_slot s "
+    " JOIN occurrence o ON o.id=s.occurrence_id WHERE s.home_id=r.id) AS first_pos, "
+    "(SELECT GROUP_CONCAT(c.name, ';') FROM work_composer wc JOIN composer c ON c.id=wc.composer_id "
+    " WHERE wc.work_id=r.work_id) AS composer_names, "
+    "(SELECT c.id FROM work_composer wc JOIN composer c ON c.id=wc.composer_id WHERE wc.work_id=r.work_id "
+    " ORDER BY wc.ord LIMIT 1) AS composer_id "
+    "FROM recording r JOIN work w ON w.id=r.work_id LEFT JOIN album_info a ON a.album_library_id=r.album_library_id "
+    f"WHERE r.album_library_id IN (SELECT value FROM json_each(:aids)) AND {Index._VIS_REC} "
+    "ORDER BY r.album_library_id, first_pos")
+
+
+def _box_recordings(ix: Index, aids: list[str], vis) -> list[dict]:
+    """The visible recordings on these albums, each with its own credits (never the box's): two queries."""
+    args = {"aids": json.dumps(aids), **_vis_args(vis)}
+    credits: dict[str, list[dict]] = defaultdict(list)
+    for r in ix._q(
+            "SELECT s.recording_id AS rid, p.id, p.name, p.kind, tc.role, MIN(s.ord * 100 + tc.ord) AS o "
+            "FROM recording r JOIN recording_slot s ON s.recording_id=r.id "
+            "JOIN track_credit tc ON tc.occurrence_id=s.occurrence_id JOIN person p ON p.id=tc.person_id "
+            f"WHERE r.album_library_id IN (SELECT value FROM json_each(:aids)) AND {Index._VIS_REC} "
+            "GROUP BY s.recording_id, p.id, tc.role ORDER BY s.recording_id, o", args):
+        credits[r["rid"]].append({"id": r["id"], "name": r["name"], "role": r["role"],
+                                  "group": bucket(r["role"], r["kind"])})
+    out = []
+    for row in ix._q(_BOX_RECS_SQL, args):
+        d = dict(row)
+        d["credits"] = credits.get(d["id"], [])
+        out.append(d)
+    return out
+
+
+def _box_item(r: dict, disc: int | None) -> dict:
+    who = recording_label({**r, "album": None, "recorded_start": None, "release_year": None, "duration": 0})
+    rec_year = _year(r.get("recorded_start"))
+    rel_year = _year(r.get("release_year")) or _year(r.get("album_year"))
+    return {"id": r["id"], "work_id": r["work_id"], "title": r["title"], "catalogue": r["catalogue_display"],
+            "composer": (r["composer_names"] or "").split(";")[0] or None, "composer_id": r["composer_id"],
+            "who": who, "year": rec_year or rel_year, "year_kind": "recorded" if rec_year else
+            ("released" if rel_year else None), "disc": disc, "tracks": r["tracks"] or 0,
+            "complete": bool(r["complete"]), "duration": int(r["duration"] or 0),
+            "duration_text": _fmt_duration(r["duration"] or 0), "play_uri": play_uri(r["work_id"], r["id"])}
+
+
+def _box_head(b: bx.Box, items: list[dict], discs: int) -> dict:
+    image = next((m["image_json"] for m in b.members if m["image_json"]), None)
+    return {"id": b.id, "title": b.title, "artist": b.artist, "single": b.single, "total": b.total,
+            "discs": discs, "works": len({i["work_id"] for i in items}), "recordings": len(items),
+            "composers": list(dict.fromkeys(i["composer"] for i in items if i["composer"])),
+            "image": json.loads(image) if image else None}
+
+
+def boxes(ix: Index, vis=None) -> dict:
+    """Every box set with something the caller can play, by title."""
+    out = []
+    all_boxes = bx.resolve(ix.con)
+    aids = [m["album_library_id"] for b in all_boxes for m in b.members]
+    recs = _box_recordings(ix, aids, vis) if aids else []
+    by_album: dict[str, list[dict]] = defaultdict(list)
+    for r in recs:
+        by_album[r["album_library_id"]].append(r)
+    for b in all_boxes:
+        items = [_box_item(r, None) for m in b.members for r in by_album.get(m["album_library_id"], [])]
+        if not items:
+            continue
+        discs = len({(r["album_library_id"], (r["first_pos"] or 10000) // 10000)
+                     for m in b.members for r in by_album.get(m["album_library_id"], [])})
+        out.append(_box_head(b, items, discs))
+    out.sort(key=lambda x: _sort_key(x["title"]))
+    return {"boxes": out}
+
+
+def box(ix: Index, box_id: str, vis=None) -> dict:
+    """One box set: its discs in order, each with the works on it (a Play per recording), and the same
+    recordings by composer and work. Only what the caller can see; a box with nothing visible is not found."""
+    found = bx.resolve(ix.con, ids=[str(box_id)])
+    b = next((x for x in found if x.id == box_id), None)
+    if b is None:
+        raise NotFound(box_id)
+    recs = _box_recordings(ix, [m["album_library_id"] for m in b.members], vis)
+    if not recs:
+        raise NotFound(box_id)
+    member = {m["album_library_id"]: m for m in b.members}
+    discs: dict[tuple, dict] = {}
+    items = []
+    for r in recs:
+        m = member[r["album_library_id"]]
+        n = (r["first_pos"] or 10000) // 10000 if b.single else m["box_disc"]
+        key = (n is None, n or 0, "" if b.single else r["album_library_id"])
+        d = discs.setdefault(key, {"disc": n, "album_id": r["album_library_id"],
+                                   "name": None if b.single else m["name"],
+                                   "subtitle": None if b.single else bx.subtitle(m["name"]),
+                                   "year": m["year"], "recordings": []})
+        it = _box_item(r, n)
+        d["recordings"].append(it)
+        items.append(it)
+    by_comp: dict[str, dict] = {}
+    for it in sorted(items, key=lambda i: (i["disc"] is None, i["disc"] or 0)):
+        c = by_comp.setdefault(it["composer_id"] or "", {"id": it["composer_id"], "name": it["composer"] or "Unknown",
+                                                          "works": {}})
+        w = c["works"].setdefault(it["work_id"], {"id": it["work_id"], "title": it["title"],
+                                                  "catalogue": it["catalogue"], "recordings": []})
+        w["recordings"].append(it)
+    sort_of = {r["work_id"]: (r["catalogue_sort"] or "~", _sort_key(r["sort_title"] or r["title"])) for r in recs}
+    composers_out = [{**c, "works": sorted(c["works"].values(), key=lambda w: sort_of[w["id"]])}
+                     for c in sorted(by_comp.values(), key=lambda c: (-len(c["works"]), _sort_key(c["name"])))]
+    return {"box": _box_head(b, items, len(discs)), "discs": [discs[k] for k in sorted(discs)],
+            "composers": composers_out}
 
 
 def accolades(ix: Index, recording_id: str | None = None, work_id: str | None = None, vis=None) -> dict:

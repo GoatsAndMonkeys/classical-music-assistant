@@ -376,3 +376,17 @@ select.input {
 .accolades ul.awards li { margin: 4px 0; }
 .accolades blockquote.review { margin: 8px 0; padding-left: 10px; border-left: 3px solid var(--line); }
 .review-links a { overflow-wrap: anywhere; }
+
+/* ---- box sets ---- */
+
+.box-disc { border-bottom: 1px solid var(--line); }
+.box-discs > .box-disc:last-child { border-bottom: 0; }
+.box-disc > summary { cursor: pointer; list-style: none; border-bottom: 0; }
+.box-disc > summary::-webkit-details-marker { display: none; }
+.box-disc > summary::after { content: "›"; color: var(--muted); font-size: 22px; transition: transform .15s; }
+.box-disc[open] > summary::after { transform: rotate(90deg); }
+.box-disc[open] > summary { background: var(--surface-2); }
+.box-disc-recs { border: 0; border-radius: 0; border-top: 1px solid var(--line); }
+.box-rec { gap: 8px; padding-right: 6px; }
+.box-rec .row-main { color: inherit; text-decoration: none; }
+.section h2 a { color: inherit; }

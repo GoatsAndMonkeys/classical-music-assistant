@@ -26,7 +26,7 @@ import time
 from collections import defaultdict
 from typing import Any
 
-from . import accolades, views, work_link
+from . import accolades, boxes, views, work_link
 from . import discs as disc_mod
 from .index import Index
 from .names import parse_names
@@ -452,7 +452,7 @@ def _decision(a: dict) -> str:
     return str(a.get("decision") or ("together" if a.get("op") == "join_discs" else ""))
 
 
-_SINGLE = ("composer_name", "separate_discs")       # changes, not rejections: one per request
+_SINGLE = ("composer_name", "separate_discs", "box_decide")       # changes, not rejections: one per request
 
 
 def _check_accepts(actions: list[dict]) -> None:
@@ -618,9 +618,21 @@ def _do_separate(ix: Index, a: dict, run: _Run, user, vis, cache: dict) -> None:
     run.out.append({"op": "separate_discs", "recordings": rids})
 
 
+def _do_box(ix: Index, a: dict, run: _Run, user, vis, cache: dict) -> None:
+    bid = views.box(ix, str(a.get("box_id") or ""), vis)["box"]["id"]      # NotFound when hidden or not a box
+    before = _max_override(ix.con)
+    boxes.decide(ix.con, bid, _decision(a), user)
+    # read-time decision (boxes.resolve): dropping the override brings the box back; the facts the accolade
+    # matcher reads change with it, so both ways re-run that job
+    run.undo += [{"t": "jobs", "jobs": ["accolades"]}, {"t": "overrides", "ids": _new_overrides(ix.con, before)}]
+    run.targets.add("box:" + bid)
+    run.jobs.add("accolades")
+    run.out.append({"op": "box_decide", "box": bid, "decision": _decision(a)})
+
+
 _OPS = {"dismiss": _do_dismiss, "restore": _do_restore, "composer_name": _do_composer_name,
         "work_mb_link": _do_mb, "accolade_decide": _do_accolade, "join_discs": _do_join,
-        "separate_discs": _do_separate}
+        "separate_discs": _do_separate, "box_decide": _do_box}
 
 
 def _label(actions: list[dict], run: _Run) -> str:
@@ -642,6 +654,8 @@ def _label(actions: list[dict], run: _Run) -> str:
         return "Joined discs" if a.get("decision", "together") == "together" else f"Kept discs apart ({len(actions)})"
     if a["op"] == "separate_discs":
         return "Kept discs separate"
+    if a["op"] == "box_decide":
+        return "Not a box set"
     return "Decision"
 
 
@@ -728,6 +742,8 @@ def undo(ix: Index, seq: int, user: str | None) -> dict:
             if step["row"]:
                 _insert(con, "accolade_decision", step["row"])
             jobs.add("accolades")
+        elif t == "jobs":
+            jobs |= set(step["jobs"])
         elif t == "join_sets":
             disc_mod.join_sets(ix, [a for a in step["albums"]
                                     if con.execute("SELECT 1 FROM album_info WHERE album_library_id=?",

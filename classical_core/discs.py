@@ -1,8 +1,8 @@
 """One recording across the separate MA albums of a multi-disc set ('[Disc 1]' / '[Disc 2]', 'CD1', '(2)').
 
 Every album keeps deriving its own recordings. After an album is derived, the join pass looks at the other
-albums of its set (same name without the disc marker and same album artist, or the same MusicBrainz release)
-and joins a recording that ends one disc to the one that starts the next disc when the evidence agrees:
+albums of its set (same name without the disc marker and same album artist, or the same MusicBrainz release;
+for a disc of a box set, the box's discs either side: boxes.py) and joins a recording that ends one disc to the one that starts the next disc when the evidence agrees:
 
 * the same work, and disc numbers that follow on (title marker, DISCNUMBER/TOTALDISCS tags, MA's disc number);
 * the same album artist, label, year and release where both albums have one;
@@ -31,6 +31,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from .boxes import WINDOW
 from .release import PLACEHOLDER_ARTISTS
 from .text import norm_key
 from .titles import disc_marker
@@ -156,7 +157,9 @@ def _rec(ix: Index, rid: str) -> Rec | None:
 
 
 def _disc(ix: Index, row: Any) -> Disc:
-    d = Disc(row["album_library_id"], row["name"] or "", row["artist"], row["year"], row["label"], row["disc_no"],
+    # a box disc's number from its title ('CD 061') when the tags give none
+    no = row["disc_no"] if row["disc_no"] is not None else row["box_disc"]
+    d = Disc(row["album_library_id"], row["name"] or "", row["artist"], row["year"], row["label"], no,
              row["disc_total"], row["release_mbid"] or row["mb_release"])
     placed = ix._q("SELECT s.home_id FROM recording_slot s JOIN occurrence o ON o.id=s.occurrence_id "
                    "WHERE o.album_library_id=? AND o.present=1 "
@@ -260,11 +263,12 @@ def pair_key(a: str, b: str) -> str:
 
 
 _ALBUM_COLS = ("SELECT album_library_id, name, artist, year, label, disc_no, disc_total, release_mbid, mb_release, "
-               "set_key FROM album_info ")
+               "set_key, box_id, box_disc FROM album_info ")
 
 
 def members(ix: Index, aids: list[str], overrides: dict[str, tuple[str, dict]] | None = None) -> list[Any]:
-    """The albums of the sets these albums belong to (same set key, same MB release, or joined by a user)."""
+    """The albums of the sets these albums belong to (same set key, same MB release, or joined by a user), the
+    discs of a box set either side of them, and every album already joined with any of those."""
     overrides = _overrides(ix) if overrides is None else overrides
     linked: dict[str, set[str]] = {}
     for k, (op, _) in overrides.items():
@@ -289,6 +293,25 @@ def members(ix: Index, aids: list[str], overrides: dict[str, tuple[str, dict]] |
             if r["album_library_id"] not in seen:
                 todo.append(r["album_library_id"])
         todo += [x for x in linked.get(aid, ()) if x not in seen]
+    if len(seen) > MAX_SET:
+        # a naming collision, or a box whose discs share one release: only the box neighbours below
+        seen = {a: r for a, r in seen.items() if a in aids}
+    # a disc of a box set ('Complete Works CD 061'): the box's discs either side (boxes.py), whatever their names
+    for aid in aids:
+        row = seen.get(aid)
+        if row is not None and row["box_id"] and row["box_disc"] is not None:
+            for r in ix._q(_ALBUM_COLS + "WHERE box_id=? AND box_disc BETWEEN ? AND ?",
+                           (row["box_id"], row["box_disc"] - WINDOW, row["box_disc"] + WINDOW)):
+                seen.setdefault(r["album_library_id"], r)
+    # every album already joined with one of these: recomputing the set undoes its joins, so it is redone too
+    for r in ix._q("SELECT DISTINCT r2.album_library_id FROM recording r JOIN recording r2 "
+                   "ON COALESCE(r2.joined_to, r2.id)=COALESCE(r.joined_to, r.id) "
+                   "WHERE r.album_library_id IN (SELECT value FROM json_each(?)) "
+                   "AND (r.joined_to IS NOT NULL OR r.own_json IS NOT NULL)", (json.dumps(list(seen)),)):
+        if r[0] not in seen:
+            row = ix._one(_ALBUM_COLS + "WHERE album_library_id=?", (r[0],))
+            if row is not None:
+                seen[r[0]] = row
     return list(seen.values())
 
 
@@ -496,7 +519,7 @@ def decide(ix: Index, first: str, second: str, op: str, user: str | None) -> lis
     if op == "together":
         if ix.resolve("work", ra["work_id"]) != ix.resolve("work", rb["work_id"]):
             raise ValueError("the recordings are of different works")
-        da, db = (ix._one("SELECT disc_no FROM album_info WHERE album_library_id=?", (r["album_library_id"],))
+        da, db = (ix._one("SELECT COALESCE(disc_no, box_disc) FROM album_info WHERE album_library_id=?", (r["album_library_id"],))
                   for r in (ra, rb))
         if da and db and da[0] and db[0] and db[0] < da[0]:
             ra, rb = rb, ra

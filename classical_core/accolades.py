@@ -31,6 +31,7 @@ from importlib import resources
 from typing import Any
 from urllib.parse import quote, quote_plus
 
+from . import boxes
 from .text import ENSEMBLE_NAME, fold, norm_key, surname
 
 COUNTED_GRADES = ("this_release", "other_release", "confirmed")
@@ -525,15 +526,26 @@ def _facts(con) -> dict[str, Facts]:
         "LEFT JOIN album_info a ON a.album_library_id=r.album_library_id "
         "WHERE r.joined_to IS NULL").fetchall()       # a later disc's recording is part of its lead's
     out: dict[str, Facts] = {}
+    # a box set's album artist and name speak for the whole box (several conductors, 'Karajan: The Complete EMI
+    # Recordings 1946-1984'), not for one recording on it: only the disc's own subtitle counts, and the album
+    # artist only for a recording with no credits or track artists of its own (boxes.py)
+    in_box = boxes.of_albums(con, sorted({r["aid"] for r in rows if r["aid"]}))
+    box_artist: dict[str, str] = {}
     for r in rows:
         pool = Pool()
+        album = r["album"] or ""
+        if r["aid"] in in_box:
+            album = "" if in_box[r["aid"]][0].single else (boxes.subtitle(album) or "")
+            if r["album_artist"]:
+                box_artist[r["id"]] = r["album_artist"]
         out[r["id"]] = Facts(
             r["id"], r["work_id"], r["aid"], [t for t in (r["title"], r["parent_title"]) if t],
             [c for c in (r["composers"] or "").split(";") if c],
-            _year(r["recorded_start"]) or performance_year(r["album"]),
+            _year(r["recorded_start"]) or performance_year(album),
             _year(r["release_year"]) or _year(r["album_year"]), r["label"] or r["album_label"], pool)
-        pool.add_text(r["album_artist"] or "")
-        pool.add_text(r["album"] or "", names=False)
+        if r["id"] not in box_artist:
+            pool.add_text(r["album_artist"] or "")
+        pool.add_text(album, names=False)
     for r in con.execute(
             "SELECT s.recording_id AS rid, p.name, p.kind, tc.role FROM recording_slot s "
             "JOIN track_credit tc ON tc.occurrence_id=s.occurrence_id JOIN person p ON p.id=tc.person_id "
@@ -550,6 +562,10 @@ def _facts(con) -> dict[str, Facts]:
         f = out.get(r["rid"])
         if f:
             f.pool.add_text(r["artist"])
+    for rid, artist in box_artist.items():
+        f = out[rid]
+        if not (f.pool.persons or f.pool.groups):
+            f.pool.add_text(artist)
     # the composer's own name is no performer evidence
     for f in out.values():
         csur = {p.sur for p in (person(c) for c in f.composers) if p}

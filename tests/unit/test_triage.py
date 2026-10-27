@@ -380,8 +380,8 @@ def test_schema_6_index_migrates_to_7_and_keeps_its_data(tmp_path, monkeypatch):
     assert store.migrate(con) == 6
     con.execute("INSERT INTO review_item VALUES ('v1','no work identified on this album','A','album','A','{}')")
     monkeypatch.setattr(store, "_migrations", lambda: real)
-    assert store.migrate(con) == 7
+    assert store.migrate(con) == 8
     assert con.execute("SELECT COUNT(*) FROM review_item").fetchone()[0] == 1
     assert {r[0] for r in con.execute("SELECT name FROM sqlite_master")} >= {
         "review_dismissal", "review_batch", "review_item_reason", "review_batch_user"}
-    assert store.migrate(con) == 7
+    assert store.migrate(con) == 8

@@ -513,3 +513,42 @@ decision cards from `classical/review_triage` (classical_core/triage.py).
   after a rescan until its facts change. Items on a hidden provider never show and cannot be hidden or
   restored by id.
 - **Not done.** The browse review folders (MA's library view) still list hidden items.
+
+## Box sets (2026-10-27)
+
+Discussion #5481 (gcoupe, with lupurs and MelHarbour): one item per box, its discs, then a disc's tracks, as
+Roon shows them; repeated work titles make big boxes hard to browse.
+
+- **Evidence per album, decision at read time.** Deriving an album stores `album_info.box_id / box_title /
+  box_disc / box_total` (schema v8). `boxes.resolve` decides from those rows each time it is asked, so an
+  import in progress, a removed disc or a user's correction applies without re-deriving the other discs.
+  - Box key, first that applies: the MB release (an album that is one disc of it); a "CD 061" / "[CD 12 of
+    155]" marker in the album name (title + album artist); the disc-set key; or the album itself when its
+    tracks span 4 or more discs.
+- **What counts as a box.** Ordinary 2–3 disc sets stay `discs.py`'s job.
+  - One album: at least 4 discs and at least 4 works of more than one track (the 4-disc Bayreuth operas,
+    badly grouped into one-track "works", are not boxes).
+  - Several albums: at least 2, no repeated disc number, and a disc number or total of 10 or more, or at
+    least 4 discs with 4 such works.
+  - Repeated disc numbers (a label's series with one title) split by each album's main composer; if they
+    still repeat, it is no box.
+  - A generic title ("Complete Works") gets the composer in front when the box has one composer.
+- **Each work stays its own recording** under its own work and composer, with the disc's own credits.
+  Work and recording pages say "from <box>, CD 61"; the Box page lists discs (each opening to its works,
+  Play per recording) or the same by composer and work. Box sets are linked from the Works page.
+- **Accolades.** For a box disc the matcher reads only the disc's subtitle, not the box name, and adds the
+  box's album artist only when the recording has no performer credits or track artists. A box reissue can
+  grade `other_release` on its own credits and recording date.
+- **Cross-disc joins.** `discs.members` also takes box discs within 8 numbers either side (and everything
+  already joined to those). Discs of one opera inside a box, which share no set key, are now weighed as
+  continuations; without movement or credit evidence that is a review item, never an automatic join.
+- **Correction.** "Not a box set" (`classical/box_decide`, LIBRARY_MANAGE) stores an override on the box id.
+  It survives re-indexing, is in the undo log and re-runs accolades both ways. There is no "this is a box"
+  correction yet.
+- **DERIVE_VERSION 10.** The evidence columns are filled when an album is derived, and the new continuation
+  candidates need a re-derive; it reuses stored evidence (no tag reads).
+- **Real library (M1, 1017 albums).** One box: Brilliant's Beethoven Complete Works, six discs ripped as
+  separate albums (CD 61–64 Leonore and Fidelio, CD 99–100 Furtwängler's Fidelio). Re-deriving adds three
+  continuation review items (Leonore 61/62, Fidelio 63/64 and 99/100) and changes nothing else.
+- **Known gaps.** A box disc with no disc marker in its name (the Karajan Complete EMI disc, "Fidelio" as
+  its own MA album) is not found. Box discs are not joined automatically.

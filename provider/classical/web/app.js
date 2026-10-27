@@ -454,6 +454,26 @@
     return out;
   }
 
+  /** "from Beethoven: Complete Works, CD 61": where a recording sits in a box set. */
+  function boxLine(box) {
+    if (!box || !box.title) return null;
+    return "from " + box.title + (box.disc != null ? ", CD " + box.disc : "");
+  }
+
+  /** "6 discs · 2 works · Beethoven" under a box set's name. */
+  function boxSummary(b) {
+    if (!b) return "";
+    var who = (b.composers || []).length > 2 ? plural(b.composers.length, "composer") : (b.composers || []).join(", ");
+    return [b.discs ? plural(b.discs, "disc") + (b.total && b.total !== b.discs ? " of " + b.total : "") : null,
+      b.works ? plural(b.works, "work") : null, who || null].filter(Boolean).join(" · ");
+  }
+
+  /** A box disc's heading: "CD 61 · Leonore Part 1". */
+  function discTitle(d) {
+    var n = d.disc != null ? "CD " + d.disc : "Disc";
+    return d.subtitle ? n + " · " + d.subtitle : n;
+  }
+
   var pure = {
     BUCKETS: BUCKETS, parseHash: parseHash, formatHash: formatHash, takeCode: takeCode, fmtDuration: fmtDuration,
     lifeDates: lifeDates, yearText: yearText, sourceLabels: sourceLabels, anyStreaming: anyStreaming,
@@ -463,7 +483,7 @@
     reviewSubtitle: reviewSubtitle, albumRows: albumRows, reviewQuery: reviewQuery, reviewArgs: reviewArgs, cardMeta: cardMeta,
     actionCount: actionCount, tapGate: tapGate, historyLine: historyLine, mbWorkCandidates: mbWorkCandidates, mbLinkLine: mbLinkLine, badgeText: badgeText, anyAcclaim: anyAcclaim, safeHref: safeHref,
     byLetter: byLetter, playArgs: playArgs, loginReturnUrl: loginReturnUrl, choosePlayer: choosePlayer, errorText: errorText, imageSrc: imageSrc,
-    plural: plural, pickLines: pickLines, daySubtitle: daySubtitle, localDate: localDate, probeOrder: probeOrder,
+    plural: plural, pickLines: pickLines, boxLine: boxLine, boxSummary: boxSummary, discTitle: discTitle, daySubtitle: daySubtitle, localDate: localDate, probeOrder: probeOrder,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = pure;
   if (typeof document === "undefined") return;
@@ -803,7 +823,7 @@
     { id: "review", label: "Review", icon: "✓" },
   ];
   var TAB_OF = { today: "today", composers: "composers", composer: "composers", works: "works", work: "works", recording: "works",
-    performers: "performers", performer: "performers", review: "review" };
+    boxes: "works", box: "works", performers: "performers", performer: "performers", review: "review" };
   var VIEWS = {};
   var renderId = 0;
 
@@ -1063,6 +1083,14 @@
       wrap.appendChild(tags);
     }
 
+    var boxSlot = h("div");
+    wrap.appendChild(boxSlot);
+    call("classical/boxes", {}).then(function (bx) {
+      if (bx && bx.boxes && bx.boxes.length) {
+        boxSlot.appendChild(link(["boxes"], null, "Box sets (" + bx.boxes.length + ") ›", "more-link"));
+      }
+    }, function () { /* the list is optional */ });
+
     var list = h("div", { class: "list" });
     res.items.forEach(function (w) { list.appendChild(workRow(w, f.performer_id)); });
     wrap.appendChild(list);
@@ -1318,7 +1346,7 @@
     img(r.image_url, "thumb"),
     h("span", { class: "row-main" },
       h("span", { class: "row-title", text: r.who || r.album || "Unknown performers" }),
-      h("span", { class: "row-sub", text: [yearText(r), r.album, r.tracks ? plural(r.tracks, "track") : null]
+      h("span", { class: "row-sub", text: [yearText(r), boxLine(r.box) || r.album, r.tracks ? plural(r.tracks, "track") : null]
         .filter(Boolean).join(" · ") }),
       badges(r.accolades, 2), sourceBadges(r, withLocal)),
     h("span", { class: "dur", text: r.duration ? r.duration_text : "" }));
@@ -1445,6 +1473,7 @@
     if (r.release_year) facts.push(["Released", String(r.release_year)]);
     if (r.venue) facts.push(["Venue", r.venue]);
     if (r.album) facts.push(["Album", r.album + (r.album_artist ? " — " + r.album_artist : "")]);
+    if (r.box) facts.push(["Box set", r.box.title + (r.box.disc != null ? ", CD " + r.box.disc : "")]);
     facts.push(["Length", r.duration_text + (r.complete ? " · complete" : "")]);
     var fl = h("dl", { class: "facts" });
     facts.forEach(function (x) { fl.appendChild(h("dt", { text: x[0] })); fl.appendChild(h("dd", { text: x[1] })); });
@@ -1467,6 +1496,7 @@
       h("div", null,
         h("p", { class: "album-name", text: album.name || r.album || "" }),
         h("p", { class: "fine", text: [album.artist, album.year].filter(Boolean).join(" · ") }),
+        r.box ? link(["box", r.box.id], null, boxLine(r.box) + " ›", "more-link") : null,
         badges(r.accolades), sourceBadges(r, true))));
     wrap.appendChild(recordingBody(r, false));
     wrap.appendChild(accoladesSection(r));
@@ -1486,6 +1516,104 @@
     }
     return wrap;
   };
+
+  // ---- box sets -------------------------------------------------------------------------------------------
+
+  VIEWS.boxes = async function () {
+    var res = await call("classical/boxes", {});
+    var wrap = h("div", { class: "page" }, header("Box sets", plural(res.boxes.length, "box set"),
+      { href: formatHash(["works"]), label: "Works" }));
+    var list = h("div", { class: "list" });
+    res.boxes.forEach(function (b) {
+      list.appendChild(h("a", { class: "row", href: formatHash(["box", b.id]) }, img(b.image_url, "thumb"),
+        h("span", { class: "row-main" }, h("span", { class: "row-title", text: b.title }),
+          h("span", { class: "row-sub", text: boxSummary(b) })),
+        h("span", { class: "chev", "aria-hidden": "true", text: "›" })));
+    });
+    wrap.appendChild(list);
+    if (!res.boxes.length) wrap.appendChild(empty("No box sets found. A box set is one album with many discs and works, or albums titled like “Complete Works CD 12”."));
+    return wrap;
+  };
+
+  function boxRecRow(r, showComposer, showDisc) {
+    var title = (showComposer && r.composer ? r.composer + ": " : "") + r.title;
+    return h("div", { class: "row box-rec" },
+      h("a", { class: "row-main", href: formatHash(["recording", r.id]) },
+        h("span", { class: "row-title", text: title }),
+        h("span", { class: "row-sub", text: [r.who, yearText(r), showDisc && r.disc != null ? "CD " + r.disc : null]
+          .filter(Boolean).join(" · ") })),
+      h("span", { class: "dur", text: r.duration ? r.duration_text : "" }),
+      h("button", { type: "button", class: "icon-btn", "aria-label": "Play " + r.title,
+        onclick: function () { play(r); } }, "▶"));
+  }
+
+  VIEWS.box = async function (args, query) {
+    var res = await call("classical/box", { id: args[0] });
+    var b = res.box;
+    var byComposer = query.by === "composer";
+    var wrap = h("div", { class: "page" }, header(b.title, boxSummary(b),
+      { href: formatHash(["boxes"]), label: "Box sets" }));
+    if (b.image_url || b.artist) {
+      wrap.appendChild(h("div", { class: "album-card" }, img(b.image_url, "cover", b.title),
+        h("div", null, h("p", { class: "album-name", text: b.title }),
+          h("p", { class: "fine", text: b.artist || "" }))));
+    }
+    wrap.appendChild(h("div", { class: "chips" },
+      chip("By disc", !byComposer, function () { go(["box", b.id], {}, true); }),
+      chip("By composer", byComposer, function () { go(["box", b.id], { by: "composer" }, true); })));
+    var multi = (b.composers || []).length > 1;
+    if (byComposer) {
+      res.composers.forEach(function (c) {
+        var sec = h("section", { class: "section" },
+          h("h2", null, c.id ? link(["composer", c.id], null, c.name) : c.name));
+        c.works.forEach(function (w) {
+          sec.appendChild(h("p", { class: "mini" }, link(["work", w.id], null,
+            w.title + (w.catalogue && w.title.indexOf(w.catalogue) < 0 ? ", " + w.catalogue : ""))));
+          var list = h("div", { class: "list" });
+          w.recordings.forEach(function (r) { list.appendChild(boxRecRow(r, false, true)); });
+          sec.appendChild(list);
+        });
+        wrap.appendChild(sec);
+      });
+    } else {
+      var list = h("div", { class: "list box-discs" });
+      res.discs.forEach(function (d, i) {
+        var det = h("details", { class: "box-disc", open: res.discs.length <= 3 || i === 0 ? true : null },
+          h("summary", { class: "row" }, h("span", { class: "row-main" },
+            h("span", { class: "row-title", text: discTitle(d) }),
+            h("span", { class: "row-sub", text: d.recordings.map(function (r) { return r.title; })
+              .filter(function (t, k, a) { return a.indexOf(t) === k; }).join(" · ") }))));
+        var inner = h("div", { class: "list box-disc-recs" });
+        d.recordings.forEach(function (r) { inner.appendChild(boxRecRow(r, multi, false)); });
+        det.appendChild(inner);
+        list.appendChild(det);
+      });
+      wrap.appendChild(list);
+    }
+    if ((state.info || {}).can_correct) {
+      wrap.appendChild(h("section", { class: "section" },
+        h("p", { class: "fine", text: "Grouped as a box set from the album titles and disc numbers." }),
+        h("div", { class: "actions" }, h("button", { type: "button", class: "btn", text: "Not a box set",
+          onclick: function () { notBoxSheet(b); } }))));
+    }
+    return wrap;
+  };
+
+  function notBoxSheet(b) {
+    var body = h("div", null,
+      h("p", { text: "These discs will be listed as ordinary albums again. Future scans keep this choice." }),
+      h("div", { class: "actions" },
+        h("button", { type: "button", class: "btn primary", text: "Not a box set", onclick: async function () {
+          try {
+            var res = await call("classical/box_decide", { box_id: b.id, decision: "not_box" });
+            close();
+            undoToast("Not a box set", res.batch);
+            go(["boxes"], {}, true);
+          } catch (e) { toast(e.message); }
+        } }),
+        h("button", { type: "button", class: "btn", text: "Cancel", onclick: function () { close(); } })));
+    var close = sheet("Not a box set?", body);
+  }
 
   function separateDiscsSheet(r) {
     var body = h("div", null,

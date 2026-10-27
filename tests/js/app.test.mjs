@@ -307,3 +307,17 @@ test("a confirm gate: a fast double click only arms it, a second tap later runs 
   assert.equal(app.historyLine({ at: 0, actions: 1, blocked_by: 9, blocked_by_other: true }, 10),
     "just now · changed since by someone else");
 });
+
+test("box sets: where a recording sits, a box's summary and disc headings", () => {
+  assert.equal(app.boxLine({ id: "x1", title: "Beethoven: Complete Works", disc: 61, single: false }),
+    "from Beethoven: Complete Works, CD 61");
+  assert.equal(app.boxLine({ id: "x1", title: "Karajan Edition", disc: null }), "from Karajan Edition");
+  assert.equal(app.boxLine(null), null);
+  assert.equal(app.boxSummary({ discs: 6, works: 2, composers: ["Ludwig van Beethoven"] }),
+    "6 discs · 2 works · Ludwig van Beethoven");
+  assert.equal(app.boxSummary({ discs: 12, total: 155, works: 30, composers: ["A", "B", "C"] }),
+    "12 discs of 155 · 30 works · 3 composers");
+  assert.equal(app.boxSummary({ discs: 1, works: 1, composers: [] }), "1 disc · 1 work");
+  assert.equal(app.discTitle({ disc: 61, subtitle: "Leonore Part 1" }), "CD 61 · Leonore Part 1");
+  assert.equal(app.discTitle({ disc: 3, subtitle: null }), "CD 3");
+});

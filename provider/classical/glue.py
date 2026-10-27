@@ -272,6 +272,7 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             reg("classical/separate_work", self.cmd_separate_work, required_scope=Scope.LIBRARY_MANAGE),
             reg("classical/join_discs", self.cmd_join_discs, required_scope=Scope.LIBRARY_MANAGE),
             reg("classical/separate_discs", self.cmd_separate_discs, required_scope=Scope.LIBRARY_MANAGE),
+            reg("classical/box_decide", self.cmd_box_decide, required_scope=Scope.LIBRARY_MANAGE),
             reg("classical/accolade_decide", self.cmd_accolade_decide, required_scope=Scope.LIBRARY_MANAGE),
             reg("classical/work_dates", self.cmd_work_dates, required_scope=Scope.LIBRARY_MANAGE),
             reg("classical/work_mb_link", self.cmd_work_mb_link, required_scope=Scope.LIBRARY_MANAGE),
@@ -1110,6 +1111,12 @@ class ClassicalProvider(CompanionUI, PluginProvider):
         page (Recent decisions)."""
         out = await self._decide([{"op": "separate_discs", "recording_id": recording_id}])
         return {"recordings": out["results"][0]["recordings"], "batch": out["batch"], "queued": list(self._jobs)}
+
+    async def cmd_box_decide(self, box_id: str, decision: str = "not_box") -> dict[str, Any]:
+        """A user correction: these albums are not a box set (their discs show as ordinary albums again).
+        Survives re-index; undoable from the review page (Recent decisions)."""
+        out = await self._decide([{"op": "box_decide", "box_id": box_id, "decision": decision}])
+        return {**out["results"][0], "batch": out["batch"], "queued": list(self._jobs)}
 
 def job_order(key: str) -> tuple[bool, bool, bool]:
     """The worker's order: removals and provider checks first, then single albums, then scans, then accolades,

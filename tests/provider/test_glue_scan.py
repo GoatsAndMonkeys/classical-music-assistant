@@ -327,7 +327,7 @@ def test_write_commands_need_library_manage(glue, tmp_path):
     scopes = {c.args[0]: c.kwargs["required_scope"] for c in p.mass.register_api_command.call_args_list}
     for name in ("classical/reindex", "classical/merge_composers", "classical/composer_name",
                  "classical/separate_work", "classical/join_discs", "classical/separate_discs",
-                 "classical/work_dates", "classical/work_mb_link", "classical/accolade_decide",
+                 "classical/box_decide", "classical/work_dates", "classical/work_mb_link", "classical/accolade_decide",
                  "classical/review_apply", "classical/review_undo", "classical/review_history"):
         assert scopes[name] == glue.Scope.LIBRARY_MANAGE, name
 

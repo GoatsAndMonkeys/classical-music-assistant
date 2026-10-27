@@ -27,8 +27,8 @@ from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
+from . import boxes, discs
 from . import catalogue as cat
-from . import discs
 from . import release as mbrel
 from . import work_identity as wi
 from .composers import PERFORMING, KnownComposer, by_surname, find_in_credit, lookup
@@ -83,7 +83,7 @@ MAX_PARENT_DEPTH = 3
 MB_MISS_TTL = 7 * 86400                # an artist search that found no one is asked again after a week
 CUE_TRACK = "::track"                  # MA's CUE-sheet track item_id delimiter (file.cue::trackNN)
 # bumped when derivation changes, so every album re-derives once (tags are not re-read)
-DERIVE_VERSION = 9
+DERIVE_VERSION = 10
 _MB_FIELD = {"arrangement_of": "arranged_from"}          # WorkInfo field -> evidence field
 _MB_FIELD_BACK = {v: k for k, v in _MB_FIELD.items()}
 DATED = "dated:"                       # composer 'mbid' slot for an unlisted name with conflicting life dates
@@ -1425,6 +1425,11 @@ class Index:
         self.con.execute("UPDATE album_info SET set_key=?, disc_no=?, disc_total=?, release_mbid=? "
                          "WHERE album_library_id=?",
                          (ev["set_key"], ev["disc_no"], ev["disc_total"], ev["release_mbid"], aid))
+        # the box set it may be a disc of (boxes.py): stored here, decided when read
+        bx = boxes.album_evidence(aid, album.name, album.artist, ev["set_key"], ev["disc_no"], ev["disc_total"],
+                                  ev["release_mbid"], [t.disc for t in tracks])
+        self.con.execute("UPDATE album_info SET box_id=?, box_title=?, box_disc=?, box_total=? WHERE album_library_id=?",
+                         (bx["box_id"], bx["box_title"], bx["box_disc"], bx["box_total"], aid))
         discs.join_sets(self, [aid])
 
     def _assign_candidates(self, facts: list[OccFacts], album: AlbumIn,
