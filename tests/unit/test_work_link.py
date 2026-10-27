@@ -374,3 +374,49 @@ def test_orchestra_alone_is_no_instrument_but_the_concerto_for_orchestra_is_not_
     assert wl._agree("Piano Concerto No. 4 in G major", "Concerto for Piano and Orchestra no. 4 in G major")
     assert not wl._agree("Piano Concerto", "Concerto for Orchestra")
     assert not wl._agree("Violin Concerto", "Concerto for Violin, Piano and Orchestra")
+
+
+def test_the_first_of_several_versions_is_not_the_work_unless_musicbrainz_says_use_it(lib):
+    lib.add("Symphony No. 1 in G minor")
+    lib.add("Symphony No. 5 in B-flat major")
+    _arid(lib)
+    orig = mbw(50, "Symphony no. 1 in G minor, op. 13", "G minor")
+    orig["disambiguation"] = "1868 original, rarely performed"
+    orig["relations"].append({"type": "revision of", "direction": "forward", "target-type": "work",
+                              "work": {"id": uid(51), "title": "Symphony no. 1"}})
+    root = mbw(52, "Symphony no. 5 in B-flat major, WAB 105", "B-flat major")
+    root["disambiguation"] = "1876 version, use if uncertain of the correct edition"
+    root["relations"].append({"type": "revision of", "direction": "forward", "target-type": "work",
+                              "work": {"id": uid(53), "title": "Symphony no. 5"}})
+    assert wl.candidate(orig, ARID).revision and not wl.candidate(root, ARID).revision
+    job(lib, WorksMB([orig, root]))
+    assert linked(lib, "Symphony No. 1 in G minor") is None
+    assert match(lib, "Symphony No. 1 in G minor")["state"] == "review"
+    assert linked(lib, "Symphony No. 5 in B-flat major") == uid(52)
+
+
+def test_a_counted_title_found_by_an_alias_is_not_certainly_the_name(lib):
+    lib.add("Hungarian Folk Songs")
+    _arid(lib)
+    job(lib, WorksMB([mbw(54, "3 Hungarian Folk Tunes, Sz. 66", aliases=["Hungarian Folk Songs"])]))
+    assert linked(lib, "Hungarian Folk Songs") is None and match(lib, "Hungarian Folk Songs")["state"] == "review"
+
+
+def test_an_arrangement_said_only_in_the_disambiguation_is_not_the_work(lib):
+    lib.add("Symphony No. 5 in E-flat major")
+    _arid(lib)
+    tr = mbw(55, "Symphony no. 5 in E-flat major, op. 82", "E-flat major")
+    tr["disambiguation"] = "transcr. for piano by Ekman"
+    job(lib, WorksMB([tr]))
+    assert linked(lib, "Symphony No. 5 in E-flat major") is None
+
+
+def test_when_an_orchestration_of_the_work_exists_the_original_is_proposed_not_linked(lib):
+    lib.add("Piano Quartet No. 1 in G minor, Op. 25")
+    _arid(lib)
+    orch = mbw(57, "Piano Quartet no. 1 in G minor, op. 25", "G minor")
+    orch["disambiguation"] = "Schönberg orchestration"
+    job(lib, WorksMB([mbw(56, "Piano Quartet no. 1 in G minor, op. 25", "G minor"), orch]))
+    assert linked(lib, "Piano Quartet No. 1 in G minor, Op. 25") is None
+    m = match(lib, "Piano Quartet No. 1 in G minor, Op. 25")
+    assert m["state"] == "review"

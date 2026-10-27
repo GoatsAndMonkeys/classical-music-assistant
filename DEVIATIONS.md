@@ -456,6 +456,15 @@ link, conservatively.
   - The work page shows a job's or a person's link ("Linked automatically to …", MusicBrainz link) to
     library-manage users, with "Unlink" (tap twice). It rejects the id like "None of these", so it is not
     proposed again. A file's own MusicBrainz tag is not offered for unlinking.
+- **After the first M1 run (matcher 3).** 93 links, checked by hand. Changes:
+  - A work with later versions (Tchaikovsky's 1868 Symphony No. 1, the Yale Oceanides, Mozart's 40 without
+    clarinets, Bruckner's 1883 Seventh) is a version too. It links only when its disambiguation says to use it
+    when unsure ("generic", "use if uncertain").
+  - A disambiguation that names an arrangement ("transcr. for piano by Ekman") makes the work an arrangement.
+  - An orchestration of a work that is not a symphony, concerto or overture (Schoenberg's Brahms Op. 25,
+    Ravel's Tzigane) leaves the original proposed, not linked: an orchestra's recording may be the
+    orchestration.
+  - A name match through an alias does not link a counted title ("3 Hungarian Folk Tunes" is not
+    "Hungarian Folk Songs").
 - **Not done or known gaps.**
   - Search mode cannot test uniqueness, so it never links by name alone.
-  - A Bruckner symphony with no generic work links its earliest (root) version.

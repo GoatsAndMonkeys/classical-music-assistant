@@ -48,7 +48,7 @@ from .titles import strip_track_number
 from .work_identity import core_name, has_act_suffix, is_arrangement, title_sig, titles_agree
 
 REASON = "Link to MusicBrainz work?"
-MATCHER = "2"                   # bump when the rules change: every work the job decided is looked at again
+MATCHER = "3"                   # bump when the rules change: every work the job decided is looked at again
 PAGE = 100                      # MusicBrainz's largest browse page
 BROWSE_INC = "aliases+artist-rels+work-rels"
 MAX_PAGES = 60                  # a composer with more works than this many pages is searched work by work
@@ -148,10 +148,14 @@ def candidate(w: dict, arid: str, verified: bool = True) -> Candidate | None:
                    for r in rels)
     part = any(r.get("type") == "parts" and r.get("direction") == "backward" and r.get("target-type", "work") == "work"
                for r in rels)
-    arranged = is_arrangement(title) or any(r.get("type") in _ARRANGED_RELS and r.get("direction") == "backward"
+    # MusicBrainz often says it only in the disambiguation: 'Symphony no. 5, op. 82' (transcr. for piano by Ekman)
+    arranged = is_arrangement(title) or is_arrangement(str(w.get("disambiguation") or "")) or any(r.get("type") in _ARRANGED_RELS and r.get("direction") == "backward"
                                             for r in rels)
-    revision = any(r.get("type") == "revision of" and r.get("direction") == "backward"
-                   and r.get("target-type", "work") == "work" for r in rels)
+    revs = {r.get("direction") for r in rels if r.get("type") == "revision of" and r.get("target-type", "work") == "work"}
+    # one version of a work that has others: an edition (it revises another), or the first of several (others
+    # revise it: Tchaikovsky's 1868 Symphony No. 1, Mozart's 40 without clarinets), unless MusicBrainz calls it
+    # the one to use when the version is not known (Bruckner's 'generic, use if unsure')
+    revision = "backward" in revs or ("forward" in revs and not _GENERIC_NOTE.search(str(w.get("disambiguation") or "")))
     # a title says it too, relations or not: 'Op. 67: IV. Allegro', 'Mass in E minor…: Kyrie', '(excerpt)'
     part = part or ": " in title or (not verified and ":" in title) or bool(_EXCERPT.search(fold(title)))
     key = next((a.get("value") for a in w.get("attributes") or [] if (a.get("type") or "").lower() == "key"), None)
@@ -219,6 +223,10 @@ def _cat_relation(mine: cat.Catalogue | None, theirs: list[cat.Catalogue]) -> bo
     return any(_same_cat(mine, c) for c in shared)
 
 
+_GENERIC_NOTE = re.compile(r"generic|unsure|uncertain|catch-all|unknown edition", re.IGNORECASE)
+_ORCH = re.compile(r"\borch")
+_ORCHESTRAL = {"symphony", "concerto", "overture"}
+_COUNT = re.compile(r"\s*\d+\s")
 _TUTTI = {"orchestra", "orchester"}
 _NO_TUTTI = re.compile(r"\b(?:orchestra|orchester)\b", re.IGNORECASE)
 
@@ -306,6 +314,8 @@ def decide(w: LibWork, cands: list[Candidate], complete: bool, rejected: set[str
             # 'Leonore no. 3' must not make the overture the opera 'Leonore'
             own = title_sig(c.title)
             plain = not own.numbers and own.forms <= sig.forms
+            # '3 Hungarian Folk Tunes' found by its alias is not certainly the library's 'Hungarian Folk Songs'
+            plain = plain and bool(_COUNT.match(c.title)) <= bool(_COUNT.match(w.title))
             if plain and distinctive(w.title) and complete and len(by_core[core]) == 1 and not c.revision:
                 strong[c.mbid] = (c, "the same distinctive title, and the only such work")
             else:
@@ -315,6 +325,18 @@ def decide(w: LibWork, cands: list[Candidate], complete: bool, rejected: set[str
         return [{"mbid": c.mbid, "title": c.title + (f" ({c.note})" if c.note else ""), "why": why}
                 for c, why in d.values()]
 
+    # an orchestration of a work not already orchestral exists (Schoenberg's of Brahms's Op. 25, Ravel's
+    # Tzigane): an orchestra's recording titled as the original may be it, so the original is proposed, not
+    # linked. A symphony's chamber or piano versions are no such doubt.
+    shadow = not (sig.forms & _ORCHESTRAL) and any(
+        c.composer and c.arranged and not c.part and _ORCH.search(fold(c.note))
+        and not (key and c.key and key != c.key) and (
+        _cat_relation(mine, c.cats) or (sig.forms and any(title_sig(n).forms == sig.forms
+                                                          and title_sig(n).numbers == sig.numbers for n in c.names))
+        or (core and any(core_name(n) == core for n in c.names))) for c in cands)
+    if shadow:
+        weak.update({m: (c, why + "; an arrangement of it exists too") for m, (c, why) in strong.items()})
+        strong = {}
     if len(strong) == 1 and auto:
         (m, (c, why)), = strong.items()
         return Decision("linked", m, why, listing(strong))
