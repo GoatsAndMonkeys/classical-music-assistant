@@ -58,9 +58,9 @@ def _credit_mbids(ix: Index, track_ids: list[str]) -> dict[str, str]:
             except ValueError:
                 continue
             mbid = (c.get("mbid") or "").lower() if isinstance(c, dict) else ""
-            if _MBID.match(mbid) and (k := ident_key(c.get("name") or "")):
-                if out.setdefault(k, mbid) != mbid:
-                    clash.add(k)
+            if (_MBID.match(mbid) and (k := ident_key(c.get("name") or ""))
+                    and out.setdefault(k, mbid) != mbid):
+                clash.add(k)
     return {k: v for k, v in out.items() if k not in clash}
 
 
