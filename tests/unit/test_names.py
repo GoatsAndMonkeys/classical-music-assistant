@@ -374,6 +374,34 @@ def test_llm_bad_reply_is_ignored():
     assert asyncio.run(client.resolve([{"id": "a", "name": "x", "album": "", "tracks": []}])) == {}
 
 
+def test_llm_claude_messages_api():
+    seen = []
+
+    async def fetch(url, headers, body):
+        seen.append((url, headers, json.loads(body)))
+        reply = {"results": [{"id": "a", "canonical": "Ludwig van Beethoven", "mbid": None, "confidence": 0.95}]}
+        return 200, json.dumps({"stop_reason": "end_turn", "content": [
+            {"type": "thinking", "thinking": ""}, {"type": "text", "text": json.dumps(reply)}]}).encode()
+
+    client = LLMClient("https://api.anthropic.com", "claude-opus-5-5", api_key="sk-ant-test", fetch=fetch)
+    out = asyncio.run(client.resolve([{"id": "a", "name": "Beethoven, L.", "album": "", "tracks": []}]))
+    assert out["a"].canonical == "Ludwig van Beethoven"
+    url, headers, body = seen[0]
+    assert url == "https://api.anthropic.com/v1/messages"
+    assert headers["x-api-key"] == "sk-ant-test" and "Authorization" not in headers
+    assert headers["anthropic-version"]
+    assert "temperature" not in body and body["output_config"]["format"]["type"] == "json_schema"
+    assert body["system"] and [m["role"] for m in body["messages"]] == ["user"]
+
+
+def test_llm_claude_refusal_gives_no_proposals():
+    async def fetch(url, headers, body):
+        return 200, json.dumps({"stop_reason": "refusal", "content": []}).encode()
+
+    client = LLMClient("https://api.anthropic.com/v1/", "m", fetch=fetch)
+    assert asyncio.run(client.resolve([{"id": "a", "name": "x", "album": "", "tracks": []}])) == {}
+
+
 def test_initials_resolve_only_when_one_bearer_fits():
     assert authority_match(parse_names("Strauss, R.")[0])[0].name == "Richard Strauss"
     assert authority_match(parse_names("W. A. Mozart")[0])[0].name == "Wolfgang Amadeus Mozart"
