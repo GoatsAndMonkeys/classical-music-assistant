@@ -329,4 +329,6 @@ test("an album's subtitle names the other composers on a compilation", () => {
   assert.equal(app.albumSubtitle({ works: 3, composers: cs }, null), "3 works · Bach, Mozart, Rimsky-Korsakov");
   assert.equal(app.albumSubtitle({ works: 5, composers: cs.concat(cs.map((c) => ({ id: c.id + "2", name: c.name }))) }, "c_m"),
     "5 works · 6 composers");
+  // no composer of its own (the title and year lists): every composer counts
+  assert.equal(app.albumSubtitle({ works: 4, composers: cs.concat([{ id: "c_h", name: "Haydn" }]) }, null), "4 works · 4 composers");
 });

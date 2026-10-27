@@ -477,7 +477,7 @@
   /** "1999 · 2 works · with Bach, Rimsky-Korsakov" under an album: the other composers on a compilation. */
   function albumSubtitle(a, cid) {
     var others = (a.composers || []).filter(function (c) { return c.id !== cid; }).map(function (c) { return c.name; });
-    var who = others.length > 3 ? plural(others.length + 1, "composer") : others.length ? (cid ? "with " : "") + others.join(", ") : null;
+    var who = others.length > 3 ? plural((a.composers || []).length, "composer") : others.length ? (cid ? "with " : "") + others.join(", ") : null;
     return [a.year, a.works ? plural(a.works, "work") : null, who].filter(Boolean).join(" · ");
   }
 
