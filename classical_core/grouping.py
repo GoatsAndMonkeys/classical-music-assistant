@@ -156,7 +156,9 @@ def group_album(slots: list[Slot], ambiguous: bool = False) -> GroupingResult:
                 reason = "new work"
             elif not _evidence(s) or not _evidence(prev):
                 reason = "no movement evidence"
-            elif s.part_key and any(slots[j].part_key == s.part_key for j in cur):
+            elif s.part_key and any(slots[j].part_key == s.part_key for j in cur) and not (
+                    # one number spread over adjacent tracks, each a partial performance per MB: a continuation
+                    s.partial and prev.partial and prev.part_key == s.part_key):
                 reason = "repeated movement (alternate take or second performance)"
             elif _whole(s) or any(_whole(slots[j]) for j in cur):
                 reason = "complete performance of the whole work"

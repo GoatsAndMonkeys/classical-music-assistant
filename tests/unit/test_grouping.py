@@ -113,3 +113,14 @@ def test_ambiguous_album_work_respects_separate_constraints_and_contradictions()
     res = group_album(a, ambiguous=True)
     assert [r.slots for r in res.runs] == [[0, 3], [1], [2]]
     assert sum(n[0] == "split: contradicts the album's own work" for n in res.notes) == 2
+
+
+def test_one_number_split_over_adjacent_partial_tracks_is_one_recording():
+    # MB: 'Nr. 6 Finale' performed partially by three consecutive tracks (Dorati's Holländer, disc 2)
+    sl = [s(0, part="n5", partial=True), s(1, part="n6", partial=True), s(2, part="n6", partial=True),
+          s(3, part="n6", partial=True), s(4, part="n7", partial=True)]
+    assert runs(sl) == [[0, 1, 2, 3, 4]]
+    # a repeat that is not partial, or not adjacent, is still a second performance
+    assert runs([s(0, part="n6"), s(1, part="n6")]) == [[0], [1]]
+    assert runs([s(0, part="n6", partial=True), s(1, part="n7", partial=True),
+                 s(2, part="n6", partial=True)]) == [[0, 1], [2]]
