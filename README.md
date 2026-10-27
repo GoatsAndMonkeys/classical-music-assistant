@@ -197,4 +197,4 @@ offer them to MA core if the maintainers want them.
 
 ## License
 
-TBD. No license has been chosen yet.
+[Apache License 2.0](LICENSE), the same license as Music Assistant.
