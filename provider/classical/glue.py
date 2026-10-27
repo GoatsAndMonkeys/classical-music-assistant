@@ -228,6 +228,7 @@ class ClassicalProvider(CompanionUI, PluginProvider):
                 self.logger.warning("Classical: MusicBrainz lookups are off: %s", self._mb_note)
         self._acc_dataset = bool(self.config.get_value(CONF_ACC_DATASET, True))
         self._net = self._net_clients(mb_contact(self.config.get_value(CONF_MB_CONTACT, "")))
+        self._wiki = self._wiki_clients(mb_contact(self.config.get_value(CONF_MB_CONTACT, ""))) if self._mb else {}
         self._llm = None
         if self.config.get_value(CONF_LLM, False):
             base = str(self.config.get_value(CONF_LLM_BASE_URL, "") or "").strip()
@@ -258,6 +259,15 @@ class ClassicalProvider(CompanionUI, PluginProvider):
                                       good_ttl=accolades.DISCOGS_TTL,
                                       extra_headers={"Authorization": f"Discogs token={token}"})
         return out
+
+    def _wiki_clients(self, contact: str | None) -> dict[str, MBClient]:
+        """Wikidata and English Wikipedia for work descriptions (MA frontend's work page, ma_links.py): cached
+        in `web_cache`, 1 request a second each, identified by the MusicBrainz contact like every source."""
+        if not contact:
+            return {}
+        cache = SqliteMBCache(self._con, run=self._db.write, table="web_cache")
+        return {"wikidata": MBClient(contact, cache=cache, base_url="https://www.wikidata.org", interval=1.0),
+                "wikipedia": MBClient(contact, cache=cache, base_url="https://en.wikipedia.org", interval=1.0)}
 
     async def loaded_in_mass(self) -> None:
         """Register commands and subscriptions, start the worker and queue the initial scan."""
@@ -313,6 +323,10 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             await self._mb.close()
         for client in (getattr(self, "_net", None) or {}).values():
             await client.close()
+        for client in (getattr(self, "_wiki", None) or {}).values():
+            await client.close()
+        if getattr(self, "_artists", None) is not None:
+            await self._artists.close()
         await self._db.close()
         # is_removed: the index database is kept (rollback leaves it untouched, §7)
 

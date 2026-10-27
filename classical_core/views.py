@@ -713,11 +713,15 @@ def performer(ix: Index, pid: str, vis=None, with_id: str | None = None) -> dict
             raise NotFound(with_id)
         recs &= partner["recs"]
     per_work = Counter(works_of[r] for r in recs)
+    rec_ids: dict[str, list[str]] = defaultdict(list)
+    for r in sorted(recs):
+        rec_ids[works_of[r]].append(r)
     catalogue = {w["id"]: w for w in ix.works(vis=vis)}
     order = {wid: i for i, wid in enumerate(catalogue)}
     works_out = [{"id": wid, "title": catalogue[wid]["title"], "composer": catalogue[wid]["composer"],
                   "work_type": catalogue[wid]["work_type"], "catalogue": catalogue[wid]["catalogue_display"],
-                  "key": catalogue[wid]["key"], "recordings": catalogue[wid]["recordings"], "mine": n}
+                  "key": catalogue[wid]["key"], "recordings": catalogue[wid]["recordings"], "mine": n,
+                  "recording_ids": rec_ids[wid]}
                  for wid, n in per_work.items() if wid in catalogue]
     works_out.sort(key=lambda w: (_sort_key(w["composer"]), order[w["id"]]))
     partners: dict[str, Counter] = {b: Counter() for b in BUCKETS}

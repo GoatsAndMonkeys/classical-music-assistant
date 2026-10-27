@@ -123,6 +123,9 @@ def test_performer_page_works_and_partners(lib):
     res = views.performer(lib.ix, bph)
     mine = {w["title"]: (w["mine"], w["recordings"]) for w in res["works"]}
     assert mine[WORK5] == (1, 3) and mine[WORK7] == (1, 1)
+    w5 = next(w for w in res["works"] if w["title"] == WORK5)
+    rec5 = [r["id"] for r in views.work(lib.ix, lib.work_id(WORK5))["recordings"] if bph in ids(r)]
+    assert w5["recording_ids"] == rec5, "the performer's own recordings of each work, to play from MA's page"
     assert [p["name"] for p in res["partners"]["conductors"]] == ["Herbert von Karajan"]
     assert [p["name"] for p in res["partners"]["soloists"]] == ["Anne-Sophie Mutter"]
     both = views.performer(lib.ix, lib.pid("Herbert von Karajan"), with_id=lib.pid("Wiener Philharmoniker"))

@@ -26,6 +26,7 @@ from classical_core import __version__ as CORE_VERSION
 from classical_core import curation, streaming, triage, views
 from classical_core.index import Index
 
+from . import ma_links
 from .web import ROUTE, ClassicalWeb, image_urls
 
 UI_PATH = "/classical/"
@@ -49,6 +50,9 @@ class CompanionUI:
     mass: Any
     logger: Any
     _web: ClassicalWeb | None = None
+    _artists: ma_links.ArtistLinks | None = None
+    _wiki: dict[str, Any] | None = None
+    _mb: Any = None
 
     def _ui_url(self) -> str:
         try:
@@ -92,10 +96,13 @@ class CompanionUI:
             ("classical/accolades", self.cmd_accolades),
             ("classical/today", self.cmd_today),
             ("classical/streaming", self.cmd_streaming),
+            ("classical/work_description", self.cmd_work_description),
+            ("classical/performer_tracks", self.cmd_performer_tracks),
         ):
             handles.append(reg(command, handler, required_scope=Scope.LIBRARY_READ))
         # MA's own music/library/add_item scope: adding an album changes the shared library
         handles.append(reg("classical/add_album", self.cmd_add_album, required_scope=Scope.LIBRARY_WRITE))
+        self._artists = ma_links.ArtistLinks(self.mass, self._read, self.logger)
         self._web = ClassicalWeb(CORE_VERSION)
         ws = self.mass.webserver
         try:
@@ -125,7 +132,10 @@ class CompanionUI:
             raise InvalidDataError(NOT_FOUND) from None
         except ValueError as err:
             raise InvalidDataError(str(err)) from err
-        return image_urls(res, self._image_id)
+        res = image_urls(res, self._image_id)
+        if self._artists is not None:
+            res = ma_links.attach(res, await self._artists.get())
+        return res
 
     # ---- commands ----------------------------------------------------------------------------------------
 
@@ -185,6 +195,62 @@ class CompanionUI:
     async def cmd_performer(self, id: str, with_id: str | None = None) -> dict[str, Any]:
         """A performer's works and partners (optionally only recordings shared with `with_id`)."""
         return await self._view(views.performer, id, with_id=with_id)
+
+    async def cmd_work_description(self, id: str) -> dict[str, Any]:
+        """The work's English Wikipedia summary with its source and licence (CC BY-SA 4.0), reached through
+        the work's MusicBrainz link and Wikidata (ma_links.py); `description` is None when there is none, when
+        the MusicBrainz contact is not set, or when a source is unreachable right now."""
+        vis = self._vis()
+
+        def mbid_of(ix: Index) -> str | None:
+            views.work(ix, id, vis=vis)          # NotFound for a work the caller cannot see
+            r = ix._one("SELECT value FROM alias WHERE entity='work' AND kind='mbid' AND entity_id=? "
+                        "ORDER BY value LIMIT 1", (ix.resolve("work", id),))
+            return r[0] if r else None
+
+        try:
+            mbid = await self._read(mbid_of)
+        except views.NotFound:
+            raise InvalidDataError(NOT_FOUND) from None
+        wiki = self._wiki or {}
+        if not mbid or self._mb is None or not {"wikidata", "wikipedia"} <= wiki.keys():
+            return {"work_id": id, "description": None}
+        try:
+            desc = await ma_links.work_description(mbid, self._mb, wiki["wikidata"], wiki["wikipedia"])
+        except Exception as err:  # noqa: BLE001 - a missing description never breaks the page
+            self.logger.debug("Classical: no description for %s: %r", id, err)
+            desc = None
+        return {"work_id": id, "description": desc}
+
+    async def cmd_performer_tracks(self, id: str) -> dict[str, Any]:
+        """The performer's MA library artist and its tracks that are in no classical recording ("Other
+        tracks" on MA's performer page), as MA track dicts."""
+        await self._view(views.performer, id)    # NotFound for a performer the caller cannot see
+        links = await self._artists.get() if self._artists is not None else {}
+        artist = links.get(id)
+        if artist is None:
+            return {"artist": None, "tracks": []}
+        try:
+            tracks = await self.mass.music.artists.get_library_artist_tracks(artist["item_id"])
+        except Exception as err:  # noqa: BLE001 - the artist went away since the map was built
+            self.logger.debug("Classical: tracks of artist %s: %r", artist["item_id"], err)
+            tracks = []
+
+        def in_recordings(ix: Index) -> set[str]:
+            return {str(r[0]) for r in ix._q("SELECT DISTINCT o.library_track_id FROM occurrence o "
+                                              "JOIN recording_slot s ON s.occurrence_id=o.id")}
+
+        used = await self._read(in_recordings)
+        vis = self._vis()
+        out = []
+        for t in tracks:
+            if str(getattr(t, "item_id", "")) in used:
+                continue
+            if vis is not None and not any(getattr(m, "provider_instance", None) in vis
+                                           for m in getattr(t, "provider_mappings", None) or ()):
+                continue
+            out.append(t.to_dict())
+        return {"artist": artist, "tracks": out}
 
     async def cmd_accolades(self, recording_id: str | None = None, work_id: str | None = None) -> dict[str, Any]:
         """Awards, reviews and ratings of one recording (with review-site links), or of every recording of a
