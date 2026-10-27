@@ -195,6 +195,114 @@ def test_an_arranger_credit_keeps_the_album_work_apart(tmp_path):
     assert len(works_like(idx, "Pictures")) == 3
 
 
+# ---- numbered works: the form and number alone name the piece -----------------------------------------------
+# Titles from the M1 test index (2026-10-27): concert logs give 'Beethoven 5' ('Symphony No. 5'), albums
+# 'Symphony No. 7 in A major', 'Symphony No. 9 in D minor, Op. 125 (Choral)' and so on, each its own work.
+
+
+def _num(composer, title):
+    nw = wi.numbered_work(composer, title)
+    return nw and nw.id
+
+
+def test_numbered_titles_from_real_tags():
+    b = "Ludwig van Beethoven"
+    for t in ("Symphony No. 5", "Symphony No. 5 in C minor", "Symphony No. 5 in C minor, Op. 67",
+              "Symphonie Nr. 5 c-moll op. 67"):
+        assert _num(b, t) == "symphony-5", t
+    assert wi.numbered_work(b, "Symphony No. 5").title == "Symphony No. 5 in C minor, Op. 67"
+    for t in ("Symphony No. 9 in D minor, Op. 125 (Choral)", "Symphony No. 9 in D minor 'Choral'", "Symphony No. 9"):
+        assert _num(b, t) == "symphony-9", t
+    for t in ("Piano Concerto No. 5 in E-flat major, Op. 73 'Emperor'", 'Piano Concerto No. 5 in E-flat major, "Emperor"',
+              "Piano Concerto No. 5"):
+        assert _num(b, t) == "piano-concerto-5", t
+    assert _num("Dmitri Shostakovich", "Cello Concerto No.1, Op.107") == "cello-concerto-1"
+    assert _num("Franz Schubert", "Symphony No. 9 in C major, D. 944 ('The Great')") == "symphony-9"
+    assert _num("Franz Schubert", "Symphony No. 9 in C major, 'The Great'") == "symphony-9"
+    assert _num("Wolfgang Amadeus Mozart", "Piano Concerto No. 23 in A major, K. 488") == "piano-concerto-23"
+    assert _num("Gustav Mahler", "Symphony No. 6 in A minor, 'Tragic'") == "symphony-6"
+
+
+def test_numbered_titles_that_may_be_another_piece():
+    b = "Ludwig van Beethoven"
+    assert _num(b, "Symphony No. 7 in A major, transcribed for solo piano by Liszt") is None   # arrangement
+    assert _num(b, "Probably Mvt 1 of a four-movement symphony") is None
+    assert _num(b, "Symphony No. 5 in D minor") is None               # another key
+    assert _num(b, "Symphony No. 5 in C minor, Op. 68") is None       # another opus
+    assert _num(b, "This Is the End (Beethoven’s “Symphony no. 5”)") is None
+    assert _num(b, "Symphony No. 10") is None                         # not listed
+    assert _num(b, "Violin Concerto No. 5") is None
+    # versions, editions and completions are their own works
+    assert _num("Jean Sibelius", "Symphony No. 5 in E-flat major, Op. 82 (1915 version)") is None
+    assert _num("Jean Sibelius", "Symphony No. 5 (original version)") is None
+    assert _num("Wolfgang Amadeus Mozart", "Symphony No. 40 in G minor, K. 550 (second version, with clarinets)") is None
+    # another catalogue is another piece (Liszt's transcription is S. 464), and so is a reduction or retouching
+    for t in ("Symphony No. 5 in C minor, S. 464/5", "Symphony No. 5 (S. 464)", "Symphony No. 9 (Mahler retouchings)",
+              "Symphony No. 7, Op. 92 (Harmoniemusik)", "Piano Concerto No. 5, Op. 73 (two-piano reduction)"):
+        assert _num(b, t) is None, t
+    assert _num("Frédéric Chopin", "Piano Concerto No. 2 in F minor, Op. 21 (chamber)") is None
+    assert _num("Béla Bartók", "Piano Concerto No. 3, BB 127") == "piano-concerto-3"
+    assert _num("Wolfgang Amadeus Mozart", "Symphony No. 40 in G minor, KV 550") == "symphony-40"
+    # numberings that changed or works in several versions are not listed at all
+    assert _num("Anton Bruckner", "Symphony No. 7 in E major") is None
+    assert _num("Antonín Dvořák", "Symphony No. 8") is None
+    assert _num("Franz Schubert", "Symphony No. 8") is None
+    assert _num("Sergei Prokofiev", "Symphony No. 4") is None
+    # Shostakovich's first violin concerto was once Op. 99: a number the entry does not carry is not trusted
+    assert _num("Dmitri Shostakovich", "Violin Concerto No. 1 in A minor, Op. 99") is None
+    # same number, different form or instrument
+    assert _num(b, "Piano Concerto No. 5") != _num(b, "Symphony No. 5")
+    assert _num("Sergei Prokofiev", "Violin Concerto No. 2") != _num("Sergei Prokofiev", "Piano Concerto No. 2")
+
+
+def test_every_numbered_composer_is_in_the_composer_list():
+    for name in wi._NUMBERED:
+        k = lookup(name)
+        assert k is not None and k.name == name, name
+
+
+def test_beethoven_5_from_three_concert_logs_is_one_work(tmp_path):
+    """The M1 index had three 'Symphony No. 5' works, one recording each, from these albums."""
+    idx, r = new_index(tmp_path)
+    for name in ("250706 BSO Nelsons Bronfman", "250918 LSO Pappano Cho", "120723 Prom 12 Barenboim"):
+        add(idx, r, name, [("Beethoven 5", None)])
+    ws = works_like(idx, "Symphony")
+    assert len(ws) == 1, [w["title"] for w in ws]
+    w = ws[0]
+    assert (w["title"], w["key"], w["catalogue_display"]) == ("Symphony No. 5 in C minor, Op. 67", "C minor", "Op. 67")
+    assert n_recs(idx, w["id"]) == 3
+
+
+def test_numbered_spellings_merge_but_arrangements_and_other_forms_stay_apart(tmp_path):
+    idx, r = new_index(tmp_path)
+    add(idx, r, "Beethoven: Symphonies 7", [("Symphony No. 7 in A major, Op. 92: I. Poco sostenuto", {"composers": BEETHOVEN})])
+    add(idx, r, "Beethoven 7 (Kleiber)", [("Symphony No. 7 in A major", {"composers": BEETHOVEN})])
+    add(idx, r, "150101 Prom 1", [("Beethoven 7", None)])
+    add(idx, r, "Liszt: Beethoven Symphonies", [("Symphony No. 7 in A major, transcribed for solo piano by Liszt",
+                                                   {"composers": BEETHOVEN})])
+    add(idx, r, "160101 Prom 2", [("Beethoven PC5", None)])
+    add(idx, r, "160102 Prom 3", [("Beethoven 5", None)])
+    ws = sorted((w["title"], n_recs(idx, w["id"])) for w in idx.works() if not w.get("parent_work_id"))
+    assert ("Symphony No. 7 in A major, Op. 92", 3) in ws, ws
+    assert ("Symphony No. 7 in A major, transcribed for solo piano by Liszt", 1) in ws, ws
+    assert ("Piano Concerto No. 5 in E-flat major, Op. 73", 1) in ws, ws
+    assert ("Symphony No. 5 in C minor, Op. 67", 1) in ws, ws
+
+
+def test_unlisted_and_versioned_numbered_works_stay_apart(tmp_path):
+    idx, r = new_index(tmp_path)
+    bru, sib = ["Anton Bruckner"], ["Jean Sibelius"]
+    add(idx, r, "Bruckner 7 (Karajan)", [("Symphony No. 7 in E major", {"composers": bru})])
+    add(idx, r, "Bruckner 7 (Jochum)", [("Symphony No. 7 in E major", {"composers": bru})])
+    add(idx, r, "Sibelius 5 (Vänskä)", [("Symphony No. 5 in E-flat major, Op. 82 (1915 version)", {"composers": sib})])
+    add(idx, r, "Sibelius 5 (Berglund)", [("Symphony No. 5", {"composers": sib})])
+    add(idx, r, "Sibelius 5 (Rattle)", [("Symphony No. 5 in E-flat major", {"composers": sib})])
+    assert len(works_like(idx, "Symphony No. 7")) == 2
+    sibs = sorted((w["title"], n_recs(idx, w["id"])) for w in works_like(idx, "Symphony No. 5"))
+    assert sibs == [("Symphony No. 5 in E-flat major, Op. 82", 2),
+                    ("Symphony No. 5 in E-flat major, Op. 82 (1915 version)", 1)], sibs
+
+
 # ---- movement names ----------------------------------------------------------------------------------------
 
 

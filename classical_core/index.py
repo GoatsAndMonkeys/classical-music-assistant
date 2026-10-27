@@ -97,7 +97,7 @@ MAX_PARENT_DEPTH = 3
 MB_MISS_TTL = 7 * 86400                # an artist search that found no one is asked again after a week
 CUE_TRACK = "::track"                  # MA's CUE-sheet track item_id delimiter (file.cue::trackNN)
 # bumped when derivation changes, so every album re-derives once (tags are not re-read)
-DERIVE_VERSION = 10
+DERIVE_VERSION = 11
 _MB_FIELD = {"arrangement_of": "arranged_from"}          # WorkInfo field -> evidence field
 _MB_FIELD_BACK = {v: k for k, v in _MB_FIELD.items()}
 DATED = "dated:"                       # composer 'mbid' slot for an unlisted name with conflicting life dates
@@ -2007,14 +2007,29 @@ class Index:
         # the strongest evidence any album gave it: an opera stays an opera when a later album's title
         # alone says nothing.
         wtype, rank = self._work_type_evidence(c, composer, part_names)
+        # a listed numbered work ('Symphony No. 5' of Beethoven) has its key and catalogue number even when
+        # no title said them, and a display title of form and number alone ('Symphony No. 5', from a concert
+        # log's 'Beethoven 5') takes the full one
+        nw = None if arranged else wi.numbered_work(composer, c.title)
+        if nw and c.mbid and (mw := self._mb_work(c.mbid)) is not None and mw.arrangement_of:
+            nw = None
+        catno = primary or (nw.catalogue if nw else None)
         cat_sort = None
-        if primary:
-            cat_sort = primary.namespace + ":" + "/".join(x.zfill(6) for x in primary.components)
+        if catno:
+            cat_sort = catno.namespace + ":" + "/".join(x.zfill(6) for x in catno.components)
         self.con.execute("UPDATE work SET work_type=CASE WHEN work_type_rank<? THEN ? ELSE work_type END, "
                          "work_type_rank=MAX(work_type_rank, ?), key=COALESCE(?, key), "
                          "catalogue_display=COALESCE(?, catalogue_display), "
                          "catalogue_sort=COALESCE(?, catalogue_sort) WHERE id=?",
-                         (rank, wtype, rank, c.key_sig, primary.display if primary else None, cat_sort, wid))
+                         (rank, wtype, rank, c.key_sig or (nw.key if nw else None),
+                          catno.display if catno else None, cat_sort, wid))
+        if nw:
+            row = self._one("SELECT title FROM work WHERE id=?", (wid,))
+            cur = row[0] if row else ""
+            sig = wi.title_sig(cur)
+            if (cur != nw.title and wi.numbered_work(composer, cur) == nw and not sig.names and not sig.key
+                    and not cat.parse_catalogues(cur) and not self._mbids(wid)):
+                self.con.execute("UPDATE work SET title=?, sort_title=? WHERE id=?", (nw.title, norm_key(nw.title), wid))
         return wid, src
 
     @staticmethod
@@ -2038,6 +2053,17 @@ class Index:
             "SELECT a.value FROM alias a LEFT JOIN redirect d ON d.entity='work' AND d.old_id=a.entity_id "
             "WHERE a.entity='work' AND a.kind='mbid' AND (a.entity_id=? OR d.new_id=?)", (wid, wid))}
 
+    def _rejected_mbids(self, wid: str) -> set[str]:
+        """MusicBrainz works a person rejected for this work (`work_link.set_user_link`), net of later accepts."""
+        out: set[str] = set()
+        for r in self._q("SELECT entity_id, payload_json FROM override WHERE entity='work' AND op='mb_link' "
+                         "ORDER BY created_at, id"):
+            if self.resolve("work", r[0]) != wid:
+                continue
+            p = json.loads(r[1] or "{}")
+            (out.add if p.get("decision") == "reject" else out.discard)(p.get("mbid"))
+        return out
+
     def _kept_apart(self, a: str, b: str) -> bool:
         """A user said these two works are different (`separate_work`)."""
         for r in self._q("SELECT entity_id, payload_json FROM override WHERE entity='work' AND op='separate'"):
@@ -2049,8 +2075,8 @@ class Index:
     def _cross_album(self, c: Cand, cid: str | None, composer: str | None, wid: str, reviews: list,
                      blocked: set[str] | None = None) -> str:
         """Merge this album's work into the same work on another album when the evidence is strong
-        (`work_identity`): the known-work list, or the same full catalogue number with agreeing titles.
-        The merged work keeps its id as a redirect. Never across two MusicBrainz works, never against a
+        (`work_identity`): the known-work list, a listed numbered work ('Symphony No. 5' of Beethoven), or
+        the same full catalogue number with agreeing titles. The merged work keeps its id as a redirect. Never across two MusicBrainz works, never against a
         user's 'keep separate'; a same-number pair whose titles disagree is a review item."""
         if cid is None:
             return wid
@@ -2074,6 +2100,8 @@ class Index:
             theirs = self._mbids(target)
             if mine and theirs and not mine & theirs:
                 continue        # two MusicBrainz works are two works
+            if theirs & self._rejected_mbids(wid) or mine & self._rejected_mbids(target):
+                continue        # a person said this work is not the other's MusicBrainz work
             if kind == "cat":
                 row = self._one("SELECT title FROM work WHERE id=?", (target,))
                 why = wi.titles_agree(c.title, row[0]) if row else "no title"

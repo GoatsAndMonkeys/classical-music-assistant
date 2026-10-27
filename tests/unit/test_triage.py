@@ -15,7 +15,7 @@ from tests.unit.test_cross_disc import mahler_disc, visible
 from tests.unit.test_dates import Lib
 from tests.unit.test_grouping_real import new_index
 from tests.unit.test_names import make_index
-from tests.unit.test_work_link import SYM4, SYM5, WorksMB, _arid, job
+from tests.unit.test_work_link import SYM5, SYM10, WorksMB, _arid, job
 
 
 def add(idx, r, aid, comp, work="Symphony No. 1", provider="filesystem_local", force=False):
@@ -199,16 +199,16 @@ def test_accepts_and_credit_mappings_are_one_at_a_time(tmp_path):
 
 def test_mb_cards_group_identical_proposals_bulk_reject_and_undo(tmp_path):
     lib = Lib(tmp_path)
-    lib.add("Symphony No. 4")
+    lib.add("Symphony No. 10")
     lib.add("Symphony No. 5 in C minor, Op. 67")
     _arid(lib)
-    job(lib, WorksMB([SYM4, SYM5]))
+    job(lib, WorksMB([SYM10, SYM5]))
     idx = lib.ix
     [item] = idx._q("SELECT entity_id, album_library_id, detail_json FROM review_item WHERE reason=?", (wl.REASON,))
-    wid4 = item[0]
-    # A second library work proposing the same candidate: re-point the linked Symphony No. 5 at the Sym4 proposal.
+    wid10 = item[0]
+    # A second library work proposing the same candidate: re-point the linked Symphony No. 5 at the Sym10 proposal.
     [wid5] = [r[0] for r in idx._q("SELECT work_id FROM mb_work_match WHERE state='linked'")]
-    match = idx._q("SELECT sig, detail_json FROM mb_work_match WHERE work_id=?", (wid4,))[0]
+    match = idx._q("SELECT sig, detail_json FROM mb_work_match WHERE work_id=?", (wid10,))[0]
     with idx.con:
         idx.con.execute("DELETE FROM alias WHERE entity='work' AND entity_id=? AND kind='mbid'", (wid5,))
         idx.con.execute("UPDATE mb_work_match SET state='review', mbid=NULL, how=NULL, detail_json=? WHERE work_id=?",
@@ -225,7 +225,7 @@ def test_mb_cards_group_identical_proposals_bulk_reject_and_undo(tmp_path):
     before = {r["work_id"]: dict(r) for r in idx._q("SELECT * FROM mb_work_match")}
     b = apply(idx, bulk["actions"])
     assert b["jobs"] == ["dates"]
-    assert not triage.view(idx, kind="mb", q="Symphony No. 4")["cards"]
+    assert not triage.view(idx, kind="mb", q="Symphony No. 10")["cards"]
     undo(idx, b["batch"])
     after = {r["work_id"]: dict(r) for r in idx._q("SELECT * FROM mb_work_match")}
     assert after == before

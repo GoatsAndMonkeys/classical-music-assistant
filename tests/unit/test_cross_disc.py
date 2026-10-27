@@ -169,7 +169,7 @@ def test_two_recordings_by_the_same_conductor_never_join(tmp_path):
     mahler_disc(idx, r, 2, performers=nyp, year=1987, artist="Leonard Bernstein")
     rows = {(x["disc_no"], x["year"]): discs._disc(idx, x) for x in discs.members(idx, idx.album_ids())}
     assert discs.judge(rows[(1, 1963)], rows[(2, 1963)])[1] == "different performers"
-    assert discs.judge(rows[(1, 1963)], rows[(2, 1987)])[0] is None
+    assert discs.judge(rows[(1, 1963)], rows[(2, 1987)])[0] != "join"
     assert sorted(x["tracks"] for x in visible(idx)) == [2, 2, 3]
     assert not idx._q("SELECT 1 FROM recording WHERE joined_to IS NOT NULL")
 

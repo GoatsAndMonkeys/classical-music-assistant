@@ -234,12 +234,13 @@ def test_hidden_provider_is_absent_everywhere(tmp_path):
 
 def test_review_groups_and_actions(tmp_path):
     lib = Lib(tmp_path)
+    # Dvořák's symphonies are not on the numbered-works list, so the same title on two albums is only a review item
     for aid, title in (("A", "Symphony No. 1 in C minor"), ("B", "Symphony No. 1 in C minor")):
         lib.n += 1
-        a = AlbumIn(aid, f"Album {aid}", "Johannes Brahms", 2000, None, [
-            TrackIn(str(lib.n * 100), 1, 1, title, "Johannes Brahms", 100,
+        a = AlbumIn(aid, f"Album {aid}", "Antonín Dvořák", 2000, None, [
+            TrackIn(str(lib.n * 100), 1, 1, title, "Antonín Dvořák", 100,
                     mappings=[MappingIn("filesystem_local", f"{aid}/0", fingerprint="f", path=f"{aid}/0")])])
-        lib.r.tags[f"{aid}/0"] = TagInfo(title=title, artist="Johannes Brahms")
+        lib.r.tags[f"{aid}/0"] = TagInfo(title=title, artist="Antonín Dvořák")
         run(lib.ix.index_album(a))
     res = views.review(lib.ix)
     assert res["total"] == sum(g["n"] for g in res["groups"]) >= 1

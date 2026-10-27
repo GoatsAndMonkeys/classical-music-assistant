@@ -138,18 +138,19 @@ def test_tier3_merges_across_albums_only_on_the_full_catalogue_number(tmp_path):
         run(idx.index_album(a))
     ws = by_title(idx, "Symphony No. 1")
     assert len(ws) == 1 and len(idx.recordings(ws[0]["id"])) == 2
+    # Dvořák is not on the numbered-works list (his symphonies were renumbered), so a bare number stays apart
     plain = ["Symphony No. 2: I. Allegro", "Symphony No. 2: II. Andante"]
     for aid, base in (("C", 20), ("D", 30)):
-        a = album(aid, plain, base=base, artist="Johannes Brahms")
+        a = album(aid, plain, base=base, artist="Antonín Dvořák")
         for t in a.tracks:
-            r.tags[t.mappings[0].path] = TagInfo(title=t.title, artist="Johannes Brahms")
+            r.tags[t.mappings[0].path] = TagInfo(title=t.title, artist="Antonín Dvořák")
         run(idx.index_album(a))
     ws = by_title(idx, "Symphony No. 2")
     assert len(ws) == 2 and all(w["identity_tier"] == "title" for w in ws)
     assert any(v["reason"] == "possible same work on another album" for v in idx.review())
     # a forced reindex finds the works again (no new work): the review item must survive, still once
     for aid, base in (("C", 20), ("D", 30)):
-        run(idx.index_album(album(aid, plain, base=base, artist="Johannes Brahms"), force=True))
+        run(idx.index_album(album(aid, plain, base=base, artist="Antonín Dvořák"), force=True))
     assert sum(v["reason"] == "possible same work on another album" for v in idx.review()) == 1
     assert len(by_title(idx, "Symphony No. 1")) == 1
 
