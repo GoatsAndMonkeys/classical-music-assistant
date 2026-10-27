@@ -2039,6 +2039,17 @@ class Index:
             "SELECT a.value FROM alias a LEFT JOIN redirect d ON d.entity='work' AND d.old_id=a.entity_id "
             "WHERE a.entity='work' AND a.kind='mbid' AND (a.entity_id=? OR d.new_id=?)", (wid, wid))}
 
+    def _rejected_mbids(self, wid: str) -> set[str]:
+        """MusicBrainz works a person rejected for this work (`work_link.set_user_link`), net of later accepts."""
+        out: set[str] = set()
+        for r in self._q("SELECT entity_id, payload_json FROM override WHERE entity='work' AND op='mb_link' "
+                         "ORDER BY created_at, id"):
+            if self.resolve("work", r[0]) != wid:
+                continue
+            p = json.loads(r[1] or "{}")
+            (out.add if p.get("decision") == "reject" else out.discard)(p.get("mbid"))
+        return out
+
     def _kept_apart(self, a: str, b: str) -> bool:
         """A user said these two works are different (`separate_work`)."""
         for r in self._q("SELECT entity_id, payload_json FROM override WHERE entity='work' AND op='separate'"):
@@ -2075,6 +2086,8 @@ class Index:
             theirs = self._mbids(target)
             if mine and theirs and not mine & theirs:
                 continue        # two MusicBrainz works are two works
+            if theirs & self._rejected_mbids(wid) or mine & self._rejected_mbids(target):
+                continue        # a person said this work is not the other's MusicBrainz work
             if kind == "cat":
                 row = self._one("SELECT title FROM work WHERE id=?", (target,))
                 why = wi.titles_agree(c.title, row[0]) if row else "no title"

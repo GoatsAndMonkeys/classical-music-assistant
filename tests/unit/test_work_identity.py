@@ -236,6 +236,13 @@ def test_numbered_titles_that_may_be_another_piece():
     assert _num("Jean Sibelius", "Symphony No. 5 in E-flat major, Op. 82 (1915 version)") is None
     assert _num("Jean Sibelius", "Symphony No. 5 (original version)") is None
     assert _num("Wolfgang Amadeus Mozart", "Symphony No. 40 in G minor, K. 550 (second version, with clarinets)") is None
+    # another catalogue is another piece (Liszt's transcription is S. 464), and so is a reduction or retouching
+    for t in ("Symphony No. 5 in C minor, S. 464/5", "Symphony No. 5 (S. 464)", "Symphony No. 9 (Mahler retouchings)",
+              "Symphony No. 7, Op. 92 (Harmoniemusik)", "Piano Concerto No. 5, Op. 73 (two-piano reduction)"):
+        assert _num(b, t) is None, t
+    assert _num("Frédéric Chopin", "Piano Concerto No. 2 in F minor, Op. 21 (chamber)") is None
+    assert _num("Béla Bartók", "Piano Concerto No. 3, BB 127") == "piano-concerto-3"
+    assert _num("Wolfgang Amadeus Mozart", "Symphony No. 40 in G minor, KV 550") == "symphony-40"
     # numberings that changed or works in several versions are not listed at all
     assert _num("Anton Bruckner", "Symphony No. 7 in E major") is None
     assert _num("Antonín Dvořák", "Symphony No. 8") is None

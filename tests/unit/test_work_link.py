@@ -207,6 +207,39 @@ def test_a_rejection_survives_and_the_candidate_is_never_proposed_again(lib):
     assert not lib.ix.con.execute("SELECT 1 FROM review_item WHERE reason=?", (wl.REASON,)).fetchall()
 
 
+@pytest.mark.parametrize("bare_first", [True, False])
+def test_a_rejected_link_keeps_a_numbered_work_out_of_that_mb_work_after_rederive(lib, monkeypatch, bare_first):
+    """Before the numbered-works list a bare 'Symphony No. 5' was its own work, and a person rejected Op. 67's
+    MusicBrainz work for it. The re-derive that brings the list, in either album order, must not merge it into
+    the work linked to Op. 67 (nor carry the rejection over to that work), and the linked work keeps its album."""
+    from classical_core import work_identity as wi
+    from classical_core.index import AlbumIn, MappingIn, TrackIn
+
+    real = wi.numbered_work
+    monkeypatch.setattr(wi, "numbered_work", lambda *a: None)
+    a5 = lib.add("Symphony No. 5")
+    a67 = lib.add("Symphony No. 5 in C minor, Op. 67")
+    _arid(lib)
+    mb = WorksMB([SYM5])
+    job(lib, mb)
+    wid, op67 = lib.wid("Symphony No. 5"), lib.wid("Symphony No. 5 in C minor, Op. 67")
+    assert linked(lib, "Symphony No. 5 in C minor, Op. 67") == uid(1)
+    wl.set_user_link(lib.ix.con, wid, "seth", "reject", [uid(1)])
+    monkeypatch.setattr(wi, "numbered_work", real)
+    albums = [(1, a5, "Symphony No. 5"), (2, a67, "Symphony No. 5 in C minor, Op. 67")]
+    for n, aid, title in albums if bare_first else albums[::-1]:
+        tracks = [TrackIn(str(n * 100 + i), 1, i + 1, f"{title}: {m}", "", 300,
+                          mappings=[MappingIn("filesystem_local", f"{aid}/{i}", fingerprint="f", path=f"{aid}/{i}")])
+                  for i, m in enumerate(("I. Allegro", "II. Andante"))]
+        run(lib.ix.index_album(AlbumIn(aid, f"Album {aid}", "", 2000, None, tracks), force=True))
+    job(lib, mb)
+    assert {w["id"] for w in lib.ix.works()} == {wid, op67}
+    assert all(len(lib.ix.recordings(w)) == 1 for w in (wid, op67))
+    mb_of = "SELECT value FROM alias WHERE entity='work' AND kind='mbid' AND entity_id=?"
+    assert lib.ix.con.execute(mb_of, (op67,)).fetchone()[0] == uid(1)
+    assert not lib.ix.con.execute(mb_of, (wid,)).fetchall()
+
+
 def test_a_rejected_auto_link_is_undone_and_an_accepted_one_kept(lib):
     lib.add("Symphony No. 5 in C minor, Op. 67")
     lib.add("Symphony No. 10")
@@ -258,7 +291,7 @@ def test_a_transient_failure_stops_the_chunk(lib, monkeypatch):
         return None
 
     monkeypatch.setattr("classical_core.mb.asyncio.sleep", no_wait)       # the client's retry backoff
-    lib.add("Symphony No. 5 in C minor, Op. 67")
+    a67 = lib.add("Symphony No. 5 in C minor, Op. 67")
     _arid(lib)
     mb = WorksMB([SYM5])
     mb.fail = True

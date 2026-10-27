@@ -326,11 +326,13 @@ def cross_keys(composer: str | None, title: str, catalogues: list[cat.Catalogue]
     kw = known_work(composer, base)
     if kw:
         out.append(("known", f"known:{kw[0]}"))
+    # the full catalogue number before the numbered-works list: an album whose work is MusicBrainz-linked
+    # through its catalogue number finds that work again, not a bare 'Symphony No. 5' derived before it
+    if catalogues:
+        out.append(("cat", f"cat:{catalogues[0].key}"))
     nw = numbered_work(composer, title)
     if nw:
         out.append(("num", f"num:{nw.id}"))
-    if catalogues:
-        out.append(("cat", f"cat:{catalogues[0].key}"))
     return out
 
 
@@ -429,10 +431,12 @@ _NUMBERED_FORMS = {"Symphony": ("symphony", frozenset()), "Piano Concerto": ("co
                    "Cello Concerto": ("concerto", frozenset({"cello"}))}
 _SCORING_ALIAS = {"klavier": "piano", "violine": "violin", "violoncello": "cello"}
 _TUTTI_WORDS = {"orchestra", "orchester"}
+_CAT_ALT = {("sz", "bb")}             # another catalogue of the same composer that a title may give instead
 # a version, edition or completion of a numbered work is its own work (Sibelius 5 '(1915 version)')
 _VERSION = re.compile(r"\b(?:versions?|versione|fassung|edition|ed|edited|revised|revision|rev|original|urtext|"
                       r"nowak|haas|cooke|completed|completion|reconstructed|reconstruction|fragments?|draft|"
-                      r"sketch(?:es)?|first|second|third|1st|2nd|3rd|early|alternative|alternate|unfinished)\b|"
+                      r"sketch(?:es)?|first|second|third|1st|2nd|3rd|early|alternative|alternate|unfinished|"
+                      r"reductions?|chamber|kammer\w*|retouch\w*|retusche\w*|harmoniemusik)\b|"
                       r"[(\[][^)\]]*\b1[6-9]\d\d\b")
 
 
@@ -485,7 +489,11 @@ def numbered_work(composer: str | None, title: str | None) -> Numbered | None:
     if sig.key and nw.key and sig.key != nw.key:
         return None                     # 'Symphony No. 8 in C major' is not Schubert's B minor No. 8
     for c in cat.parse_catalogues(t):
-        if nw.catalogue and c.namespace == nw.catalogue.namespace and c.components[0] != nw.catalogue.components[0]:
+        if nw.catalogue is None or c.namespace != nw.catalogue.namespace:
+            if nw.catalogue and (nw.catalogue.namespace, c.namespace) in _CAT_ALT:
+                continue                # Bartók's BB number beside or instead of Sz.
+            return None                 # 'S. 464/5' is Liszt's transcription, 'WoO 1' another piece
+        if c.components[0] != nw.catalogue.components[0]:
             return None                 # 'Op. 99' is not Op. 77 (Köchel's alternative number after it is)
     if not all(any(_word_match(w, x) for x in nick) for w in sig.names):
         return None                     # 'Symphony No. 5 "This Is the End"', a performer's name
