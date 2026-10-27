@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from classical_core import artwork
+from classical_core import artwork, cover_match
 from classical_core import release as mbrel
 from classical_core.mb import MBClient, MBTransientError
 from classical_core.store import SqliteMBCache, connect, migrate
@@ -183,3 +183,93 @@ def test_due_lists_albums_without_an_image_in_id_order(con):
     assert json.loads(con.execute("SELECT image_json FROM album_info WHERE album_library_id='2'").fetchone()[0]) == \
         artwork.image("https://caa/x")
     assert con.execute("SELECT image_json FROM album_info WHERE album_library_id='3'").fetchone()[0] == '{"path": "x"}'
+
+
+# ---- tracklist matches (cover_match.py) -----------------------------------------------------------------
+
+LENGTHS = [412, 95, 288, 333, 610, 127]
+
+
+class FakeMBSearch:
+    """A release search by title and track count, and release lookups with tracklists."""
+
+    def __init__(self, hits, releases):
+        self.hits, self.releases, self.calls = hits, releases, []
+
+    async def fetch(self, url, headers):
+        self.calls.append(url)
+        if "/release?query=" in url:
+            return 200, json.dumps({"releases": self.hits}).encode()
+        for mbid, body in self.releases.items():
+            if f"/release/{mbid}?" in url:
+                return 200, json.dumps(body).encode()
+        return 404, b""
+
+    def client(self, cache=None):
+        return MBClient("me@example.invalid", cache=cache, fetch=self.fetch, interval=0)
+
+
+def _rel(mbid, rg, lengths):
+    credit = [{"name": "Maria Callas", "artist": {"name": "Maria Callas", "sort-name": "Callas, Maria"}}]
+    return {"id": mbid, "title": "I puritani", "release-group": {"id": rg}, "artist-credit": credit,
+            "media": [{"track-count": len(lengths), "tracks": [{"position": i, "length": x * 1000}
+                                                              for i, x in enumerate(lengths, 1)]}]}
+
+
+def _hit(mbid, rg):
+    return {"id": mbid, "score": 100, "title": "I puritani", "release-group": {"id": rg},
+            "artist-credit": [{"name": "Maria Callas", "artist": {"name": "Maria Callas"}}],
+            "media": [{"track-count": len(LENGTHS)}]}
+
+
+def _rip_album(**kw):
+    rip = cover_match.rip_from_tracks("I Puritani (Disc 1)", "Various Artists",
+                                      [(None, i, d, "Maria Callas") for i, d in enumerate(LENGTHS, 1)], [], [])
+    return _album(name="I Puritani (Disc 1)", artist="Various Artists", rip=rip, **kw)
+
+
+def test_find_by_tracklist_takes_the_one_confirmed_release():
+    mb = FakeMBSearch([_hit(REL, RG), _hit(REL2, RG2)], {REL: _rel(REL, RG, LENGTHS),
+                                                         REL2: _rel(REL2, RG2, [x + 30 for x in LENGTHS])})
+    caa = FakeCAA(found={front("release", REL)})
+    art = asyncio.run(artwork.find(_rip_album(), caa.client(), mb.client()))
+    assert art == artwork.Art(front("release", REL), REL, RG, True)
+    assert len(mb.calls) == 3 and "tracksmedium%3A6" in mb.calls[0]
+
+
+def test_find_by_tracklist_ties_in_one_group_give_the_group_cover():
+    mb = FakeMBSearch([_hit(REL, RG), _hit(REL2, RG)], {REL: _rel(REL, RG, LENGTHS), REL2: _rel(REL2, RG, LENGTHS)})
+    caa = FakeCAA(found={front("release", REL), front("release-group", RG)})
+    art = asyncio.run(artwork.find(_rip_album(), caa.client(), mb.client()))
+    assert art == artwork.Art(front("release-group", RG), None, RG, False)      # picture only
+
+
+def test_find_by_tracklist_refuses_two_groups_and_broadcasts():
+    mb = FakeMBSearch([_hit(REL, RG), _hit(REL2, RG2)], {REL: _rel(REL, RG, LENGTHS), REL2: _rel(REL2, RG2, LENGTHS)})
+    caa = FakeCAA(found={front("release", REL), front("release", REL2), front("release-group", RG)})
+    assert asyncio.run(artwork.find(_rip_album(), caa.client(), mb.client())) is None
+    album = _rip_album()
+    album["rip"] = cover_match.Rip("240127 BSO Lady Macbeth", album["rip"].discs, {"callas"}, set())
+    mb2 = FakeMBSearch([_hit(REL, RG)], {REL: _rel(REL, RG, LENGTHS)})
+    assert asyncio.run(artwork.find(album, caa.client(), mb2.client())) is None
+    assert mb2.calls == []
+
+
+def test_find_by_tracklist_transient_errors_wait():
+    async def busy(url, headers):
+        return 503, b"", {"Retry-After": "3600"}
+
+    mb = MBClient("me@example.invalid", fetch=busy, interval=0)
+    with pytest.raises(MBTransientError):
+        asyncio.run(artwork.find(_rip_album(), FakeCAA().client(), mb))
+
+
+def test_due_builds_the_rip_from_the_index(con):
+    con.execute("INSERT INTO album_info(album_library_id, name, artist) VALUES ('5', 'I Puritani', 'Various Artists')")
+    for i, d in enumerate(LENGTHS, 1):
+        con.execute("INSERT INTO track_info(library_track_id, title, artist, duration) VALUES (?,?,?,?)",
+                    (f"t{i}", f"T{i}", "Maria Callas", d))
+        con.execute("INSERT INTO occurrence(id, album_library_id, disc, position, library_track_id) "
+                    "VALUES (?,?,?,?,?)", (f"o{i}", "5", 1, i, f"t{i}"))
+    (row,) = artwork.due(con, None, 10)
+    assert row["rip"] == cover_match.Rip("I Puritani", {1: LENGTHS}, {"callas"}, set())

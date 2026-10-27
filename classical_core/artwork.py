@@ -5,16 +5,23 @@ Nothing is written next to the music. The image is handed to MA as a remote `Med
 album (MA's own metadata), and the Classical view reads it from there like any other album image.
 
 Which release: one the album is confidently linked to (MA's MusicBrainz ids from tags, or the index's release
-match, which track lengths confirm). Failing that, a release group alone is enough for a picture: when every
-release the album's cached release search fits (title and artist) belongs to one release group, that group's
-cover is the album's, even if which pressing it is stays open. Such a group is used for the picture only and is
-never written to MA as the album's id.
+match, which track lengths confirm). Failing that, the album's tracklist (cover_match.py): its cleaned title
+and per-disc track count are searched, and a release counts only when its track lengths and credits confirm
+it; several confirmed pressings of one release group give the group's cover. Failing that, when every release
+the album's cached title + artist search fits belongs to one release group, that group's cover. A group alone
+is used for the picture only and is never written to MA as the album's id. Radio and concert rips are never
+matched.
+
+Albums that stay without art (broadcasts, merged or partial rips, releases MB lacks) keep MA's own placeholder.
+NOTE placeholder: a generated cover (composer portrait, or the work title on a plain tile) could stand in for
+them later; it belongs in the Classical view, and nothing is stored for it here.
 
 Requests: the Cover Art Archive is asked with HEAD and no redirect (the 307 alone says the cover exists), at
 most one a second, with the MusicBrainz contact in the User-Agent; answers are cached in `web_cache` (found 90
 days, missing 30). MusicBrainz is asked only for the release group of a known release whose own cover is
-missing, through the index's rate-limited, cached client; the release search is read from the cache only, never
-sent anew. Cover images are the copyright of their owners; the archive serves them for identification, and they
+missing, through the index's rate-limited, cached client; the title + artist release search is read from the
+cache only, never sent anew. The tracklist search and its release lookups are new requests (1 a second, cached 90 days like
+every MusicBrainz answer), at most `cover_match.MAX_LOOKUPS` + 1 per album. Cover images are the copyright of their owners; the archive serves them for identification, and they
 are shown, not stored, here.
 """
 
@@ -27,6 +34,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from . import cover_match
 from . import release as mbrel
 from .mb import MBCache, MBError, MBTransientError, is_mbid, parse_retry_after
 from .text import norm_key
@@ -90,7 +98,26 @@ def due(con, after: str | None, limit: int) -> list[dict[str, Any]]:
         "SELECT album_library_id, name, artist, release_mbid, mb_release, mb_release_group FROM album_info "
         "WHERE image_json IS NULL AND album_library_id > ? ORDER BY album_library_id LIMIT ?",
         (after or "", limit)).fetchall()
-    return [dict(r) for r in rows]
+    out = [dict(r) for r in rows]
+    for album in out:
+        album["rip"] = rip_of(con, album["album_library_id"], album.get("name"), album.get("artist"))
+    return out
+
+
+def rip_of(con, album_library_id: str, name: str | None, artist: str | None) -> cover_match.Rip | None:
+    """The album's track layout and people for a tracklist match (cover_match.py), or None."""
+    aid = album_library_id
+    tracks = [(r[0], r[1], r[2], r[3]) for r in con.execute(
+        "SELECT o.disc, o.position, t.duration, t.artist FROM occurrence o "
+        "LEFT JOIN track_info t ON t.library_track_id=o.library_track_id "
+        "WHERE o.album_library_id=? AND o.present=1", (aid,))]
+    performers = [r[0] for r in con.execute(
+        "SELECT DISTINCT p.name FROM occurrence o JOIN track_credit c ON c.occurrence_id=o.id "
+        "JOIN person p ON p.id=c.person_id WHERE o.album_library_id=? AND o.present=1", (aid,))]
+    composers = [r[0] for r in con.execute(
+        "SELECT DISTINCT c.name FROM recording r JOIN work_composer wc ON wc.work_id=r.work_id "
+        "JOIN composer c ON c.id=wc.composer_id WHERE r.album_library_id=?", (aid,))]
+    return cover_match.rip_from_tracks(name or "", artist, tracks, performers, composers)
 
 
 # ---- Cover Art Archive client ---------------------------------------------------------------------------
@@ -189,11 +216,45 @@ async def find(album: dict[str, Any], caa: CAAClient, mb: Any = None) -> Art | N
             except MBError:
                 group = None
     if release is None and group is None:
+        art = await _from_tracklist(album, caa, mb)
+        if art is not None:
+            return art
         group, confident = await _group_from_cached_search(album, mb), False
     if group:
         url = front_url("release-group", group, base=caa.base_url)
         if await caa.exists(url):
             return Art(url, release, group, confident)
+    return None
+
+
+async def _from_tracklist(album: dict[str, Any], caa: CAAClient, mb: Any) -> Art | None:
+    """The cover of the release (or release group) the album's tracklist confirms (cover_match.py)."""
+    rip = album.get("rip")
+    if mb is None or not isinstance(rip, cover_match.Rip) or not cover_match.wanted(rip):
+        return None
+    try:
+        search = await mb.get(cover_match.search_url(
+            mb.base_url, cover_match.clean_title(rip.name), cover_match.first_disc_count(rip)))
+        hits = cover_match.candidates(search, rip)
+        looked: dict[str, dict] = {}
+        for hit in hits[:cover_match.MAX_LOOKUPS]:
+            looked[hit["id"]] = await mb.get(cover_match.lookup_url(mb.base_url, hit["id"]))
+        match = cover_match.decide(hits, looked, rip)
+    except MBTransientError:
+        raise
+    except MBError:
+        return None
+    except (ValueError, TypeError, AttributeError, KeyError):    # malformed MB JSON: no answer, no failure
+        return None
+    if match is None:
+        return None
+    if match.release:
+        url = front_url("release", match.release, base=caa.base_url)
+        if await caa.exists(url):
+            return Art(url, match.release, match.release_group, True)
+    url = front_url("release-group", match.release_group, base=caa.base_url)
+    if await caa.exists(url):
+        return Art(url, match.release, match.release_group, match.release is not None)
     return None
 
 
