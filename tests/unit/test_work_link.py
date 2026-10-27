@@ -291,7 +291,7 @@ def test_a_transient_failure_stops_the_chunk(lib, monkeypatch):
         return None
 
     monkeypatch.setattr("classical_core.mb.asyncio.sleep", no_wait)       # the client's retry backoff
-    a67 = lib.add("Symphony No. 5 in C minor, Op. 67")
+    lib.add("Symphony No. 5 in C minor, Op. 67")
     _arid(lib)
     mb = WorksMB([SYM5])
     mb.fail = True
