@@ -604,7 +604,7 @@
   // ---- auth and API ---------------------------------------------------------------------------------------
 
   var state = { token: null, source: null, info: null, players: [], playerId: storage("cma_player"), queue: null,
-    keep: false, curate: storage("cma_curate") === "1", reviewCount: null };
+    keep: false, curate: storage("cma_curate") === "1", reviewCount: null, moreFilters: false };
 
   /** Curation controls (edit dates, unlink, keep separate, not a box set) show only once switched on. */
   function curating() { return !!(state.info || {}).can_correct && state.curate; }
@@ -1160,12 +1160,13 @@
       ? (cov.composed || 0) + " of " + plural(cov.total || 0, "work") + " have a composition date"
       : null;
 
-    // period, decade and year range fold away until used
+    // period, decade and year range fold away until used; once opened they stay open while a field is edited
     var moreSet = f.period || f.decade || f.date_from || f.date_to || f.date_kind !== "composed";
     wrap.appendChild(h("div", { class: "filters" },
       search,
       h("div", { class: "filter-row" }, typeSel, sortSel),
-      h("details", { class: "more-filters", open: moreSet ? true : null },
+      h("details", { class: "more-filters", open: moreSet || state.moreFilters ? true : null,
+        ontoggle: function (e) { state.moreFilters = e.target.open; } },
         h("summary", { text: "Period and dates" }),
         h("div", { class: "filters" },
           h("div", { class: "filter-row" }, periodSel, decadeSel),
@@ -2224,7 +2225,8 @@
           h("p", { class: "fine", text: state.source === "ingress" ? "Signed in through Home Assistant."
             : state.source === "borrowed" ? "Using your Music Assistant web sign-in." : "Signed in on this device." }),
           h("p", { class: "fine", text: "Classical " + (info.version || "") }),
-          info.can_correct ? curateToggle(function () { close(); }) : link(["review"], null, "Review queue ›", "more-link"),
+          info.can_correct ? curateToggle(function () { close(); })
+            : h("a", { href: "#/review", class: "more-link", text: "Review queue ›", onclick: function () { close(); } }),
           state.source === "ingress" ? null : h("div", { class: "actions" }, h("button", { type: "button", class: "btn",
             text: "Sign out", onclick: function () { close(); signOut(); } })));
         var close = sheet("Account", body);
