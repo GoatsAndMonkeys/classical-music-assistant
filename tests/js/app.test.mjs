@@ -171,3 +171,12 @@ test("badge text names the category and, on request, how the award applies", () 
   assert.equal(app.badgeText(b, true), "Gramophone Award 2012 · Opera (awarded to another release of this recording (2012))");
   assert.equal(app.badgeText({ text: "Wikidata award", note: "for the album" }, true), "Wikidata award (for the album)");
 });
+
+test("outbound links are https only", () => {
+  assert.equal(app.safeHref("https://www.discogs.com/release/123"), "https://www.discogs.com/release/123");
+  assert.equal(app.safeHref("http://www.allmusic.com/album/x"), null);
+  assert.equal(app.safeHref("javascript:alert(1)"), null);
+  assert.equal(app.safeHref("data:text/html,x"), null);
+  assert.equal(app.safeHref("https://x.org/\" onmouseover=1"), null);
+  assert.equal(app.safeHref(null), null);
+});

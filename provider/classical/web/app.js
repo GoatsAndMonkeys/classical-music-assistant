@@ -253,11 +253,16 @@
     return url && IMAGE_RE.test(url) ? "../" + url : null;
   }
 
+  /** An outbound link's href, or null: only absolute https URLs (never javascript:, data: or plain http). */
+  function safeHref(url) {
+    return typeof url === "string" && /^https:\/\/[^\s"'<>\\]+$/i.test(url) ? url : null;
+  }
+
   var pure = {
     BUCKETS: BUCKETS, parseHash: parseHash, formatHash: formatHash, takeCode: takeCode, fmtDuration: fmtDuration,
     lifeDates: lifeDates, yearText: yearText, workSubtitle: workSubtitle, recordingMatches: recordingMatches,
     filterRecordings: filterRecordings, sortRecordings: sortRecordings, creditGroups: creditGroups,
-    reviewSubtitle: reviewSubtitle, badgeText: badgeText, anyAcclaim: anyAcclaim,
+    reviewSubtitle: reviewSubtitle, badgeText: badgeText, anyAcclaim: anyAcclaim, safeHref: safeHref,
     byLetter: byLetter, playArgs: playArgs, loginReturnUrl: loginReturnUrl, choosePlayer: choosePlayer, errorText: errorText, imageSrc: imageSrc,
     plural: plural,
   };
@@ -1012,7 +1017,9 @@
   }
 
   function extLink(url, text) {
-    return h("a", { href: url, target: "_blank", rel: "noopener noreferrer", text: text });
+    var href = safeHref(url);
+    if (!href) return h("span", { text: text });
+    return h("a", { href: href, target: "_blank", rel: "noopener noreferrer", text: text });
   }
 
   /** The recording page's awards, reviews, ratings and "Read reviews" links (links only: nothing fetched). */

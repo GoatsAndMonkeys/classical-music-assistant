@@ -322,6 +322,7 @@ class PerfMatch:
     full: int = 0                    # found by full name / full ensemble name
     principal: bool = False          # the first specific performer was found
     contradiction: str | None = None
+    stranger: bool = False           # an entry performer is missing and the recording names someone else instead
     matched: list[str] = field(default_factory=list)
     missing: list[str] = field(default_factory=list)
 
@@ -380,6 +381,12 @@ def match_performers(names: Iterable[str], pool: Pool) -> PerfMatch:
             c.sur == p.sur and _initial_ok(p.given, c.given) != "conflict" for c in pool.conductors
             for p in entry_persons):
         pm.contradiction = "conductor"
+    # an uncredited name in an artist string ('Perlman / Chicago SO / Barenboim' for Perlman, Giulini, CSO):
+    # no contradiction, but the match is not strong enough to badge without a look
+    if entry_orch and entry_persons and pm.m <= 2 and any(n for n in pm.missing if not is_group(n)):
+        pm.stranger = any(role in ("", "conductor") and not any(
+            q.sur == p.sur and _initial_ok(p.given, q.given) != "conflict" for p in entry_persons)
+            for q, role in pool.persons)
     return pm
 
 
@@ -448,13 +455,21 @@ def grade(e: Entry, wm: str | None, pm: PerfMatch, f: Facts) -> tuple[str | None
         return None, why                       # an album long before the award: another recording
     lab = bool(e.label and label_match(e.label, f.label))
     why["label"] = lab
-    strong = pm.m >= 2 or (pm.n == 1 and pm.full >= 1)
+    strong = (pm.m >= 2 or (pm.n == 1 and pm.full >= 1)) and not pm.stranger
     in_window = f.released is not None and lo <= f.released <= hi
-    if wm == "exact" and strong and pm.principal:
+    recorded_fits = f.recorded is not None and lo - 1 <= f.recorded <= hi
+    # a known session well before the window: a reissue of an older recording, or the same artists' remake
+    old_session = f.recorded is not None and not e.historical and f.recorded < lo - 2
+    if pm.stranger:
+        why["stranger"] = True
+    if old_session:
+        why["old_session"] = True
+    if wm == "exact" and strong and pm.principal and not old_session:
         if in_window:
             return "this_release", why
-        recorded_fits = f.recorded is not None and lo - 1 <= f.recorded <= hi
-        if f.recorded is not None and (pm.m >= 3 or lab or recorded_fits) and (f.released is None or f.released > hi):
+        # another release of this recording: the session itself must fit the award (a label or a long cast
+        # list is not enough; the same artists re-recorded works for the same label)
+        if recorded_fits and (f.released is None or f.released > hi):
             return "other_release", why
     if pm.principal or pm.m >= 2:
         return "uncertain", why
@@ -593,30 +608,43 @@ def match_all(facts: dict[str, Facts], es: Iterable[Entry] | None = None,
 def _album_match(e: Entry, parts: list[str], recs: list[Facts]) -> Match | None:
     """A multi-work or 'Complete ...' entry: for the album, never for one recording."""
     pool = Pool()
-    hit = False
+    # a part naming another composer ('...; Haydn: English Songs') is not checked; every other part must be
+    # on the album: a numbered plural ('Symphonies Nos. 5 & 7') needs each number, an unnumbered one
+    # ('Symphonies', 'String Quartets') at least two of the works
+    own = [p for p in parts if ":" not in p] or parts
+    hits: dict[int, set[str]] = defaultdict(set)
+    nums: dict[int, set[int]] = defaultdict(set)
     for f in recs:
         if not same_composer(e.composer, f.composers):
             continue
-        for part in parts:
+        for i, part in enumerate(own):
+            pk = work_key(part)
             for t in f.titles:
-                if work_match(part, t) == "exact":
-                    hit = True
-                elif work_key(part).plural:
-                    pk, rk = work_key(part), work_key(t)
-                    hit = hit or (bool(pk.tokens) and pk.tokens <= rk.tokens)
+                if work_match(part, t) == "exact" and not pk.plural:
+                    hits[i].add(f.id)
+                elif pk.plural and pk.tokens:
+                    rk = work_key(t)
+                    if pk.tokens <= rk.tokens and (not pk.numbers or rk.numbers & pk.numbers):
+                        hits[i].add(f.id)
+                        nums[i] |= rk.numbers
         pool.persons += f.pool.persons
         pool.groups += f.pool.groups
         pool.loose += f.pool.loose
         pool.conductors += f.pool.conductors
         pool.orchestras += f.pool.orchestras
-    if not hit:
-        return None
+    for i, part in enumerate(own):
+        pk = work_key(part)
+        if not hits[i]:
+            return None
+        if pk.plural and (not pk.numbers <= nums[i] if pk.numbers else len(hits[i]) < 2):
+            return None
     pm = match_performers(e.performers, pool)
     f0 = recs[0]
     facts = Facts(f0.id, f0.work_id, f0.album_id, [], [], None, f0.released, f0.label, pool)
     g, why = grade(e, "exact", pm, facts)
     if g != "this_release" or pm.m < 2:
         return None
+    why["recordings"] = sorted(set().union(*hits.values()))
     return Match(e, "this_release", "album", None, f0.album_id, None, why)
 
 
@@ -662,6 +690,10 @@ def refresh(con, now: float | None = None, use_dataset: bool = True) -> dict:
                             f"{w['window'][1]})")
                 if w.get("work") == "weak":
                     bits.append("the award names no number")
+                if w.get("old_session"):
+                    bits.append(f"recorded {w.get('recorded')}, before the award's years: a reissue or another version?")
+                if w.get("stranger"):
+                    bits.append("the artists also name someone the award does not")
                 con.execute(
                     "INSERT OR REPLACE INTO review_item(id, reason, album_library_id, entity, entity_id, detail_json) "
                     "VALUES (?,?,?,?,?,?)",
@@ -821,6 +853,10 @@ def for_recordings(con, recs: list[dict], now: float | None = None) -> dict[str,
             by_album[row["album_library_id"]].append(row)
     for r in recs:
         for row in by_album.get(r.get("album_library_id"), []):
+            only = (json.loads(row["why_json"] or "{}") or {}).get("recordings") if row["source"] == "dataset" \
+                else None
+            if only is not None and r["id"] not in only:
+                continue                  # a dataset album award shows on the recordings it was matched on
             out[r["id"]].append(_badge(row, single.get(row["album_library_id"], False)))
     return dict(out)
 
@@ -866,8 +902,11 @@ def review_links(composer: str | None, work_title: str, performer: str | None,
     for link in mb_links:
         kind = link.get("kind") or ""
         site = _LINK_SITES.get(kind)
-        if site and link.get("url", "").startswith("https://") or (site and link.get("url", "").startswith("http://")):
-            out.append({"site": site, "kind": "page", "url": link["url"]})
+        url = link.get("url") or ""
+        if url.startswith("http://"):
+            url = "https://" + url[len("http://"):]       # these sites all serve https; never link plain http
+        if site and url.startswith("https://") and not re.search(r"[\s\"'<>]", url):
+            out.append({"site": site, "kind": "page", "url": url})
             have.add(kind)
     if "allmusic" not in have:
         out.append({"site": "AllMusic", "kind": "search", "url": f"https://www.allmusic.com/search/albums/{quote(q)}"})
@@ -944,7 +983,7 @@ def excerpt(text: str, n: int = EXCERPT_CHARS) -> str:
 def parse_critiquebrainz(data: dict) -> list[dict]:
     out = []
     for r in data.get("reviews") or []:
-        if not r.get("id") or r.get("is_hidden") or r.get("is_draft"):
+        if not re.fullmatch(r"[0-9A-Za-z-]{1,64}", str(r.get("id") or "")) or r.get("is_hidden") or r.get("is_draft"):
             continue
         lic = r.get("license") or {}
         lic_name = lic.get("full_name") or lic.get("id") or r.get("license_id") or ""
@@ -1021,7 +1060,7 @@ async def fetch_album(album: dict, mb=None, wikidata=None, critiquebrainz=None, 
                                  "award": labels.get(award, award), "year": year, "result": "winner",
                                  "url": f"https://www.wikidata.org/wiki/{qid}", "source": "wikidata",
                                  "source_ref": f"{qid}/P166/{award}", "fetched_at": now})
-    if critiquebrainz is not None and rg:
+    if critiquebrainz is not None and rg and MB_UUID.fullmatch(rg):
         res.sources.add("critiquebrainz")
         data = await get(critiquebrainz, f"https://critiquebrainz.org/ws/1/review/?entity_id={rg}"
                          "&entity_type=release_group&limit=5&sort=popularity")

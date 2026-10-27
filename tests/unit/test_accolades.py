@@ -217,7 +217,7 @@ def test_refresh_badges_and_the_play_pick(awarded):
     assert v["best"]["reason"] == "Gramophone Award 1976 (Orchestral)"
     assert v["best"]["recording_id"] == by_who["Carlos Kleiber"]["id"]
     assert idx.best_recording(_w5(idx)["id"])[1] == v["best"]["reason"]
-    assert v["acclaim"] == {"recordings": 2, "awards": [{"award": "Grammy", "n": 1},
+    assert v["acclaim"] == {"recordings": 2, "awards": [{"award": "Grammy nominee", "n": 1},
                                                         {"award": "Gramophone Award", "n": 1}]}
     w40 = next(w for w in idx.works() if w["title"].startswith("Symphony No. 40"))
     m = {r["who"].split(" /")[0]: r["accolades"] for r in views.work(idx, w40["id"])["recordings"]}
@@ -393,3 +393,105 @@ def test_review_links_are_searches_without_mb_pages():
     assert sites == ["Presto Music", "Gramophone", "MusicWeb International", "AllMusic", "Discogs"]
     assert all(x["url"].startswith("https://") and x["kind"] == "search" for x in links)
     assert "search_query=Beethoven+Fidelio+Klemperer" in links[0]["url"]
+
+
+# ---- review fixes: wrong-award cases ------------------------------------------------------------------------
+
+KARAJAN_BPO = (("Herbert von Karajan", "conductor"), ("Berliner Philharmoniker", "orchestra"))
+
+
+def test_a_remake_by_the_same_artists_for_the_same_label_is_no_other_release():
+    # Diapason 1985 for Karajan's digital Beethoven 5; the library holds his 1977 recording (also DG), on a 1995 CD
+    e = entry(award="Diapason d'Or de l'Année", year=1985, work="Symphony No. 5",
+              performers=("Herbert von Karajan", "Berlin Philharmonic"), label="Deutsche Grammophon", category=None)
+    remake = facts(titles=["Symphony No. 5 in C minor, Op. 67"], recorded=1977, released=1995,
+                   credits=KARAJAN_BPO, label="Deutsche Grammophon")
+    assert match(e, remake) == "uncertain"
+    # the awarded session itself, reissued later, still is
+    remake.recorded = 1984
+    assert match(e, remake) == "other_release"
+
+
+def test_an_old_session_reissued_inside_the_window_is_not_the_awarded_release():
+    e = entry(award="Gramophone Award", year=1985, work="Symphony No. 5",
+              performers=("Herbert von Karajan", "Berlin Philharmonic"), category="Orchestral")
+    reissue = facts(titles=["Symphony No. 5 in C minor, Op. 67"], recorded=1977, released=1984, credits=KARAJAN_BPO)
+    assert match(e, reissue) == "uncertain"
+    # a historical category is about old sessions: no cap there
+    assert match(entry(award="Gramophone Award", year=1985, work="Symphony No. 5", historical=True,
+                       performers=("Herbert von Karajan", "Berlin Philharmonic"), category="Historical"),
+                 reissue) == "this_release"
+
+
+def test_an_uncredited_other_conductor_in_an_artist_string_needs_review():
+    e = entry(year=1977, composer="Brahms", work="Violin Concerto", category="Best Classical Instrumental Soloist",
+              performers=("Itzhak Perlman", "Carlo Maria Giulini", "Chicago Symphony Orchestra"))
+    f = facts(titles=["Violin Concerto in D major, Op. 77"], composers=["Johannes Brahms"], released=1976,
+              artists=["Itzhak Perlman / Chicago Symphony Orchestra / Daniel Barenboim"])
+    assert match(e, f) == "uncertain"
+    f = facts(titles=["Violin Concerto in D major, Op. 77"], composers=["Johannes Brahms"], released=1976,
+              artists=["Itzhak Perlman / Chicago Symphony Orchestra / Carlo Maria Giulini"])
+    assert match(e, f) == "this_release"
+
+
+def test_album_entries_need_every_work_they_name():
+    e = entry(work="Symphonies Nos. 5 & 7", performers=("Carlos Kleiber", "Vienna Philharmonic"), year=1976,
+              award="Gramophone Award", category="Orchestral")
+    credits = (("Carlos Kleiber", "conductor"), ("Wiener Philharmoniker", "orchestra"))
+
+    def album(*titles):
+        return {f"r{i}": facts(titles=[t], released=1975, credits=credits, rid=f"r{i}") for i, t in enumerate(titles)}
+
+    assert A.match_all(album("Symphony No. 4 in B-flat major"), [e]) == []
+    assert A.match_all(album("Symphony No. 5 in C minor", "Symphony No. 4 in B-flat major"), [e]) == []
+    [m] = A.match_all(album("Symphony No. 5 in C minor", "Symphony No. 7 in A major", "Coriolan Overture"), [e])
+    assert m.target == "album" and m.why["recordings"] == ["r0", "r1"]
+    assert A.match_all(album("Symphony No. 9 in D minor"), [entry(
+        work="Symphonies Nos. 1 & 3", performers=("Carlos Kleiber", "Vienna Philharmonic"), year=1976,
+        award="Gramophone Award", category="Orchestral")]) == []
+    # an unnumbered plural ('Symphonies') needs more than one of them; a second part must be there too
+    cycle = entry(work="Symphonies", performers=("Carlos Kleiber", "Vienna Philharmonic"), year=1976,
+                  award="Gramophone Award", category="Orchestral")
+    assert A.match_all(album("Symphony No. 5 in C minor"), [cycle]) == []
+    assert len(A.match_all(album("Symphony No. 5 in C minor", "Symphony No. 7 in A major"), [cycle])) == 1
+    two = entry(work="Symphony No. 5; Egmont Overture", performers=("Carlos Kleiber", "Vienna Philharmonic"),
+                year=1976, award="Gramophone Award", category="Orchestral")
+    assert A.match_all(album("Symphony No. 5 in C minor"), [two]) == []
+
+
+def test_dataset_album_badges_show_only_on_the_matched_recordings(full):  # noqa: F811
+    idx, _ = full
+    rec = dict(idx.con.execute("SELECT id, album_library_id FROM recording LIMIT 1").fetchone())
+    for rid_list, aid in ((["someone-else"], "x1"), ([rec["id"]], "x2")):
+        idx.con.execute(
+            "INSERT INTO accolade(id, target, album_library_id, kind, award, year, result, source, source_ref, grade, "
+            "why_json, fetched_at) VALUES (?, 'album', ?, 'award', 'Gramophone Award', 1976, 'winner', 'dataset', "
+            "'e', 'this_release', ?, 0)", (aid, rec["album_library_id"], json.dumps({"recordings": rid_list})))
+    got = A.for_recordings(idx.con, [rec])
+    assert [a["id"] for a in got[rec["id"]]] == ["x2"]
+
+
+def test_nominations_are_not_counted_as_awards_in_the_header():
+    s = [{"accolades": [{"counts": True, "kind": "award", "award": "Grammy", "result": "nominee"}]},
+         {"accolades": [{"counts": True, "kind": "award", "award": "Grammy", "result": "winner"}]}]
+    assert views._acclaim_summary(s)["awards"] == [{"award": "Grammy", "n": 1}, {"award": "Grammy nominee", "n": 1}]
+
+
+def test_mb_page_links_are_https_and_cb_ids_are_checked():
+    links = A.review_links("Beethoven", "Fidelio", "Klemperer", [
+        {"kind": "allmusic", "url": "http://www.allmusic.com/album/mw0001"},
+        {"kind": "discogs", "url": "javascript:alert(1)"}])
+    pages = [x for x in links if x["kind"] == "page"]
+    assert pages == [{"site": "AllMusic", "kind": "page", "url": "https://www.allmusic.com/album/mw0001"}]
+    assert any(x["site"] == "Discogs" and x["kind"] == "search" for x in links)
+    assert A.parse_critiquebrainz({"reviews": [{"id": "../../x", "text": "t"}]}) == []
+
+
+def test_bundled_dataset_has_no_wikitext_debris():
+    import re
+    es = A.entries()
+    assert len(es) > 2000
+    for e in es:
+        for x in (e.composer, e.work, *e.performers):
+            assert not re.search(r"''|[{}*|]|==|\[\[", x), (e.id, x)
+        assert not (e.category or "").startswith("|"), e.id

@@ -278,7 +278,8 @@ def _acclaim_summary(summaries: list[dict]) -> dict | None:
         n += bool(counted)
         for a in counted:
             if a["kind"] == "award":
-                awards[a["award"]] = awards.get(a["award"], 0) + 1
+                k = f"{a['award']} nominee" if a.get("result") == "nominee" else a["award"]  # not an award won
+                awards[k] = awards.get(k, 0) + 1
     if not n:
         return None
     return {"recordings": n, "awards": [{"award": k, "n": v} for k, v in sorted(awards.items(), key=lambda x: (-x[1], x[0]))]}
