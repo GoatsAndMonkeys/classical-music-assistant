@@ -41,6 +41,23 @@ class ParsedTitle:
 _DOUBLE_DASH = re.compile(r"^\s*(?P<c>[^\d:;/]{3,40}?)\s*--+\s*(?P<w>\S.*)$")
 
 
+_NAME_PARTICLES = frozenset(["von", "van", "der", "de", "di", "da", "del", "della", "du", "le", "la", "y", "ter"])
+_NOT_NAMES = frozenset(["overture", "ouverture", "prelude", "prologue", "act", "scene", "part", "symphony", "concerto",
+                        "sonata", "suite", "mass", "requiem", "allegro", "adagio", "andante", "presto", "largo",
+                        "scherzo", "finale", "march", "intro", "introduction", "encore", "applause", "intermission",
+                        "interview", "track", "disc", "aria", "variations", "theme", "movement", "live"])
+
+
+def _person_like(head: str) -> bool:
+    """'Rands', 'John Williams', 'Carl Maria von Weber' — not 'Overture' or 'Tristan und Isolde': the head of
+    'X--Y' is taken for a composer only when it reads as a name (1-4 capitalised words, particles aside)."""
+    words = head.split()
+    if not 1 <= len(words) <= 4:
+        return False
+    return all((w[:1].isupper() and w.lower().strip(".") not in _NOT_NAMES) or w.lower() in _NAME_PARTICLES
+               for w in words) and any(w[:1].isupper() for w in words)
+
+
 def movement_number(token: str) -> int | None:
     t = token.strip().lower()
     if t.isdigit():
@@ -64,7 +81,7 @@ def parse_title(title: str | None) -> ParsedTitle | None:
         return None
     t = title.strip()
     m = _DOUBLE_DASH.match(t)
-    if m and len(m.group("c").split()) <= 4:
+    if m and _person_like(m.group("c")):
         head, rest = m.group("c").strip(), m.group("w").strip()
         inner = parse_title(rest)
         if inner is not None and inner.composer_hint is None:
@@ -362,7 +379,7 @@ def album_work_segments(name: str | None) -> list[str]:
     for seg in re.split(r"\s*(?::|/|;|\||—|\s[-–]\s)\s*", s):
         seg = strip_disc_marks(seg.split(",")[0])
         # '151017 Elektra BSO': a broadcast date and an orchestra's initials are not part of the work
-        seg = _ENSEMBLE_ABBR.sub(" ", re.sub(r"^\d{4,8}\s+", "", seg))
+        seg = _ENSEMBLE_ABBR.sub(" ", re.sub(r"^(?:\d{6}|\d{8}|(?:19|20)\d\d)\s+", "", seg))
         seg = re.sub(r"\s+", " ", seg).strip()
         seg = re.sub(r"\s+\d{1,3}$", "", seg).strip(" .'\"")
         if len(seg) < 3 or not re.search(r"[^\W\d_]{3}", seg) or _ALBUM_JUNK.match(seg):

@@ -112,11 +112,17 @@ def group_album(slots: list[Slot], ambiguous: bool = False) -> GroupingResult:
         for i, s in enumerate(slots):
             if s.work_key is None or s.multi:
                 continue
-            if s.continued:
-                if s.work_key not in album_work:
-                    album_work[s.work_key] = []
-                    runs.append(Run(album_work[s.work_key], s.work_key))
-                album_work[s.work_key].append(i)
+            run = album_work.get(s.work_key)
+            if s.continued and run is not None and (
+                    any(slots[j].occ_id in s.separate_from or s.occ_id in slots[j].separate_from for j in run)
+                    or _contradicts([slots[j] for j in run], s)):
+                notes.append(("split: contradicts the album's own work", [run[-1], i]))
+                runs.append(Run([i], s.work_key))   # a user's 'separate', another conductor: never joined
+            elif s.continued:
+                if run is None:
+                    run = album_work[s.work_key] = []
+                    runs.append(Run(run, s.work_key))
+                run.append(i)
             else:
                 runs.append(Run([i], s.work_key))
         for r in runs:

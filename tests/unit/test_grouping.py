@@ -101,3 +101,15 @@ def test_no_movement_evidence_never_joins():
     assert any(n[0] == "split: no movement evidence" for n in res.notes)
     assert runs([s(0, no=1), s(1)]) == [[0], [1]]
     assert runs([s(0), s(1, no=1), s(2, no=2)]) == [[0], [1, 2]]
+
+
+def test_ambiguous_album_work_respects_separate_constraints_and_contradictions():
+    """No order is no licence to join what a user kept apart or another conductor performed."""
+    def c(i, **kw):
+        return replace(s(i, **kw), continued=True)
+
+    a = [c(0, cond=("Furtwängler",)), replace(c(1), separate_from=frozenset({"o0"})), c(2, cond=("Böhm",)),
+         c(3)]
+    res = group_album(a, ambiguous=True)
+    assert [r.slots for r in res.runs] == [[0, 3], [1], [2]]
+    assert sum(n[0] == "split: contradicts the album's own work" for n in res.notes) == 2

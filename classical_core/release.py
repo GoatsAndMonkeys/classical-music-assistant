@@ -62,7 +62,7 @@ def search_url(base_url: str, name: str, artist: str) -> str:
     m = _COMPOSER_PREFIX.match(base)
     title = base[m.end():] if m else base
     q = f'release:"{_lucene(title)}" AND artist:"{_lucene(artist)}"'
-    return f"{base_url.rstrip('/')}/release?query={urllib.parse.quote(q)}&limit=10&fmt=json"
+    return f"{base_url.rstrip('/')}/release?query={urllib.parse.quote(q)}&limit=25&fmt=json"
 
 
 def lookup_url(base_url: str, mbid: str) -> str:
@@ -96,6 +96,8 @@ def _counts_fit(release: dict, disc_counts: dict[int, int], marker: int | None) 
     ours = [disc_counts[d] for d in sorted(disc_counts)]
     if marker is not None and len(ours) == 1:
         return marker <= len(media) and media[marker - 1] == ours[0]   # one disc of a set
+    if len(ours) > 1 and sorted(disc_counts) != list(range(1, len(ours) + 1)):
+        return False    # discs 2 and 3 of a set: which media they are is a guess
     return media == ours
 
 
@@ -125,7 +127,7 @@ def pick_release(search: dict, name: str, artist: str, disc_counts: dict[int, in
     if len(fits) > 1:
         return Pick(None, "ambiguous", [m for _, m in fits])
     score, mbid = fits[0]
-    return Pick(mbid, "ok", []) if score >= MIN_SCORE else Pick(None, "ambiguous", [mbid])
+    return Pick(mbid, "ok", []) if score >= MIN_SCORE else Pick(None, "low score", [mbid])
 
 
 def track_recordings(release: dict, tracks: list[tuple[str, int | None, int | None, int]],
@@ -150,10 +152,13 @@ def track_recordings(release: dict, tracks: list[tuple[str, int | None, int | No
         if not rec.get("id"):
             return {}, "release track missing"
         length = t.get("length") or rec.get("length")
-        if dur and length:
+        fits = True
+        if dur and isinstance(length, (int, float)):
             total += 1
-            agree += abs(length / 1000 - dur) <= max(LENGTH_SLACK_S, 0.05 * dur)
-        out[tid] = rec["id"]
+            fits = abs(length / 1000 - dur) <= max(LENGTH_SLACK_S, 0.05 * dur)
+            agree += fits
+        if fits:        # a track whose length disagrees may be another take or a bonus: never linked
+            out[tid] = rec["id"]
     if total < max(1, len(tracks) // 2) or agree < LENGTH_SHARE * total:
         return {}, "track lengths do not match"
     return out, "ok"

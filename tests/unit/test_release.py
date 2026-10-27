@@ -39,7 +39,7 @@ def test_anything_short_of_certain_abstains():
     name, artist = "Wagner: Der fliegende Holländer", "Antal Dorati"
     whole = {1: 16, 2: 16}
     assert pick_release({"releases": [rel(uid(1)), rel(uid(2), score=93)]}, name, artist, whole).why == "ambiguous"
-    assert pick_release({"releases": [rel(uid(1), score=92)]}, name, artist, whole).why == "ambiguous"
+    assert pick_release({"releases": [rel(uid(1), score=92)]}, name, artist, whole).why == "low score"
     assert pick_release({"releases": [rel(uid(1), media=(16, 15))]}, name, artist, whole).why == "none"
     assert pick_release({"releases": [rel(uid(1), title="Tannhäuser")]}, name, artist, whole).why == "none"
     other = [{"name": "Georg Solti", "artist": {"name": "Georg Solti", "sort-name": "Solti, Georg"}}]
@@ -123,3 +123,55 @@ def test_albums_with_mbids_or_no_artist_are_not_searched(tmp_path):
     mb = ReleaseMB()
     index_album(tmp_path, mb, "Tanglewood 7", "Various Artists", ["01"], [300])
     assert not any("/release" in u for u in mb.calls)
+
+
+def test_only_tracks_whose_lengths_agree_are_linked():
+    media = [{"tracks": [{"position": i, "length": 200_000, "recording": {"id": uid(100 + i)}} for i in range(1, 7)]}]
+    ours = [(f"t{i}", 1, i, 200) for i in range(1, 6)] + [("t6", 1, 6, 420)]   # a bonus take in slot 6
+    got, why = track_recordings({"media": media}, ours, None)
+    assert why == "ok" and "t6" not in got and len(got) == 5
+
+
+def test_discs_that_are_not_one_to_n_do_not_fit():
+    s = {"releases": [rel(uid(1), media=(16, 16))]}
+    assert pick_release(s, "Der fliegende Holländer", "Antal Dorati", {2: 16, 3: 16}).why == "none"
+
+
+def _two_disc_mb():
+    mb = ReleaseMB()
+    opera = mb.work(uid(10), "Der fliegende Holländer", type="Opera")
+    for i in (1, 2, 3, 4):
+        mb.work(uid(20 + i), f"Der fliegende Holländer: No. {i}", parent=opera, order=i)
+        mb.recording(uid(100 + i), f"No. {i}", uid(20 + i))
+    mb.search = {"releases": [rel(uid(1), media=(2, 2))]}
+    mb.releases[uid(1)] = {"id": uid(1), "media": [
+        {"tracks": [{"position": i, "length": 1000 * (200 + i), "recording": {"id": uid(100 + i)}} for i in (1, 2)]},
+        {"tracks": [{"position": i, "length": 1000 * (300 + i), "recording": {"id": uid(102 + i)}} for i in (1, 2)]}]}
+    return mb
+
+
+def _album(aid, name, base):
+    return AlbumIn(aid, name, "Antal Dorati", None, None, [
+        TrackIn(f"{aid}-{i}", None, i, f"Track {i}", "Antal Dorati", base + i,
+                mappings=[MappingIn("filesystem_local", f"{aid}/{i}", fingerprint="f", path=f"{aid}/{i}")])
+        for i in (1, 2)])
+
+
+def _release_links(idx, aid):
+    return {r[0] for r in idx.con.execute("SELECT entity_id FROM evidence WHERE entity='release_track' "
+                                          "AND retracted_at IS NULL AND entity_id LIKE ?", (f"{aid}-%",))}
+
+
+def test_two_discs_making_the_same_search_keep_their_own_matches(tmp_path):
+    """'Disc 1' and 'Disc 2' search for the same release; indexing disc 2 must not retract disc 1's links."""
+    mb = _two_disc_mb()
+    con = connect(tmp_path / "index.db")
+    migrate(con)
+    idx = Index(con, mb.client(), tag_reader=lambda p: TagInfo(title=None))
+    asyncio.run(idx.index_album(_album("A1", "Der fliegende Holländer Disc 1", 200)))
+    asyncio.run(idx.index_album(_album("A2", "Der fliegende Holländer Disc 2", 300)))
+    assert _release_links(idx, "A1") == {"A1-1", "A1-2"} and _release_links(idx, "A2") == {"A2-1", "A2-2"}
+    # renamed to something MB does not know: the old match is retracted, not kept under the old search
+    mb.search = {"releases": []}
+    asyncio.run(idx.index_album(_album("A1", "Fliegende Holländer (my rip) Disc 1", 200), force=True))
+    assert _release_links(idx, "A1") == set() and _release_links(idx, "A2") == {"A2-1", "A2-2"}

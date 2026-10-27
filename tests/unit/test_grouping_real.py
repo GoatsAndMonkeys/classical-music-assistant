@@ -402,3 +402,20 @@ def test_composer_tagged_tracks_left_over_are_listed(tmp_path):
                                  ("Adagio", {"composers": ["Mahler"]}), ("Lied", {"composers": ["Barber"]})])
     assert titles(idx) == ["Symphony No. 5 in C minor, Op. 67"]
     assert "tracks with a composer but no identifiable work" in reasons(idx)
+
+
+def test_double_dash_head_that_is_not_a_name_is_no_composer(tmp_path):
+    """'Overture--Allegro', 'Tristan und Isolde--Prelude': the head before '--' is a work, not a composer."""
+    idx, r = new_index(tmp_path)
+    add(idx, r, "Some Concert", [("Overture--Allegro", {}), ("Tristan und Isolde--Prelude", {})], artist="Pinnock")
+    assert not {c["name"] for c in idx.composers()} & {"Overture", "Tristan und Isolde"}
+
+
+def test_bare_surname_and_number_is_a_symphony_only_in_a_log(tmp_path):
+    """'Glass 1' or 'Chopin 3' on an ordinary album is not Symphony No. 1 or 3."""
+    idx, r = new_index(tmp_path)
+    add(idx, r, "Etudes", [("Chopin 3", {}), ("Chopin 4", {})], artist="Pollini")
+    assert not [t for t in titles(idx) if t.startswith("Symphony")]
+    idx, r = new_index(tmp_path / "log") if (tmp_path / "log").mkdir() is None else None
+    add(idx, r, "1812 Overture", [("Tchaikovsky 4-1", {}), ("Tchaikovsky 4-2", {})], artist="Ormandy")
+    assert not [t for t in titles(idx) if t.startswith("Symphony")]

@@ -570,22 +570,24 @@ class Index:
 
     async def match_release(self, album: AlbumIn, tracks: list[TrackIn], stats: AlbumStats) -> None:
         """Recording MBIDs for an album with none, from the one MB release it unambiguously is (`release.py`).
-        Stored as evidence of the search URL; an uncertain match is stored only as a review note."""
-        if self.mb is None or not mbrel.wanted(album.name, album.artist):
+        Stored as evidence of the search URL (per album); an uncertain match is stored only as a review note."""
+        if self.mb is None:
             return
-        if not await self._w(self._release_wanted, tracks):
+        aid = album.library_album_id
+        if not mbrel.wanted(album.name, album.artist) or not await self._w(self._release_wanted, tracks):
+            await self._w(self._retract_release, aid, tracks, None)  # a match from before the album had MBIDs
             return
         url = mbrel.search_url(self.mb.base_url, album.name, album.artist)
         counts: dict[int, int] = {}
         for t in tracks:
             counts[t.disc or 1] = counts.get(t.disc or 1, 0) + 1
-        aid = album.library_album_id
         try:
             pick = mbrel.pick_release(await self.mb.get(url), album.name, album.artist, counts)
             stats.mb_requests += 1
             rows: list[tuple[str, str, str, str, str]] = []
             if pick.mbid:
                 _, marker = mbrel.split_disc(album.name)
+                marker = marker if len(counts) == 1 else None   # 'Disc 2' names one disc, not a tagged set
                 rel = await self.mb.get(mbrel.lookup_url(self.mb.base_url, pick.mbid))
                 stats.mb_requests += 1
                 recs, why = mbrel.track_recordings(
@@ -597,9 +599,10 @@ class Index:
                              "uncertain")]
                 for rid in sorted(set(recs.values())):
                     await self.refresh_mb_recording(rid, stats)
-            elif pick.why == "ambiguous":
+            elif pick.rivals:
+                why = "several releases match" if pick.why == "ambiguous" else "best match scores below 95"
                 rows = [("release_album", aid, "uncertain",
-                         json.dumps({"releases": pick.rivals, "why": "several releases match"}), "uncertain")]
+                         json.dumps({"releases": pick.rivals, "why": why}), "uncertain")]
         except MBError as e:
             log.debug("MB release search for %r: %s", album.name, e)
             stats.mb_failures += isinstance(e, MBTransientError)
@@ -607,7 +610,17 @@ class Index:
         except Exception as e:  # noqa: BLE001 - malformed MB JSON abstains; it must not fail the album
             log.warning("MB release search for %r: unparseable response: %r", album.name, e)
             return
-        await self._w(self.replace_origin, url, "mb", rows)
+        # per album: 'Fidelio Disc 1' and 'Disc 2' make the same search, and must not retract each other's rows
+        origin = f"{url}#album={aid}"
+        await self._w(self._retract_release, aid, tracks, origin)   # a search under an earlier album name
+        await self._w(self.replace_origin, origin, "mb", rows)
+
+    def _retract_release(self, aid: str, tracks: list[TrackIn], keep: str | None) -> None:
+        """Retract release-match evidence for this album from any search but `keep`."""
+        ids = [("release_album", aid)] + [("release_track", t.library_track_id) for t in tracks]
+        stale = {r["source_ref"] for e, i in ids for r in self._live(e, i) if r["source_ref"] != keep}
+        for origin in sorted(stale):
+            self.replace_origin(origin, "mb", [])
 
     def _release_wanted(self, tracks: list[TrackIn]) -> bool:
         """Only an album with no MBID anywhere (no MA track MBID, no recording or work MBID tag)."""
@@ -962,7 +975,8 @@ class Index:
         for r in self._q(f"SELECT m.item_id FROM mapping_state m JOIN occurrence o ON o.library_track_id="
                          f"m.library_track_id WHERE o.id IN ({marks}) AND m.provider_instance LIKE 'filesystem%' "
                          f"AND m.status != 'gone' ORDER BY m.item_id", [f.occ_id for f in facts]):
-            for part in r["item_id"].split(CUE_TRACK)[0].split("/")[:-1]:
+            # deepest first: 'Beethoven/Karajan - Brahms 4/' is not a Beethoven album
+            for part in reversed(r["item_id"].split(CUE_TRACK)[0].split("/")[:-1]):
                 out.setdefault(part)
         return list(out)
 
@@ -1297,7 +1311,7 @@ class Index:
         # a performer is not a work: 'Bryn Terfel' (album artist) would otherwise become one
         performers = {norm_key(p.name) for f in facts for p in f.credits}
         # a concert log ('151017 Elektra BSO', '260307 BSO Blomstedt') names players as often as works
-        log = bool(re.match(r"\s*\d{4,8}\s", album.name or ""))
+        log = _is_log(album.name)
         for a in [album.artist] + [f.track["artist"] for f in facts]:
             performers.update(norm_key(x) for x in re.split(r"\s*(?:;|/|,|&|\x00)\s*", a or ""))
         # the segment after a composer's name is the strongest ('Flagstad; Patzak | Beethoven: Fidelio')
@@ -1516,8 +1530,9 @@ class Index:
             number, movement = parse_movement(title[len(prefix):].lstrip(" :,-–—/"))
         elif parsed:
             work, number, movement, hint = parsed.work, parsed.movement_no, parsed.movement_name, parsed.composer_hint
-        elif (short := parse_shorthand(title)) is not None and (known := self._shorthand_composer(
-                short.composer_hint)):
+        elif ((short := parse_shorthand(title)) is not None
+              and (_is_log(album.name) or not _BARE_SHORTHAND.match(title))
+              and (known := self._shorthand_composer(short.composer_hint))):
             # 'Beethoven 9-1', 'Brahms PC1': a listed composer, then the work in a concert log's shorthand
             work, number, hint = short.work, short.movement_no, known
             named = known
@@ -1888,6 +1903,16 @@ class Index:
             "mappings": {r[0]: r[1] for r in self._q("SELECT status, COUNT(*) FROM mapping_state GROUP BY status")},
             "evidence_live": n("SELECT COUNT(*) FROM evidence WHERE retracted_at IS NULL"),
         }
+
+
+_LOG_NAME = re.compile(r"\s*(?:\d{6}|\d{8}|(?:19|20)\d\d)\s")
+# 'Glass 1', 'Field 3': a surname and a bare number reads as a symphony only in a concert log
+_BARE_SHORTHAND = re.compile(r"\s*\S+\s+(?:no\.?\s*)?\d{1,2}(?:\s*-\s*\d{1,2})?\s*$", re.IGNORECASE)
+
+
+def _is_log(name: str | None) -> bool:
+    """A broadcast log's label: '151017 Elektra BSO' (a YYMMDD, YYYYMMDD or 19xx/20xx date first), not '1812 Overture'."""
+    return bool(_LOG_NAME.match(name or ""))
 
 
 def album_family(album: AlbumIn) -> str:
