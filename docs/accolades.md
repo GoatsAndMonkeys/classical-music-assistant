@@ -1,0 +1,140 @@
+# Accolades: awards, reviews, ratings and review links (M3b)
+
+This milestone shows where a recording was acclaimed. It shows award badges, short attributed review excerpts,
+community ratings and "Read reviews" links. It also weights the Play pick and the "Most acclaimed" sort toward
+acclaimed recordings. The design follows PLAN.md §5.8 (sources) and §5.9 (weighting). The rule above all
+others: **never show an award on the wrong recording.** When the evidence is thin, the match goes to the review
+queue and nothing is shown.
+
+## Sources and rights
+
+| Source | What it gives | Default | Access and rights |
+|---|---|---|---|
+| Bundled dataset (`classical_core/data/accolades.json`) | Award winners and Grammy nominations: award, category, year, composer, work, performers (label for Diapason) | **on** (offline) | Compiled from Wikipedia list articles. Each source is cited in the file's `sources` with URL and retrieval date. Facts only: no prose is copied. |
+| MusicBrainz release-group url relations | Links to AllMusic, Discogs, Wikidata, Wikipedia, review pages | on with the existing MB setting | MB API, 1 request/s, cached (`mb_cache`). Data CC0. |
+| Wikidata P166 ("award received") with P585 (point in time) | Album-level awards | off | Wikidata API via the MB link to the item; CC0. Rate-limited, cached in `web_cache`. |
+| CritiqueBrainz | Reviews of the release group: rating, reviewer, ≤ 280-character excerpt with its licence and a link | off | Public API. Reviews are CC BY-SA / CC BY-NC-SA. Excerpts are attributed and carry the licence and the link to the full review. |
+| Discogs | Community rating (average and count) | off; needs a personal token | Discogs API with `Authorization: Discogs token=…`. Ratings expire after 6 hours (`expires_at`), as the API terms ask. |
+| Review sites (Presto Music, Gramophone, MusicWeb International, AllMusic, Discogs) | "Read reviews" links | always | **Links only.** These are search URLs built from composer, work and principal performer, or pages MB links to. Nothing is fetched. |
+
+Not used: any scraping of review sites, the Penguin Guide (no public list), and paid APIs.
+
+## The bundled dataset
+
+There are 2086 entries in 73 categories (312 KB):
+
+| Award | Entries |
+|---|---|
+| Grammy winners (7 classical categories, 1959 onwards; years are ceremony years) | 272 |
+| Grammy nominees (same categories) | 1211 |
+| Gramophone Award winners (recording categories only; artist/label/lifetime awards dropped) | 500 |
+| Diapason d'Or de l'Année winners | 103 |
+
+The rows are `[id, category, year, result, composer, work, performers, label?]`. `categories[i]` gives the
+award, the category, its source (an index into `sources`), its Wikipedia URL, and `historical` for
+historical/reissue categories. An id is the first 10 hex digits of the sha1 of
+`[award, category, year, result, composer, work, performers]`. A rebuild therefore keeps the ids, and the
+user decisions keyed on them (`accolade_decision`) survive it.
+
+To rebuild: `python scripts/build_accolades.py --fetch WIKI_DIR`, which downloads the 9 pages' wikitext with
+`action=raw`. To re-parse saved pages, drop `--fetch`. The parsers are simple on purpose. A row they cannot
+read cleanly is dropped and never guessed. The same goes for a row with no composer, no work, no performer, or
+a "composer" that looks like a collection ("Complete works", a volume). The current file is byte-identical to
+the script's output.
+
+Editable weights, year windows and title/word synonyms live in `classical_core/data/acclaim_tiers.json`.
+
+## Matching (classical_core/accolades.py)
+
+Matching runs offline in the `accolades` job, after the albums and scans. The job compares each entry with
+each indexed recording of the same composer (by surname), using these facts:
+
+- **Work.** Folded tokens of the work title. Catalogue numbers and keys must agree exactly. A plural or
+  generic title ("Symphonies", "Overtures") never matches a single work. Opera and work names in other
+  languages are rewritten through `titles`/`words`, so "The Flying Dutchman" becomes "Der fliegende
+  Holländer" and "Symfonie" becomes "Symphony". A nickname in one language only ("From the New World" against
+  "Z Nového světa") is ignored when the numbered core agrees.
+- **Performers.** These come from the recording's credits, the album's credits and the track-artist strings.
+  Each entry performer is matched by surname, and the given name must not conflict ("C. Kleiber" fits
+  "Carlos Kleiber" but not "Erich Kleiber"). Ensembles are matched by their distinctive words, and choruses
+  only to choruses. A **contradiction** rejects the match outright: a different conductor, or a different
+  orchestra, named where the entry names one.
+- **Years.** Each award has a window for the album's year: Grammy `[year-3, year]`, Gramophone
+  `[year-2, year]`, Diapason `[year-1, year]`. A recording made after the award year is never a match. Neither
+  is one made more than 10 years before it, except in historical categories.
+
+The result is one of four grades:
+
+| Grade | When | Shown as |
+|---|---|---|
+| `this_release` | exact work, ≥ 2 performers (or the single named performer in full), the principal performer present, album year in the window | the badge, e.g. "Grammy winner 1963" |
+| `other_release` | the same, but the album is a later reissue: recorded in or just before the window, released after it, and ≥ 3 performers, the label or the recording year confirm it | the badge, marked and noted "awarded to another release of this recording (1962)" |
+| `confirmed` | a user chose "Same recording" in the review queue | the badge, noted "match confirmed by a user" |
+| `uncertain` | some evidence (principal performer or ≥ 2 performers), not enough | **nothing**; a review item "Possible award: is this the awarded recording?" with the reasons |
+
+User decisions ("Same recording" / "Not this recording") are stored per entry, album and work, and survive
+reindexing. Rejected matches are never proposed again.
+
+Entries that cover several works ("Symphonies 5 & 7") attach to the album, not a recording. That happens only
+on `this_release` with ≥ 2 performers, and the badge is noted "for the album". Network rows are album-level
+as well. They count toward a recording's acclaim only when the album holds exactly one recording.
+
+## Weighting and the Play pick
+
+`tier_weight` maps each counted accolade to a weight:
+
+- tier A (major award winners): 2.5;
+- B (Diapason d'Or, editor's choices, Wikidata awards): 1.8;
+- C (a CritiqueBrainz review rated ≥ 4/5): 1.3;
+- D (a Discogs rating ≥ 4/5 from ≥ 5 votes): 1.15;
+- a nomination: 1.3.
+
+A recording's `acclaim` is its strongest weight, plus 0.1 × (w − 1) for each further accolade, capped at 2.5.
+A recording with nothing weighs 1.0.
+
+`best_pick` (used by `Index.best_recording`, and so by Play and the work page) ranks recordings by:
+
+1. completeness first (a complete recording still beats an acclaimed excerpt);
+2. then acclaim;
+3. then confirmed status and evidence, as before.
+
+The pick's reason names the award, e.g. "Gramophone Award 1976 (Orchestral)", only when acclaim decided it.
+`pick_score(rec, accolades)` is exposed for future curation (radio, playlists). The work page's "Most
+acclaimed" sort is enabled when any recording of the work carries a counted accolade.
+
+## Commands and UI
+
+- `classical/accolades` (read): the accolades of one recording or one work.
+- `classical/accolade_decide` (manage): `confirm` | `reject` | `clear` on a review-queue match.
+- The work and recording views include `accolades`, `acclaim`, `awards`, `reviews`, `ratings`, `links` and
+  `review_links`.
+- The UI shows badges on recording rows, an acclaim line in the work header, and an "Accolades" section on the
+  recording page. That section holds awards, review excerpts with licence and link, ratings, and "Read
+  reviews:" links that open in a new tab with `rel="noopener noreferrer"`.
+
+## Configuration
+
+| Setting | Default |
+|---|---|
+| Show awards from the built-in list | on |
+| Look up album awards on Wikidata | off (advanced) |
+| Show CritiqueBrainz reviews | off (advanced) |
+| Show Discogs community ratings + token | off (advanced) |
+
+Network enrichment runs in chunks of 20 albums after the dataset refresh. It uses the MB contact as its user
+agent and the per-host rate limits (Wikidata and CritiqueBrainz 1 request/s, Discogs 1.1 s). Successful
+answers are cached for 90 days (Discogs for 6 hours), and an album is enriched again after 30 days. A transient failure stops the chunk and leaves the rest
+for the next run.
+
+## Deferred
+
+- **Penguin Guide rosettes**: there is no public list.
+- **BBC Music Magazine Awards and the Preis der deutschen Schallplattenkritik**: their Wikipedia pages have
+  no usable per-recording lists.
+- **Edison Klassiek, ICMA and Choc de Classica**: not compiled yet. The tiers file already weights them, so
+  adding them is a matter of writing parsers.
+- **Gramophone's site search**: its URL is not verified, so the link is a DuckDuckGo `site:gramophone.co.uk`
+  search.
+- **Wikidata awards**: these carry a generic tier B, because mapping award items to named awards is not done.
+- **Composer gaps**: Grammy entries with no composer in the list, mostly recitals and anthologies, are
+  dropped.

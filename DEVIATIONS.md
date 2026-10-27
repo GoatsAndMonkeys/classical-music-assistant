@@ -210,8 +210,12 @@ Each entry says what the plan asked for, what was built instead, and why.
 - **Corrections need LIBRARY_MANAGE.** The UI calls the existing `classical/merge_composers` and
   `classical/composer_name` commands, and hides those controls when `classical/ui_info` says the user lacks the
   scope. The server still enforces the scope.
-- **"Most acclaimed" sorting is a disabled placeholder.** Recordings carry an empty `accolades` list until award
-  data exists.
+- **"Most acclaimed" sorting is enabled only for works with acclaim.** It is disabled ("no awards found") when no
+  recording of the work carries a counted accolade (docs/accolades.md).
+- **Accolades are matched against a bundled, Wikipedia-compiled list, not live award sites.** Network sources
+  other than MusicBrainz (Wikidata, CritiqueBrainz, Discogs) are opt-in, and review sites are links only. Award
+  badges need work, performer and year agreement. A reissue is labelled "another release of this recording",
+  and anything weaker waits in the review queue (docs/accolades.md).
 - **Composed-date filters return nothing yet.** The index stores no composition dates, so the Works filter
   reports `date_coverage.composed = 0`. Recorded and released years work.
 - **MA's remote (WebRTC) mode is not supported.** The page needs to reach MA over HTTP (LAN, reverse proxy or HA
