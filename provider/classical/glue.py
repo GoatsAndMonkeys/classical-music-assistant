@@ -207,8 +207,16 @@ class ClassicalProvider(PluginProvider):
                 break
             for row in rows:
                 start = int(row["item_id"])
-                if await self._index_album_id(str(start), force=force):
-                    n += 1
+                try:
+                    if await self._index_album_id(str(start), force=force):
+                        n += 1
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    # one bad album must not abort the scan; the cursor still advances past it, or every
+                    # resumed scan would retry it first and fail again
+                    self._state["errors"] += 1
+                    self.logger.exception("Classical: indexing album %s failed", start)
                 self._set_job("scan", "running", str(start))
         # albums the index knows but MA no longer has
         present = set()
