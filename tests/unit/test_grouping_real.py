@@ -216,3 +216,13 @@ def test_title_helpers():
     for t in ("Probable, based on duration and Track 09 commentary", "Part II, close and applause",
               "Continuous segment 6 of 6. Ends with the close of the Libera me", "Post-concert encore / applause"):
         assert not is_talk_tail(t), t
+
+
+def test_librettist_listed_first_neither_crashes_nor_hides_the_composer(tmp_path):
+    """TCOM 'Sonnleithner, Joseph von [Author]/Ludwig van Beethoven' as two values, librettist first."""
+    idx, r = new_index(tmp_path)
+    comp = {"composers": ["Sonnleithner, Joseph von [Author]", "Ludwig van Beethoven"]}
+    add(idx, r, "Beethoven: Fidelio", [(t, comp) for t in ("Nr. 1", "Nr. 2", "Nr. 3")])
+    ws, sizes = recs(idx, "Fidelio")
+    assert len(ws) == 1 and sizes == [3], titles(idx)
+    assert [c["name"] for c in idx.composers()] == ["Ludwig van Beethoven"]

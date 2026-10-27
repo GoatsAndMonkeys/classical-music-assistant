@@ -1147,13 +1147,18 @@ class Index:
             if len(segs[0].split()) > 4:
                 return None     # a sentence, not a title ('solti fidelio disc 2 track listings wrong')
             composers = self._album_composer(facts, album)
-            named = {self._composers_from([n])[0] for f in facts if f.tags for n in f.tags.composers[:1]}
+            # first composer per track, after parsing ('Sonnleithner [Author]' first is not a composer)
+            named = {own[0] for f in facts if (own := self._own_composer(f))}
             if not composers or len(named) > 1:
                 return None     # 'Tanglewood 6': tracks by several composers are not one work
             key = f"title:{norm_key(composers[0][0])}|{tk}"
             return Cand(key=key, title=segs[0], tier="title", composers=composers, key_sig=cat.parse_key(segs[0]))
         specific = {c.key: c for c in cands if c.tier != "title" or c.catalogues}
         return next(iter(specific.values())) if len(specific) == 1 else None
+
+    def _own_composer(self, f: OccFacts) -> list[tuple[str, str | None]]:
+        """The track's first tagged composer as resolved, or [] (no tag, or only librettists and the like)."""
+        return self._composers_from(f.tags.composers)[:1] if f.tags and f.tags.composers else []
 
     def _names_composer(self, seg: str) -> bool:
         c = parse_one(seg)
@@ -1178,7 +1183,7 @@ class Index:
                 c is None or (c.tier == "title" and not c.catalogues and c.key != tpl.key))
             if not (g or other):
                 continue
-            own = self._composers_from(f.tags.composers[:1]) if f.tags and f.tags.composers else []
+            own = self._own_composer(f)
             if own and tpl.composers and own[0] != tpl.composers[0]:
                 if g:
                     f.cand = None
