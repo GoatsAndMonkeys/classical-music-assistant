@@ -86,7 +86,8 @@ def entries() -> tuple[Entry, ...]:
         eid, ci, year, result, composer, work, performers = row[:7]
         c = cats[ci]
         out.append(Entry(eid, c["award"], c.get("category"), int(year), result, composer, work,
-                         _split_people(performers), row[7] if len(row) > 7 else None, c.get("url"),
+                         _split_people(performers), (row[7] if len(row) > 7 else None) or None,
+                         row[8] if len(row) > 8 and row[8] else c.get("url"),     # a per-entry page, else the list
                          srcs[c["source"]]["title"], bool(c.get("historical"))))
     return tuple(out)
 
@@ -466,7 +467,7 @@ def grade(e: Entry, wm: str | None, pm: PerfMatch, f: Facts) -> tuple[str | None
         if pm.contradiction:
             why["contradiction"] = pm.contradiction
         return None, why
-    if f.recorded is not None and f.recorded > e.year:
+    if f.recorded is not None and f.recorded > max(hi, e.year - 1):        # recorded after the awarded disc
         return None, why
     if f.recorded is not None and not e.historical and f.recorded < e.year - tiers()["years"]["recorded_before"]:
         return None, why

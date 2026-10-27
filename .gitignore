@@ -26,3 +26,5 @@ docker/.env.local
 .DS_Store
 docs/draft-5481-comment.md
 docs/screenshots/real-library/
+# downloaded source pages for scripts/build_accolades.py
+.cache/

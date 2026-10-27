@@ -51,9 +51,9 @@ up your MA data directory before trying it.
     instrument), and can show only those who recorded with a given performer.
   - Composition and premiere dates on work pages, with Period and Decade filters on the works list.
   - It works on phones and follows the system light or dark theme.
-- **Award badges** from a bundled list of about 2,100 Grammy, Gramophone and Diapason d'Or entries. A badge
-  needs the work, the performers and the year to fit; a different conductor rules it out. Weaker matches go to
-  review instead of being shown.
+- **Award badges** from a bundled list of about 2,250 Grammy, Gramophone, Diapason d'Or and BBC Music
+  Magazine Award entries. A badge needs the work, the performers and the year to fit; a different conductor
+  rules it out. Weaker matches go to review instead of being shown.
 - **"Today" shelves** on the MA home page (through MA's recommendations) and on the companion page: premieres
   and anniversaries on this date, the season and the weekday, favouring acclaimed recordings.
 - **Streaming albums** in your MA library (Qobuz, Apple Music, Tidal, Spotify and others) are indexed next to

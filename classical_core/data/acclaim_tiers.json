@@ -22,10 +22,11 @@
   "Discogs rating": "D"
  },
  "years": {
-  "about": "Which album years fit an award year: [year - before, year + after]. Grammy years are ceremony years.",
+  "about": "Which album years fit an award year: [year - before, year + after]. Grammy years are ceremony years; BBC Music Magazine Awards (announced in spring) go to discs reviewed the year before, so a session after `year + after` is another recording.",
   "Grammy": [3, 0],
   "Gramophone Award": [2, 0],
   "Diapason d'Or de l'Année": [1, 0],
+  "BBC Music Magazine Award": [2, -1],
   "default": [2, 0],
   "recorded_before": 10
  },

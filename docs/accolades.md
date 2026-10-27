@@ -10,7 +10,7 @@ queue and nothing is shown.
 
 | Source | What it gives | Default | Access and rights |
 |---|---|---|---|
-| Bundled dataset (`classical_core/data/accolades.json`) | Award winners and Grammy nominations: award, category, year, composer, work, performers (label for Diapason) | **on** (offline) | Compiled from Wikipedia list articles. Each source is cited in the file's `sources` with URL and retrieval date. Facts only: no prose is copied. |
+| Bundled dataset (`classical_core/data/accolades.json`) | Award winners and Grammy nominations: award, category, year, composer, work, performers (label for Diapason and BBC) | **on** (offline) | Compiled from Wikipedia list articles and BBC Music Magazine's own winner announcements. Each source is cited in the file's `sources` with URL and retrieval date, and each BBC row cites its page. Facts only: no prose is copied. |
 | MusicBrainz release-group url relations | Links to AllMusic, Discogs, Wikidata, Wikipedia, review pages | on with the existing MB setting | MB API, 1 request/s, cached (`mb_cache`). Data CC0. |
 | Wikidata P166 ("award received") with P585 (point in time) | Album-level awards | off | Wikidata API via the MB link to the item; CC0. Rate-limited, cached in `web_cache`. |
 | CritiqueBrainz | Reviews of the release group: rating, reviewer, ≤ 280-character excerpt with its licence and a link | off | Public API. Reviews are CC BY-SA / CC BY-NC-SA. Excerpts are attributed and carry the licence and the link to the full review. |
@@ -21,7 +21,7 @@ Not used: any scraping of review sites, the Penguin Guide (no public list), and 
 
 ## The bundled dataset
 
-There are 2110 entries in 73 categories (308 KB):
+There are 2251 entries in 83 categories (341 KB):
 
 | Award | Entries |
 |---|---|
@@ -29,18 +29,48 @@ There are 2110 entries in 73 categories (308 KB):
 | Grammy nominees (same categories; a nominee row that repeats the winner is dropped) | 1244 |
 | Gramophone Award winners (recording categories only; artist/label/lifetime awards dropped) | 501 |
 | Diapason d'Or de l'Année winners (from 2014 a line can hold several awards; one the parser cannot split is dropped) | 93 |
+| BBC Music Magazine Award winners (9 recording categories plus Recording of the Year, 2007–2026; see below) | 141 |
 
-The rows are `[id, category, year, result, composer, work, performers, label?]`. `categories[i]` gives the
+The rows are `[id, category, year, result, composer, work, performers, label?, url?]`. `url` is the page the
+row was read from (BBC rows); without it the category's URL is cited. A BBC row whose page names no label has
+`null` there. `categories[i]` gives the
 award, the category, its source (an index into `sources`), its Wikipedia URL, and `historical` for
 historical/reissue categories. An id is the first 10 hex digits of the sha1 of
 `[award, category, year, result, composer, work, performers]`. A rebuild therefore keeps the ids, and the
 user decisions keyed on them (`accolade_decision`) survive it.
 
 To rebuild: `python scripts/build_accolades.py --fetch WIKI_DIR`, which downloads the 9 pages' wikitext with
-`action=raw`. To re-parse saved pages, drop `--fetch`. The parsers are simple on purpose. A row they cannot
+`action=raw` and the BBC pages into `WIKI_DIR/bbc/` (one request every 1.1 s, with a user agent naming the
+project). `.cache/` is git-ignored and is the usual `WIKI_DIR`. To re-parse saved pages, drop `--fetch`. The parsers are simple on purpose. A row they cannot
 read cleanly is dropped and never guessed. The same goes for a row with no composer, no work, no performer, or
 a "composer" that looks like a collection ("Complete works", a volume). The current file is byte-identical to
 the script's output.
+
+### BBC Music Magazine Awards
+
+Wikipedia has no per-recording list, so the rows come from the magazine's own winner announcements, one page
+per year (2008 and 2009: one page per category). The live pages on classical-music.com are used for 2012,
+2014, 2015 and 2019–2026. The older pages (2007–2011 on bbcmusicmagazine.com and classical-music.com, 2016–2018
+on awards.classical-music.com) are gone, so their Internet Archive copies are read (`web.archive.org/web/<ts>id_/`),
+and the row cites the archived URL. No list of the 2013 winners survives, so 2013 is missing. In 2022 and 2023
+the announcement names the winners in prose, so the disc details come from that year's nominee list.
+
+Only recordings of works are kept: the nine recording categories (Orchestral, Concerto, Opera, Choral, Chamber,
+Vocal, Instrumental, Premiere, Newcomer) and Recording of the Year. DVD, film, Personality and the other
+non-recording awards are skipped. A disc that won two categories gives two rows. A multi-composer disc keeps
+every composer: the first is `composer`, and `work` lists the rest as `Work; Other: work`, so it matches at album
+level. Performers go through the same normalisation as the other sources (roles and "Sir"/"Dame" dropped,
+abbreviations such as LSO expanded, "Orchestra/Conductor" split).
+
+Dropped, and counted by the script (`BBC winners dropped`): 24 winners whose lines cannot be taken apart into
+composer, work and performers (run-on text, a heading that names only the artist), and 18 recitals and
+anthologies ("works by …", an aria or song disc credited to its singer), which name no one composer's work.
+
+Licence: the rows are facts (award, year, category, composer, work, performers, label). No review or jury text
+is copied, and the downloaded pages stay in the git-ignored cache.
+
+BBC awards are announced in spring for discs reviewed in the year before, so their year window is
+`[year - 2, year - 1]`, and a session recorded after that (a later concert of the same artists) never matches.
 
 Editable weights, year windows and title/word synonyms live in `classical_core/data/acclaim_tiers.json`.
 
@@ -134,9 +164,12 @@ for the next run.
 ## Deferred
 
 - **Penguin Guide rosettes**: there is no public list.
-- **BBC Music Magazine Awards and the Preis der deutschen Schallplattenkritik**: their Wikipedia pages have
-  no usable per-recording lists.
-- **Edison Klassiek, ICMA and Choc de Classica**: not compiled yet. The tiers file already weights them, so
+- **Preis der deutschen Schallplattenkritik**: its Wikipedia page has no usable per-recording list.
+- **The 2013 BBC Music Magazine Awards**: no winner list survives on the magazine's site or in the Internet
+  Archive.
+- **ICMA (International Classical Music Awards)**: the per-year Wikipedia lists mix layouts (tables, prose,
+  missing performers or labels), so there is no clean public list to parse yet.
+- **Edison Klassiek and Choc de Classica**: not compiled yet. The tiers file already weights them, so
   adding them is a matter of writing parsers.
 - **Gramophone's site search**: its URL is not verified, so the link is a DuckDuckGo `site:gramophone.co.uk`
   search.

@@ -212,7 +212,8 @@ Each entry says what the plan asked for, what was built instead, and why.
   scope. The server still enforces the scope.
 - **"Most acclaimed" sorting is enabled only for works with acclaim.** It is disabled ("no awards found") when no
   recording of the work carries a counted accolade (docs/accolades.md).
-- **Accolades are matched against a bundled, Wikipedia-compiled list, not live award sites.** Network sources
+- **Accolades are matched against a bundled list compiled from Wikipedia and BBC Music Magazine's winner pages,
+  not live award sites.** Network sources
   other than MusicBrainz (Wikidata, CritiqueBrainz, Discogs) are opt-in, and review sites are links only. Award
   badges need work, performer and year agreement. A reissue is labelled "another release of this recording",
   and anything weaker waits in the review queue (docs/accolades.md).
