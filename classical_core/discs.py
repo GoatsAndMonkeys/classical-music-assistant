@@ -195,9 +195,9 @@ def judge(a: Disc, b: Disc, forced: bool = False) -> tuple[str | None, str]:
         return None, "different disc totals"
     if any(d.disc_total and d.disc_no and d.disc_no > d.disc_total for d in (a, b)):
         return None, "disc number above the total"
-    if _differ(a.year, b.year, str) or _differ(a.label, b.label) or _differ(a.release, b.release, str.lower) \
+    if _differ(a.label, b.label) or _differ(a.release, b.release, str.lower) \
             or (_differ(a.artist, b.artist) and norm_key(a.artist or "") not in PLACEHOLDER_ARTISTS):
-        return None, "different album artist, label, year or release"
+        return None, "different album artist, label or release"
     if ra.complete or rb.complete:
         return None, "a disc already holds the whole work"
     shared = set(ra.keys) & set(rb.keys)
@@ -217,16 +217,19 @@ def judge(a: Disc, b: Disc, forced: bool = False) -> tuple[str | None, str]:
     no_lead = not (ra.conductors and rb.conductors) and not (ra.orchestras and rb.orchestras)
     if no_lead and ra.soloists and rb.soloists and not ra.soloists & rb.soloists:
         return None, "different performers"
+    uncredited = not (ra.conductors or ra.orchestras or ra.soloists or rb.conductors or rb.orchestras or rb.soloists)
+    if uncredited and ra.artists and rb.artists and not ra.artists & rb.artists:
+        return None, "different performers"            # no credits at all, and other track artists
     if ra.years and rb.years and (rb.years[0] - ra.years[1] > 1 or ra.years[0] - rb.years[1] > 1):
         return None, "recorded in different years"
     # nothing contradicts: join only on positive evidence of every kind
     doubts = []
+    if _differ(a.year, b.year, str):
+        doubts.append("different album years")         # a reissue year on one disc's tags is common
     if a.disc_no is None or b.disc_no is None:
         doubts.append("no disc number on both albums")
     agree = (ra.conductors & rb.conductors or ra.orchestras & rb.orchestras
-             or (no_lead and ra.soloists & rb.soloists)
-             or (not (ra.conductors or ra.orchestras or ra.soloists or rb.conductors or rb.orchestras
-                      or rb.soloists) and ra.artists & rb.artists))
+             or (no_lead and ra.soloists & rb.soloists) or (uncredited and ra.artists & rb.artists))
     if not agree:
         doubts.append("no performer known on both discs")
     if not ((ra.keys and rb.keys) or (ra.nums and rb.nums)):
@@ -419,9 +422,11 @@ def join_sets(ix: Index, aids: list[str]) -> list[str]:
         _apply(ix, chain)
         leads.append(r.id)
         joined |= {x.id for x in chain}
+    queued: set[str] = set()
     for a, b, why in reviews:
-        if b.first is None or a.last is None or b.first.id in joined:
-            continue
+        if b.first is None or a.last is None or b.first.id in joined or pair_key(a.aid, b.aid) in queued:
+            continue                                   # one item per album pair, whichever way round
+        queued.add(pair_key(a.aid, b.aid))
         ix.con.execute(
             "INSERT INTO review_item(id, reason, album_library_id, entity, entity_id, detail_json) VALUES (?,?,?,?,?,?)",
             (_new_id(), CONTINUATION, b.aid, "recording", b.first.id,

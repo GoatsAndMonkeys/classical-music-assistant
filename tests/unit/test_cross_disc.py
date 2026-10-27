@@ -290,3 +290,31 @@ def test_an_entry_on_the_recording_and_on_a_later_discs_album_shows_once(tmp_pat
             "source_ref, grade, fetched_at) VALUES (?,?,?,?,'award','Grammy',1982,'winner','wikidata','Q1/P166/x',"
             "'this_release',0)", (f"a{i}", target, rid, aid))
     assert len(views.recording(idx, rec["id"])["awards"]) == 1
+
+
+def test_a_reissue_year_on_one_disc_is_queued_not_rejected(tmp_path):
+    """Real tags: Böhm's Fidelio disc 1 says 2005 (the reissue), disc 2 says 1969. Same artists, discs follow on:
+    a person should look, never a silent miss and never a guessed join."""
+    from dataclasses import replace
+    idx, r = new_index(tmp_path)
+    mahler_disc(idx, r, 1)
+    mahler_disc(idx, r, 2)
+    by_no = {x["disc_no"]: discs._disc(idx, x) for x in discs.members(idx, idx.album_ids())}
+    assert discs.judge(by_no[1], by_no[2])[0] == "join"
+    verdict, why = discs.judge(replace(by_no[1], year=2005), by_no[2])
+    assert verdict == "review" and "different album years" in why
+
+
+def test_uncredited_discs_by_other_track_artists_are_not_queued(tmp_path):
+    """No conductor/orchestra/soloist credits on either disc and nothing in common among the track artists:
+    another performance, not a continuation to ask about."""
+    idx, r = new_index(tmp_path)
+    mahler_disc(idx, r, 1, performers=[], artist="Eugen Jochum")
+    d2 = mahler_disc(idx, r, 2, performers=[], artist="Eugen Jochum")
+    for t in d2.tracks:
+        t.artist = "Rafael Kubelik"                  # the album artist agrees; the track artists do not
+    asyncio.run(idx.index_album(d2, force=True))
+    by_no = {x["disc_no"]: discs._disc(idx, x) for x in discs.members(idx, idx.album_ids())}
+    assert discs.judge(by_no[1], by_no[2]) == (None, "different performers")
+    assert len(visible(idx)) == 2
+    assert not idx._q("SELECT 1 FROM review_item WHERE reason=?", (discs.CONTINUATION,))
