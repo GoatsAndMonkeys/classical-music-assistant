@@ -552,3 +552,18 @@ Roon shows them; repeated work titles make big boxes hard to browse.
   continuation review items (Leonore 61/62, Fidelio 63/64 and 99/100) and changes nothing else.
 - **Known gaps.** A box disc with no disc marker in its name (the Karajan Complete EMI disc, "Fidelio" as
   its own MA album) is not found. Box discs are not joined automatically.
+- **Adversarial review (2026-10-27).**
+  - A lone disc of a box ('Bach Edition [CD 12 of 155]' with the rest missing) is no box; before, it was taken
+    for a one-album box and its "CD" came from its own tracks (CD 1).
+  - The continuation window opens only for a box `boxes.resolve` accepts: no neighbours after "Not a box set",
+    for a group with a repeated disc number, or for a 2-3 disc set.
+  - A box disc tagged DISCNUMBER 1/1 (each disc ripped as its own album) takes its number from the title.
+  - A continuation item at the edge of the window (its earlier disc outside it) is no longer deleted when an
+    inner disc is derived again.
+  - The "already joined" lookup uses the recording keys and the joined_to index instead of an expression join.
+  - A box cover comes only from an album the caller can see.
+  - Benchmark (synthetic 9,605 albums, 27k recordings, 61 boxes incl. one of 155 discs; M4): `boxes.resolve`
+    23 ms, Box list 82 ms, a 155-disc Box page 17 ms, work and recording pages with box context 2 ms, the join
+    pass of a box disc 4 ms; the accolade facts take 2.2 s against 1.9 s before.
+  - Known: a split box's id carries its composer's id, so a "Not a box set" on one of two colliding boxes is lost
+    if that composer is merged away.

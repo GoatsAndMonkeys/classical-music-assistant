@@ -31,6 +31,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from . import boxes
 from .boxes import WINDOW
 from .release import PLACEHOLDER_ARTISTS
 from .text import norm_key
@@ -157,10 +158,13 @@ def _rec(ix: Index, rid: str) -> Rec | None:
 
 
 def _disc(ix: Index, row: Any) -> Disc:
-    # a box disc's number from its title ('CD 061') when the tags give none
-    no = row["disc_no"] if row["disc_no"] is not None else row["box_disc"]
+    # a box disc's number from its title ('CD 061') when the tags give none or a tagger's default 1 ('1/1': each
+    # disc ripped as its own album); its total then is the box's, as far as anything says
+    no, total = row["disc_no"], row["disc_total"]
+    if row["box_disc"] is not None and (no is None or (no == 1 and total in (None, 1) and row["box_disc"] > 1)):
+        no, total = row["box_disc"], row["box_total"] if (row["box_total"] or 0) >= row["box_disc"] else None
     d = Disc(row["album_library_id"], row["name"] or "", row["artist"], row["year"], row["label"], no,
-             row["disc_total"], row["release_mbid"] or row["mb_release"])
+             total, row["release_mbid"] or row["mb_release"])
     placed = ix._q("SELECT s.home_id FROM recording_slot s JOIN occurrence o ON o.id=s.occurrence_id "
                    "WHERE o.album_library_id=? AND o.present=1 "
                    "ORDER BY COALESCE(o.disc,1), COALESCE(o.position,0), s.home_ord", (d.aid,))
@@ -263,7 +267,7 @@ def pair_key(a: str, b: str) -> str:
 
 
 _ALBUM_COLS = ("SELECT album_library_id, name, artist, year, label, disc_no, disc_total, release_mbid, mb_release, "
-               "set_key, box_id, box_disc FROM album_info ")
+               "set_key, box_id, box_disc, box_total FROM album_info ")
 
 
 def members(ix: Index, aids: list[str], overrides: dict[str, tuple[str, dict]] | None = None) -> list[Any]:
@@ -296,22 +300,32 @@ def members(ix: Index, aids: list[str], overrides: dict[str, tuple[str, dict]] |
     if len(seen) > MAX_SET:
         # a naming collision, or a box whose discs share one release: only the box neighbours below
         seen = {a: r for a, r in seen.items() if a in aids}
-    # a disc of a box set ('Complete Works CD 061'): the box's discs either side (boxes.py), whatever their names
-    for aid in aids:
-        row = seen.get(aid)
-        if row is not None and row["box_id"] and row["box_disc"] is not None:
-            for r in ix._q(_ALBUM_COLS + "WHERE box_id=? AND box_disc BETWEEN ? AND ?",
-                           (row["box_id"], row["box_disc"] - WINDOW, row["box_disc"] + WINDOW)):
+    # a disc of a box set ('Complete Works CD 061'): the box's discs either side (boxes.py), whatever their names.
+    # Only a box as boxes.resolve decides it now: a group it rejects (a disc number twice, too few discs or
+    # works) or a user's 'not a box set' adds no neighbours.
+    boxed = [a for a in aids if (row := seen.get(a)) is not None and row["box_id"] and row["box_disc"] is not None]
+    if boxed:
+        for box, disc in boxes.of_albums(ix.con, boxed).values():
+            if disc is None:
+                continue
+            ids = [m["album_library_id"] for m in box.members
+                   if m["box_disc"] is not None and abs(m["box_disc"] - disc) <= WINDOW]
+            for r in ix._q(_ALBUM_COLS + "WHERE album_library_id IN (SELECT value FROM json_each(?))",
+                           (json.dumps(ids),)):
                 seen.setdefault(r["album_library_id"], r)
     # every album already joined with one of these: recomputing the set undoes its joins, so it is redone too
-    for r in ix._q("SELECT DISTINCT r2.album_library_id FROM recording r JOIN recording r2 "
-                   "ON COALESCE(r2.joined_to, r2.id)=COALESCE(r.joined_to, r.id) "
-                   "WHERE r.album_library_id IN (SELECT value FROM json_each(?)) "
-                   "AND (r.joined_to IS NOT NULL OR r.own_json IS NOT NULL)", (json.dumps(list(seen)),)):
-        if r[0] not in seen:
-            row = ix._one(_ALBUM_COLS + "WHERE album_library_id=?", (r[0],))
-            if row is not None:
-                seen[r[0]] = row
+    leads = [r[0] for r in ix._q(
+        "SELECT DISTINCT COALESCE(r.joined_to, r.id) FROM recording r WHERE r.album_library_id IN "
+        "(SELECT value FROM json_each(?)) AND (r.joined_to IS NOT NULL OR r.own_json IS NOT NULL)",
+        (json.dumps(list(seen)),))]
+    if leads:
+        for r in ix._q("SELECT DISTINCT album_library_id FROM recording WHERE id IN (SELECT value FROM json_each(:l)) "
+                       "UNION SELECT album_library_id FROM recording WHERE joined_to IN (SELECT value FROM json_each(:l))",
+                       {"l": json.dumps(leads)}):
+            if r[0] not in seen:
+                row = ix._one(_ALBUM_COLS + "WHERE album_library_id=?", (r[0],))
+                if row is not None:
+                    seen[r[0]] = row
     return list(seen.values())
 
 
@@ -382,8 +396,12 @@ def join_sets(ix: Index, aids: list[str]) -> list[str]:
         return []
     ids = [r["album_library_id"] for r in rows]
     unjoin_albums(ix, ids)
-    ix.con.execute("DELETE FROM review_item WHERE reason=? AND album_library_id IN (SELECT value FROM json_each(?))",
-                   (CONTINUATION, json.dumps(ids)))
+    # a continuation item is redone here only when both its albums are judged here: a box disc at the edge of
+    # the window keeps the item that pairs it with the disc before the window
+    ix.con.execute(
+        "DELETE FROM review_item WHERE reason=:r AND album_library_id IN (SELECT value FROM json_each(:ids)) AND "
+        "COALESCE((SELECT e.album_library_id FROM recording e WHERE e.id=json_extract(review_item.detail_json, "
+        "'$.earlier_recording')) IN (SELECT value FROM json_each(:ids)), 1)", {"r": CONTINUATION, "ids": json.dumps(ids)})
     if len(rows) < 2:
         return []
     discs = {r["album_library_id"]: _disc(ix, r) for r in rows}

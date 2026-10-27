@@ -539,8 +539,9 @@ def _box_item(r: dict, disc: int | None) -> dict:
             "duration_text": _fmt_duration(r["duration"] or 0), "play_uri": play_uri(r["work_id"], r["id"])}
 
 
-def _box_head(b: bx.Box, items: list[dict], discs: int) -> dict:
-    image = next((m["image_json"] for m in b.members if m["image_json"]), None)
+def _box_head(b: bx.Box, items: list[dict], discs: int, visible: set[str]) -> dict:
+    # the cover of an album the caller can see (a hidden provider's album says nothing, not even its art)
+    image = next((m["image_json"] for m in b.members if m["image_json"] and m["album_library_id"] in visible), None)
     return {"id": b.id, "title": b.title, "artist": b.artist, "single": b.single, "total": b.total,
             "discs": discs, "works": len({i["work_id"] for i in items}), "recordings": len(items),
             "composers": list(dict.fromkeys(i["composer"] for i in items if i["composer"])),
@@ -562,7 +563,7 @@ def boxes(ix: Index, vis=None) -> dict:
             continue
         discs = len({(r["album_library_id"], (r["first_pos"] or 10000) // 10000)
                      for m in b.members for r in by_album.get(m["album_library_id"], [])})
-        out.append(_box_head(b, items, discs))
+        out.append(_box_head(b, items, discs, set(by_album)))
     out.sort(key=lambda x: _sort_key(x["title"]))
     return {"boxes": out}
 
@@ -601,7 +602,7 @@ def box(ix: Index, box_id: str, vis=None) -> dict:
     sort_of = {r["work_id"]: (r["catalogue_sort"] or "~", _sort_key(r["sort_title"] or r["title"])) for r in recs}
     composers_out = [{**c, "works": sorted(c["works"].values(), key=lambda w: sort_of[w["id"]])}
                      for c in sorted(by_comp.values(), key=lambda c: (-len(c["works"]), _sort_key(c["name"])))]
-    return {"box": _box_head(b, items, len(discs)), "discs": [discs[k] for k in sorted(discs)],
+    return {"box": _box_head(b, items, len(discs), {r["album_library_id"] for r in recs}), "discs": [discs[k] for k in sorted(discs)],
             "composers": composers_out}
 
 

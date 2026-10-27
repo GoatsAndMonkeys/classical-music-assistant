@@ -85,7 +85,8 @@ def album_evidence(aid: str, name: str | None, artist: str | None, set_key: str 
         disc, total = disc_no, disc_total
     elif parsed and len(discs) <= 1:
         key = f"t:{norm_key(parsed[0])}|{norm_key(artist)}"
-        title, disc, total = parsed[0], parsed[1], parsed[2] or disc_total
+        # a tag total below the title's number is the album's own ('1/1': one disc ripped as one album)
+        title, disc, total = parsed[0], parsed[1], parsed[2] or (disc_total if (disc_total or 0) >= parsed[1] else None)
     elif disc_no and set_key and len(discs) <= 1:
         key = "s:" + set_key
         title, disc, total = strip_disc_marks(name), disc_no, disc_total
@@ -148,7 +149,7 @@ def resolve(con, ids: list[str] | None = None, aids: list[str] | None = None) ->
         groups[r["box_id"]].append(dict(r))
     # only groups that could be a box need their works
     maybe = {k: g for k, g in groups.items()
-             if len(g) >= 2 or (g[0]["box_total"] or 0) >= SINGLE_MIN_DISCS}
+             if len(g) >= 2 or (g[0]["box_disc"] is None and (g[0]["box_total"] or 0) >= SINGLE_MIN_DISCS)}
     album_ids = [m["album_library_id"] for g in maybe.values() for m in g]
     works: dict[str, set[str]] = defaultdict(set)       # works of more than one track: a work, not a stray
     composers: dict[str, Counter] = defaultdict(Counter)
@@ -197,7 +198,11 @@ def _judge(bid: str, members: list[dict], works: dict[str, set[str]], composers:
     if len(nums) != len(set(nums)):
         return None
     all_works = set().union(*(works[m["album_library_id"]] for m in members))
-    single = len(members) == 1
+    # one MA album holding the whole box has no disc number of its own ('a:'); a lone disc of a box ('Bach
+    # Edition [CD 12 of 155]' with the other discs missing) is not a box on its own
+    single = len(members) == 1 and members[0]["box_disc"] is None
+    if len(members) == 1 and not single:
+        return None
     if single:
         total = members[0]["box_total"] or 0
         if total < SINGLE_MIN_DISCS or len(all_works) < SINGLE_MIN_WORKS:

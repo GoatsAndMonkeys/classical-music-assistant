@@ -563,4 +563,7 @@ def test_schema_2_upgrades_a_version_1_index_in_place(tmp_path):
     assert "source_work_id" in cols
     assert "detail" in {r[1] for r in con.execute("PRAGMA table_info(track_credit)")}
     assert {"label", "mb_release_group", "enriched_at"} <= {r[1] for r in con.execute("PRAGMA table_info(album_info)")}
+    # 0008: box evidence columns, empty until the album is derived again (DERIVE_VERSION 10)
+    assert {"box_id", "box_title", "box_disc", "box_total"} <= {r[1] for r in con.execute("PRAGMA table_info(album_info)")}
+    assert "album_info_box" in {r[1] for r in con.execute("PRAGMA index_list(album_info)")}
     assert con.execute("SELECT COUNT(*) FROM accolade").fetchone()[0] == 0
