@@ -119,8 +119,8 @@ def album(aid, titles, provider="filesystem_local", base=0, artist=""):
         for i, t in enumerate(titles)])
 
 
-def tag(work=None, mov=None, no=None, composer="Frédéric Chopin", conductor=None, title=None, **kw):
-    perf = [Person(conductor, "conductor", "person")] if conductor else []
+def tag(work=None, mov=None, no=None, composer="Frédéric Chopin", conductor=None, title=None, performers=(), **kw):
+    perf = ([Person(conductor, "conductor", "person")] if conductor else []) + list(performers)
     return TagInfo(title=title or (f"{work}: {mov}" if work else mov), work=work, movement_name=mov,
                    movement_no=no, composers=[composer] if composer else [], performers=perf, **kw)
 
@@ -547,8 +547,8 @@ def test_schema_2_upgrades_a_version_1_index_in_place(tmp_path):
     con.execute("INSERT INTO redirect(entity, old_id, new_id, reason, at) VALUES ('composer', 'c2', 'c1', 'user', 1)")
     con.execute("INSERT INTO recording(id, work_id, album_library_id, tier) VALUES ('r1', 'w1', 'A1', 'title')")
     con.execute("INSERT INTO recording_slot(recording_id, occurrence_id, ord) VALUES ('r1', 'o1', 3)")
-    assert migrate(con) == 8
-    assert migrate(con) == 8
+    assert migrate(con) == 9
+    assert migrate(con) == 9
     assert con.execute("SELECT COUNT(*) FROM mb_work_match").fetchone()[0] == 0      # 0006: an empty table
     # 0004: a slot's home is where it was derived; nothing is joined across discs yet
     assert tuple(con.execute("SELECT home_id, home_ord FROM recording_slot").fetchone()) == ("r1", 3)
@@ -567,3 +567,24 @@ def test_schema_2_upgrades_a_version_1_index_in_place(tmp_path):
     assert {"box_id", "box_title", "box_disc", "box_total"} <= {r[1] for r in con.execute("PRAGMA table_info(album_info)")}
     assert "album_info_box" in {r[1] for r in con.execute("PRAGMA index_list(album_info)")}
     assert con.execute("SELECT COUNT(*) FROM accolade").fetchone()[0] == 0
+
+
+def test_migration_0009_rereads_an_album_whose_credits_hold_a_part_as_the_role(tmp_path):
+    """An album indexed when 'Hans Hotter (Wotan)' was stored as the role 'wotan' is read again by an
+    ordinary sync after migration 0009, and its credit then names the part."""
+    r = Reader()
+    idx = new_index(tmp_path, mb=False, reader=r)
+    a = album("W", ["Die Walküre: Act I"], artist="Richard Wagner")
+    path = a.tracks[0].mappings[0].path
+    r.tags[path] = tag(work="Die Walküre", mov="Act I", composer="Richard Wagner",
+                       performers=[Person("Hans Hotter", "wotan", "person")])
+    run(idx.index_album(a))
+    run(idx.index_album(a))   # unchanged: nothing is read
+    r.tags[path] = tag(work="Die Walküre", mov="Act I", composer="Richard Wagner",
+                       performers=[Person("Hans Hotter", "voice", "person", "Wotan")])
+    idx.con.execute("UPDATE meta SET value='8' WHERE key='schema_version'")
+    assert migrate(idx.con) == 9
+    stats = run(idx.index_album(a))
+    assert stats.tag_reads == 1
+    assert [tuple(x) for x in idx.con.execute("SELECT instrument, detail FROM track_credit")] == [("voice", "Wotan")]
+    assert not any(v["reason"] == "conflicting tags on duplicate files" for v in idx.review())

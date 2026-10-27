@@ -48,13 +48,31 @@ _ALIASES = {
     "composition year": "compositiondate", "composeddate": "compositiondate", "datecomposed": "compositiondate",
     "date composed": "compositiondate", "yearcomposed": "compositiondate", "year composed": "compositiondate",
 }
-_SPLIT = re.compile(r"\s*;\s*|\x00")
+# marks a credit whose parenthesis a tag frame declares an instrument (ID3 TMCL), never a part sung
+_INSTRUMENT = "\x01"
 _PERFORMER = re.compile(r"^(?P<name>.+?)\s*\((?P<role>[^()]+)\)\s*$")
 _GROUP_ROLES = {"orchestra", "ensemble", "choir", "chorus", "quartet", "band"}
 # 'Ain Anger (bass (Pater Profundus))', 'Gustáv Beláček (Duke Bluebeard (bass))': a role and a detail
 # (a character, the piece or concert, a section), nested either way round
 _NESTED = re.compile(r"^(?P<name>[^()]+?)\s*\((?P<a>[^()]+?)\s*\((?P<b>[^()]+)\)\s*\)\s*$")
 _ROLE_WORDS = frozenset(["soprano", "mezzo-soprano", "mezzo", "alto", "contralto", "countertenor", "tenor", "baritone", "bass", "bass-baritone", "treble", "boy-soprano", "voice", "vocals", "singer", "narrator", "speaker", "reciter", "actor", "piano", "fortepiano", "pianoforte", "harpsichord", "organ", "celesta", "keyboard", "keyboards", "violin", "viola", "cello", "violoncello", "double-bass", "contrabass", "bass-guitar", "harp", "guitar", "lute", "theorbo", "mandolin", "flute", "piccolo", "alto-flute", "recorder", "oboe", "english-horn", "cor-anglais", "clarinet", "bass-clarinet", "basset-horn", "saxophone", "bassoon", "contrabassoon", "horn", "french-horn", "trumpet", "cornet", "trombone", "bass-trombone", "tuba", "euphonium", "timpani", "percussion", "drums", "cymbals", "vibraphone", "marimba", "xylophone", "glockenspiel", "accordion", "bandoneon", "conductor", "chorus", "choir", "orchestra", "ensemble", "band", "quartet", "concertmaster", "leader", "chorus-master", "choirmaster", "announcer", "host", "presenter", "commentator", "soloist", "performer", "continuo"])
+# words that make a parenthesis a performing role rather than a character sung ('Brünnhilde', '2nd Norn'):
+# the role words themselves plus the broadcast, section and solo vocabulary found in real credits
+_NON_CHARACTER = frozenset({w for r in _ROLE_WORDS for w in r.split("-")} - {"master", "boy"} | {
+    "soloist", "soloists", "solo", "solos", "viol", "gamba", "schola", "orchestrator", "arranger", "organist",
+    "interview", "interviewer", "intermission", "interval", "broadcaster", "broadcast", "editor", "author",
+    "commentator", "guest", "honoree", "dramaturg", "direction", "preparation", "electronics",
+    "harmonica", "hosts", "quartet", "trio", "quintet", "erhu", "pipa", "guzheng", "sitar", "sarod", "tabla",
+    "oud", "koto", "shakuhachi", "shamisen", "kora", "ney", "kanun", "qanun", "duduk", "cimbalom", "dulcimer",
+    "zither", "kantele", "balalaika", "bouzouki", "banjo", "ukulele", "bagpipes", "theremin", "ondes", "martenot",
+    "synthesizer", "synthesiser", "harmonium", "clavichord", "virginal", "virginals", "spinet", "serpent",
+    "ophicleide", "sackbut", "shawm", "crumhorn", "cornetto", "dulcian", "vihuela", "baryton", "arpeggione",
+    "flugelhorn", "hurdy", "gurdy", "whistle", "tambourine", "triangle", "castanets", "gong", "tam", "bells",
+    "chimes", "santoor", "santur", "steelpan", "cajon", "sampler", "tape", "fiddle", "nyckelharpa", "hardanger", "psaltery"})
+# a parenthesis that is only one of these names a role, though the word can begin a part ('The Composer', 'Norn I')
+_ROLE_ALONE = frozenset(["composer", "i", "ii", "iii", "iv", "boy"])
+_VOICES = frozenset(["soprano", "mezzo-soprano", "mezzo", "alto", "contralto", "countertenor", "tenor", "baritone",
+                     "bass", "bass-baritone", "treble", "boy-soprano", "voice", "narrator", "speaker"])
 _ROLE_PREFIX = re.compile(r"^(?:principal|solo|first|second|third|1st|2nd|3rd|assistant|associate|co|guest|"
                           r"acting)[\s-]+", re.IGNORECASE)
 
@@ -167,7 +185,7 @@ def read_raw(path: str | Path) -> dict[str, list[str]]:
             elif fid in ("TMCL", "TIPL"):
                 for role, name in getattr(frame, "people", []):
                     if fid == "TMCL":
-                        put("performer", f"{name} ({role})")
+                        put("performer", f"{_INSTRUMENT}{name} ({role})")   # TMCL names the instrument
                     elif role.lower() in ("conductor", "arranger", "lyricist"):
                         put(role, name)
             elif fid in _ID3:
@@ -199,7 +217,49 @@ def is_role(text: str) -> bool:
     return bool(parts) and all(re.sub(r"\s+", "-", _ROLE_PREFIX.sub("", p)) in _ROLE_WORDS for p in parts)
 
 
-def _person(text: str, default_role: str) -> Person | None:
+def _is_character(text: str) -> bool:
+    """'Gutrune', '2nd Norn', 'Voice of Apollo', 'Roberto, Earl of Leicester': a part sung or spoken, which
+    names no voice, instrument or broadcast role. A part is a name, so it is capitalised ('erhu' is an
+    instrument the vocabulary lacks); 'X of Y' phrases do not count ('Leader of the Players')."""
+    first = re.search(r"(?<!\w)[^\W\d_]", text)   # a word's first letter: '2nd Norn' -> N
+    if not first or not first.group().isupper() or text.strip().lower() in _ROLE_ALONE:
+        return False
+    if text == text.upper() and len(re.findall(r"[^\W\d_]+", text)) < 2:
+        return False   # 'WOTAN' or 'SANTUR': all capitals say nothing, so one word stays a role
+    t = re.sub(r"([^\W\d_][\w-]*)\s+of\s+[^/,;]+",
+               lambda o: " " if o.group(1) in ("voice", "spirit", "ghost") else o.group(1), text.lower())
+    return not any(w in _NON_CHARACTER for w in re.findall(r"[^\W\d_]+", t.replace("\u2011", "-")))
+
+
+def _voice_and_part(text: str) -> tuple[str, str] | None:
+    """(voice, part) for a credit's parenthesis that names the part sung: 'Gutrune' -> ('voice', 'Gutrune'),
+    'tenor, Evangelist' -> ('tenor', 'Evangelist'); None for a performing role ('principal viola')."""
+    parts = [p.strip() for p in text.split(",") if p.strip()]
+    if len(parts) > 1:
+        for i in (0, len(parts) - 1):
+            rest = ", ".join(parts[:i] + parts[i + 1:])
+            if parts[i].lower() in _VOICES and _is_character(rest):
+                return parts[i].lower(), rest
+    return ("voice", text.strip()) if _is_character(text) else None
+
+
+def split_values(value: str) -> list[str]:
+    """Split a multi-value tag at NUL and ';', but not at a ';' inside a parenthesis that closes:
+    'Martha Mödl (Gutrune; 3rd Norn)' is one credit; 'A (Wotan; B (violin)' is two."""
+    out: list[str] = []
+    for chunk in value.split("\x00"):
+        inside, stack = set(), []
+        for i, ch in enumerate(chunk):
+            if ch == "(":
+                stack.append(i)
+            elif ch == ")" and stack:
+                inside.update(range(stack.pop(), i))
+        cuts = [i for i, ch in enumerate(chunk) if ch == ";" and i not in inside]
+        out += [chunk[x + 1:y].strip() for x, y in zip([-1, *cuts], [*cuts, len(chunk)])]
+    return [x for x in out if x]
+
+
+def _person(text: str, default_role: str, parts: bool = True) -> Person | None:
     s = text.strip()
     if not s:
         return None
@@ -213,6 +273,8 @@ def _person(text: str, default_role: str) -> Person | None:
         name, role = n.group("name").strip(), role_text.lower()
     else:
         name, role = (m.group("name").strip(), m.group("role").strip().lower()) if m else (s, default_role)
+        if parts and m and role not in _GROUP_ROLES and (vp := _voice_and_part(m.group("role"))):
+            role, detail = vp   # 'Martha Mödl (Gutrune)': she sings Gutrune; it is not her instrument
     if role in _GROUP_ROLES or (role in ("performer", "ensemble") and is_ensemble(name, role)):
         group_role = "chorus" if role in ("choir", "chorus") or re.search(r"chor|choir|coro", name, re.IGNORECASE) else (
             "orchestra" if role == "orchestra" or re.search(r"orch|philharm|symphon|sinfoni|kapelle", name, re.IGNORECASE)
@@ -238,7 +300,7 @@ def parse(raw: dict[str, list[str]]) -> TagInfo:
     def many(k: str) -> list[str]:
         out: list[str] = []
         for v in raw.get(k, []):
-            out += [x.strip() for x in _SPLIT.split(v) if x.strip()]
+            out += split_values(v)
         return list(dict.fromkeys(out))
 
     info = TagInfo(
@@ -265,7 +327,7 @@ def parse(raw: dict[str, list[str]]) -> TagInfo:
         if p:
             info.performers.append(p)
     for t in many("performer"):
-        p = _person(t, "performer")
+        p = _person(t.removeprefix(_INSTRUMENT), "performer", parts=not t.startswith(_INSTRUMENT))
         if p and not any(q.name == p.name for q in info.performers):
             info.performers.append(p)
     return info
