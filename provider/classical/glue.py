@@ -20,7 +20,7 @@ from music_assistant.controllers.webserver.helpers.auth_middleware import get_cu
 from music_assistant.models.plugin import PluginProvider
 from music_assistant_models.auth import Scope
 from music_assistant_models.config_entries import ConfigEntry
-from music_assistant_models.enums import ConfigEntryType, EventType, MediaType, ProviderFeature
+from music_assistant_models.enums import ConfigEntryType, EventType, ProviderFeature
 from music_assistant_models.errors import InvalidDataError, MediaNotFoundError
 from music_assistant_models.media_items import (
     BrowseFolder,
@@ -54,6 +54,7 @@ CONF_PROVIDERS = "providers"          # MA's raw provider-config key (controller
 PAGE = 500
 DEBOUNCE = 2.0                         # seconds to let a burst of library events settle
 RECONCILE_RETRY = 600                  # §5.6: removal_pending is rechecked every 10 min
+SYNC_POLL = 20.0                       # seconds between library checks while an MA provider sync runs
 ALBUM_TRACKS_QUERY = "tracks.item_id IN (SELECT track_id FROM album_tracks WHERE album_id = :album_id)"
 
 
@@ -136,6 +137,7 @@ class ClassicalProvider(PluginProvider):
         self._jobs = {}
         self._wake = asyncio.Event()
         self._worker_task = None
+        self._watch_task = None
         self._unsub = []
         self._retry_handle = None
         self._state = {"current": None, "last_scan": None, "albums_indexed": 0, "errors": 0}
@@ -185,6 +187,9 @@ class ClassicalProvider(PluginProvider):
         self._worker_task = asyncio.get_running_loop().create_task(
             self._worker(), name="classical-worker", context=contextvars.Context()
         )
+        self._watch_task = asyncio.get_running_loop().create_task(
+            self._sync_watch(), name="classical-sync-watch", context=contextvars.Context()
+        )
         self._enqueue("providers")
         self._enqueue("scan")
 
@@ -195,10 +200,11 @@ class ClassicalProvider(PluginProvider):
         self._unsub.clear()
         if self._retry_handle:
             self._retry_handle.cancel()
-        if self._worker_task:
-            self._worker_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._worker_task
+        for task in (self._watch_task, self._worker_task):
+            if task:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
         if self._mb:
             await self._mb.close()
         await self._db.close()
@@ -255,6 +261,8 @@ class ClassicalProvider(PluginProvider):
             await self._scan(force=arg == "force")
         elif kind == "album":
             await self._index_album_id(arg)
+        elif kind == "changes":
+            await self._changes()
         elif kind == "remove":
             await self._write(self.index.remove_album, arg)
         elif kind == "track":
@@ -326,6 +334,34 @@ class ClassicalProvider(PluginProvider):
         await self._write(self._set_job, "scan", "done", None, None, force)
         self._state["last_scan"] = time.time()
         self.logger.info("Classical scan done: %d albums (re)indexed; %s", n, await self._read(Index.status))
+
+    async def _sync_watch(self) -> None:
+        """Watch the library while MA syncs a provider.
+
+        MA 2.10.8 suppresses per-item MEDIA_ITEM_* events during a provider sync and only signals
+        MUSIC_SYNC_COMPLETED at the end, so a first sync of a large library would leave the index empty for
+        its whole run. While a sync task is active, a "changes" job is queued every SYNC_POLL seconds."""
+        while True:
+            await asyncio.sleep(SYNC_POLL)
+            try:
+                active = bool(self.mass.music.active_sync_tasks)
+            except AttributeError:  # an MA without the property: rely on MUSIC_SYNC_COMPLETED alone
+                return
+            if active:
+                self._enqueue("changes")
+
+    async def _changes(self) -> None:
+        """Queue the albums whose MA track count differs from the index (new or still filling up).
+
+        Metadata-only changes are left to the full scan that follows MUSIC_SYNC_COMPLETED."""
+        rows = await self.mass.music.database.get_rows_from_query(
+            "SELECT album_id, COUNT(*) AS n FROM album_tracks GROUP BY album_id", {}, limit=0
+        )
+        known = await self._write(self.index.album_track_counts)
+        for r in rows:
+            aid = str(r["album_id"])
+            if known.get(aid) != int(r["n"]):
+                self._enqueue(f"album:{aid}")
 
     async def _album_tracks(self, album_id: int) -> list[Track]:
         out: list[Track] = []
@@ -434,16 +470,24 @@ class ClassicalProvider(PluginProvider):
         self._enqueue("providers")
 
     def _on_media_item(self, event: MassEvent) -> None:
+        # MA signals these with object_id = the item's uri ("library://album/12") and data = the item
         item = event.data
-        if item is None or getattr(item, "provider", None) != "library":
+        uri = event.object_id if isinstance(event.object_id, str) else ""
+        if uri.startswith("library://"):
+            mt, _, item_id = uri.removeprefix("library://").partition("/")
+        elif item is not None and getattr(item, "provider", None) == "library":
+            mt = getattr(item, "media_type", None)
+            mt, item_id = str(getattr(mt, "value", mt)), str(item.item_id)
+        else:
             return
-        mt = getattr(item, "media_type", None)
-        if mt == MediaType.ALBUM:
+        if not item_id:
+            return
+        if mt == "album":
             kind = "remove" if event.event == EventType.MEDIA_ITEM_DELETED else "album"
-            self._enqueue(f"{kind}:{item.item_id}")
-        elif mt == MediaType.TRACK:
+            self._enqueue(f"{kind}:{item_id}")
+        elif mt == "track":
             # the albums holding the track are looked up by the worker (no SQLite on the event loop)
-            self._enqueue(f"track:{item.item_id}")
+            self._enqueue(f"track:{item_id}")
             album = getattr(item, "album", None)
             if album is not None and getattr(album, "provider", None) == "library":
                 self._enqueue(f"album:{album.item_id}")

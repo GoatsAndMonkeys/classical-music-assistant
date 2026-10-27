@@ -101,6 +101,18 @@ Each entry says what the plan asked for, what was built instead, and why.
   reindex is requested.
 - **`provider_seen` has an extra `unavailable` state.** A provider that is configured but not loaded hides its
   evidence without retracting it.
+- **Live indexing during an MA sync (2026-10).** MA 2.10.8 suppresses per-item `MEDIA_ITEM_*` events while a
+  provider sync runs and signals only `MUSIC_SYNC_COMPLETED` at the end, so a first sync left the index empty
+  for its whole run (status showed 0 albums while MA held 755 tracks). While `mass.music.active_sync_tasks`
+  is non-empty, the glue queues a `changes` job every 20 s. It compares `album_tracks` counts with the
+  index's present occurrences and queues the albums that are new or still filling. Metadata-only edits wait for
+  the full scan after the sync. Item events are also accepted by their `library://` URI.
+- **CUE sheet errors in the MA log are MA's own.** The filesystem provider parses CUE sheets and logs failures
+  itself. The plugin only sees the resulting tracks, and does not read tags for CUE track mappings (`::track`).
+- **Folder subtitles do not render in the 2.10.8 web UI.** For a `BrowseFolder` the card shows the localized
+  name only (no ` - version` suffix) and its second line falls back to the media-type label. That line reads
+  `artists`/`authors`/`publisher`/`owner`, which `BrowseFolder` does not carry, so a subtitle would have to be
+  folded into the name. Not done yet.
 - **The scan lists albums straight from MA's library DB.** It runs `SELECT item_id FROM albums WHERE item_id > ?`
   with a resumable cursor, because no paged controller API exists.
 - **`classical/reindex` exists already in M1.** It is used by the smoke test and for development.

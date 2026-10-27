@@ -1546,6 +1546,12 @@ class Index:
     def album_ids(self) -> list[str]:
         return [r[0] for r in self._q("SELECT album_library_id FROM album_info ORDER BY album_library_id")]
 
+    def album_track_counts(self) -> dict[str, int]:
+        """Present occurrences per indexed album; the live-sync watcher compares these with MA's counts."""
+        return {r[0]: r[1] for r in self._q(
+            "SELECT a.album_library_id, COUNT(o.id) FROM album_info a LEFT JOIN occurrence o "
+            "ON o.album_library_id=a.album_library_id AND o.present=1 GROUP BY a.album_library_id")}
+
     def albums_of_track(self, library_track_id: str) -> list[str]:
         return [r[0] for r in self._q("SELECT DISTINCT album_library_id FROM occurrence WHERE library_track_id=?",
                                       (library_track_id,))]

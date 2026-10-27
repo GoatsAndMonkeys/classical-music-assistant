@@ -126,3 +126,76 @@ def test_mb_contact_must_be_real(glue):
     assert glue.mb_contact("no contact configured") is None
     assert glue.mb_contact("me@example.org") == "me@example.org"
     assert glue.mb_contact("https://example.org/me") == "https://example.org/me"
+
+
+# ---- live indexing while MA syncs (MA suppresses per-item events during a provider sync) ----
+
+
+def _queue(glue):
+    p = object.__new__(glue.ClassicalProvider)
+    p._jobs, p._wake = {}, asyncio.Event()
+    return p
+
+
+def test_changes_job_queues_new_and_growing_albums_only(glue, tmp_path):
+    from classical_core.index import AlbumIn, MappingIn, TrackIn
+
+    p, _, _ = _provider(glue, tmp_path)
+    p._jobs, p._wake = {}, asyncio.Event()
+    asyncio.run(p.index.index_album(AlbumIn("1", "Done", "", None, None, [
+        TrackIn(f"t{i}", 1, i + 1, f"T{i}", mappings=[MappingIn("filesystem_local", f"1/{i}", "f", None)])
+        for i in range(2)])))
+    asyncio.run(p.index.index_album(AlbumIn("2", "Filling", "", None, None, [
+        TrackIn("u0", 1, 1, "U0", mappings=[MappingIn("filesystem_local", "2/0", "f", None)])])))
+
+    async def rows(query, params, limit):
+        assert "album_tracks" in query and limit == 0
+        return [{"album_id": 1, "n": 2}, {"album_id": 2, "n": 3}, {"album_id": 3, "n": 1}]
+
+    p.mass.music.database.get_rows_from_query = rows
+    asyncio.run(p._changes())
+    assert sorted(p._jobs) == ["album:2", "album:3"]
+
+
+def test_sync_watch_queues_changes_only_while_a_sync_runs(glue, monkeypatch):
+    p = _queue(glue)
+    p.mass = MagicMock()
+    states = iter([[], ["task"], []])
+    ticks = []
+
+    async def fake_sleep(_):
+        ticks.append(dict(p._jobs))
+        try:
+            p.mass.music.active_sync_tasks = next(states)
+        except StopIteration:
+            raise asyncio.CancelledError from None
+
+    monkeypatch.setattr(glue.asyncio, "sleep", fake_sleep)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(p._sync_watch())
+    # tick 1: no sync, nothing queued; tick 2: sync active, changes queued
+    assert ticks[1] == {} and ticks[2] == {"changes": None}
+
+
+def test_media_item_events_by_library_uri(glue):
+    p = _queue(glue)
+    ev = MagicMock()
+    ev.event, ev.data, ev.object_id = "added", None, "library://album/12"
+    p._on_media_item(ev)
+    ev.object_id = "library://track/7"
+    ev.data = types.SimpleNamespace(provider="library", album=types.SimpleNamespace(provider="library", item_id=12))
+    p._on_media_item(ev)
+    ev.event, ev.object_id, ev.data = glue.EventType.MEDIA_ITEM_DELETED, "library://album/5", None
+    p._on_media_item(ev)
+    ev.object_id = "filesystem_local://track/abc"
+    p._on_media_item(ev)
+    assert sorted(p._jobs) == ["album:12", "remove:5", "track:7"]
+
+
+def test_media_item_event_from_item_without_uri(glue):
+    p = _queue(glue)
+    ev = MagicMock()
+    ev.event, ev.object_id = "updated", None
+    ev.data = types.SimpleNamespace(provider="library", media_type=types.SimpleNamespace(value="album"), item_id=9)
+    p._on_media_item(ev)
+    assert list(p._jobs) == ["album:9"]
