@@ -529,6 +529,8 @@ def review(ix: Index, vis=None) -> dict:
                 (it["entity"] == "composer" and norm_key(str(d["other"] or "")) in visible_names)
                 or (it["entity"] == "work" and ix.resolve("work", str(d["other"] or "")) in visible_works)):
             d = {k: v for k, v in d.items() if k != "other"}
+        if it["entity"] == "work" and isinstance(d.get("others"), list):   # the same, for every match listed
+            d = {**d, "others": [o for o in d["others"] if ix.resolve("work", str(o)) in visible_works]}
         groups[it["reason"]].append({
             "id": it["id"], "reason": it["reason"], "entity": it["entity"], "entity_id": it.get("entity_id"),
             "title": _review_title(it), "album": albums.get(it.get("album_library_id")),

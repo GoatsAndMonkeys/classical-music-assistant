@@ -313,4 +313,4 @@ def test_review_does_not_name_works_on_hidden_sources(tmp_path):
     assert same and all("other" in it["detail"] for it in same), everything
     visible = [it for g in views.review(lib.ix, vis=vis)["groups"] for it in g["items"]
                if it["reason"] == "possible same work on another album"]
-    assert visible and all("other" not in it["detail"] for it in visible)
+    assert visible and all("other" not in it["detail"] and not it["detail"].get("others") for it in visible)
