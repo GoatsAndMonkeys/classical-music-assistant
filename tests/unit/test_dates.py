@@ -65,7 +65,11 @@ def lib(tmp_path):
     ("1804/1805", ("1804", "1805", "year")),
     ("1898-1902", ("1898", "1902", "year")),
     ("1804 to 1806", ("1804", "1806", "year")),
-    ("1805-11", ("1805-11", None, "month")),
+    ("1804-05", ("1804", "1805", "year")),        # an ASCII hyphen before a later two-digit year: a range
+    ("1805-11", ("1805", "1811", "year")),
+    ("c. 1804-05", ("1804", "1805", "circa")),
+    ("1898-03", ("1898-03", None, "month")),     # not later than '98: a month
+    ("1900-01", ("1900", "1901", "year")),
     ("1805-11-20", ("1805-11-20", None, "day")),
     ("1860s", ("1860", "1869", "decade")),
     ("186x", ("1860", "1869", "decade")),
@@ -75,9 +79,23 @@ def test_parse_partial(text, want):
     assert wd.parse_partial(text) == want
 
 
-@pytest.mark.parametrize("text", ["", "soon", "123", "3000", "1700–1850", "1806–1804", "Op. 67"])
+@pytest.mark.parametrize("text", ["", "soon", "123", "3000", "1700–1850", "1806–1804", "Op. 67", "1850-20"])
 def test_parse_partial_rejects(text):
     assert wd.parse_partial(text) is None
+
+
+def test_a_premiere_reads_a_hyphenated_month_as_a_month():
+    assert wd.parse_partial("1805-11", ranges=False) == ("1805-11", None, "month")
+    assert wd.parse_partial("1804-05", ranges=False) == ("1804-05", None, "month")
+
+
+def test_list_year_uses_a_premiere_only_in_the_composers_lifetime():
+    assert wd.sort_year({"composed_start": "1822", "premiered": "1865-12-17"}, "Franz Schubert") == 1822
+    assert wd.sort_year({"premiered": "1865-12-17"}, "Franz Schubert") is None          # Unfinished: posthumous
+    assert wd.sort_year({"premiered": "1814-05-23"}, BEETHOVEN) == 1814
+    assert wd.sort_year({"premiered": "1912-06-26"}, "Gustav Mahler") == 1912           # died 1911: within a year
+    assert wd.sort_year({"premiered": "1814-05-23"}, "Nobody Known") is None
+    assert wd.sort_year({"premiered": "1814-05-23"}, None) is None
 
 
 def test_formatting_and_periods():
@@ -124,6 +142,40 @@ def test_dataset_guards_skip_derived_works_and_other_types(lib):
     lib.refresh()
     assert lib.row("Cantata on the Death of Emperor Joseph II, WoO 87")["premiered"] is None
     assert lib.row("Symphony No. 5 in C minor, Op. 67 (arr. Liszt for piano)")["premiered"] is None
+
+
+def test_dataset_skips_joined_titles_and_pieces_of_a_stage_work(lib):
+    debussy, wagner, ravel = "Claude Debussy", "Richard Wagner", "Maurice Ravel"
+    joined = "Blanc et noir; Prélude à l'après‑midi d'un faune"
+    lib.add(joined, composer=debussy)
+    lib.add("Prélude à l'après-midi d'un faune", composer=debussy)
+    lib.add("Parsifal – Prelude to Act\u202f1 and Good Friday music", composer=wagner)
+    lib.add("Parsifal: Act III", composer=wagner)
+    lib.add("Parsifal, WWV 111", composer=wagner)
+    lib.add("Daphnis et Chloé (complete ballet; possible)", composer=ravel)
+    lib.add("Cavalleria rusticana / Parsifal", composer=wagner)
+    lib.refresh()
+    assert lib.row(joined)["premiered"] is None
+    assert lib.row("Prélude à l'après-midi d'un faune")["premiered"] == "1894-12-22"
+    assert lib.row("Parsifal – Prelude to Act\u202f1 and Good Friday music")["premiered"] is None
+    assert lib.row("Parsifal: Act III")["premiered"] is None
+    assert lib.row("Cavalleria rusticana / Parsifal")["premiered"] is None
+    assert lib.row("Parsifal, WWV 111")["premiered"] == "1882-07-26"
+    assert lib.row("Daphnis et Chloé (complete ballet; possible)")["premiered"] is not None   # ';' in brackets
+    # "On this day" falls back to the list for works the dates job left unsettled: the same guards apply
+    got = curation.events(dt.date(2026, 7, 26), curation.candidates(lib.ix))
+    assert [c.title for e, c in got if e.kind == "premiere"] == ["Parsifal, WWV 111"]
+    got = curation.events(dt.date(2026, 12, 22), curation.candidates(lib.ix))
+    assert [c.title for e, c in got if e.kind == "premiere"] == ["Prélude à l'après-midi d'un faune"]
+
+
+def test_user_premiere_reads_a_hyphenated_month(lib):
+    lib.add(WORK5)
+    lib.refresh()
+    wd.set_user_dates(lib.ix.con, lib.wid(WORK5), "u", composed="1804-08", premiered="1808-12")
+    w = lib.row(WORK5)
+    assert (w["composed_start"], w["composed_end"]) == ("1804", "1808")
+    assert (w["premiered"], w["premiered_precision"]) == ("1808-12", "month")
 
 
 def test_user_correction_wins_and_survives_reindex(lib):

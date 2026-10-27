@@ -55,7 +55,8 @@ _ISO = r"(\d{4})(?:-(\d{1,2})(?:-(\d{1,2}))?)?"
 _CIRCA = re.compile(r"^(?:c\.|ca\.?|circa|approx\.?|~)\s*", re.IGNORECASE)
 _DECADE = re.compile(r"^(\d{3})(?:0'?s|x|\?)$", re.IGNORECASE)
 _SINGLE = re.compile(rf"^{_ISO}$")
-# a range: 1804-1805 (hyphen only between full years: 1805-11 is November 1805), 1804–05, 1804/05,
+_HYPHEN_YY = re.compile(r"^(\d{4})-(\d{2})$")      # 1804-05: a range or a month (parse_partial)
+# a range: 1804-1805 (a hyphen before two digits is _HYPHEN_YY's), 1804–05, 1804/05,
 # 1804 to 1805, 1804-11-20/1805-02
 _RANGE = re.compile(rf"^{_ISO}\s*(?:[–—/]|\bto\b|-(?=\s*\d{{4}}))\s*(\d{{4}}|\d{{2}})(?:-(\d{{1,2}})(?:-(\d{{1,2}}))?)?$",
                     re.IGNORECASE)
@@ -82,16 +83,24 @@ def _precision(value: str) -> str:
     return {4: "year", 7: "month", 10: "day"}[len(value)]
 
 
-def parse_partial(text: Any) -> tuple[str, str | None, str] | None:
+def parse_partial(text: Any, ranges: bool = True) -> tuple[str, str | None, str] | None:
     """(date_from, date_to or None, precision) for a written date, or None when it is not one.
 
-    Accepts '1804', '1805-11', '1805-11-20', ranges ('1804-1805', '1804–05', '1804/05', '1804 to 1805'),
-    decades ('1860s', '186x') and 'c. 1805' (precision 'circa'). Years outside 800..next year are refused."""
+    Accepts '1804', '1805-11-20', ranges ('1804-1805', '1804–05', '1804/05', '1804 to 1805'), decades
+    ('1860s', '186x') and 'c. 1805' (precision 'circa'). Years outside 800..next year are refused.
+
+    'YYYY-NN' with an ASCII hyphen is a range when `ranges` (a composition date) and NN is later than the
+    year's own last two digits: '1804-05' is 1804–1805, '1805-11' is 1805–1811, '1898-1902' stays a range.
+    Otherwise NN is a month ('1898-03' is March 1898; a premiere, `ranges=False`, reads '1805-11' as
+    November 1805), and a NN that is neither ('1850-20') is not a date."""
     if not isinstance(text, (str, int)):
         return None
     s = str(text).strip().rstrip(".").strip()
     circa = bool(_CIRCA.match(s))
     s = _CIRCA.sub("", s).strip()
+    if ranges and (m := _HYPHEN_YY.match(s)) and int(m.group(2)) > int(m.group(1)[2:]):
+        a, b = _ymd(m.group(1), None, None), _ymd(m.group(1)[:2] + m.group(2), None, None)
+        return (a, b, "circa" if circa else "year") if a and b else None
     if m := _DECADE.match(s):
         start = _ymd(m.group(1) + "0", None, None)
         return (start, f"{int(start) + 9:04d}", "decade") if start else None
@@ -202,9 +211,35 @@ def _from_tags(con: sqlite3.Connection) -> dict[str, tuple[str, str | None, str,
     return out
 
 
-# a work derived from the premiered one (a suite, excerpts, a paraphrase): the stage premiere is not its own
-_DERIVED = re.compile(r"\b(?:suite|excerpts?|selections?|highlights|arr|arranged|arrangement|transcription|"
-                      r"transcribed|paraphrase|fantas(?:y|ia|ie)|variations|reminiscences|potpourri|medley)\b")
+# a work derived from the premiered one, or a piece of it (a suite, excerpts, an act, the overture, a
+# paraphrase): the stage premiere is not its own. Over norm_key text.
+_DERIVED = re.compile(
+    r"\b(?:suite|excerpts?|extracts?|selections?|highlights|scenes?|szenen?|fragments?|"
+    r"arr|arranged|arrangement|transcription|transcribed|paraphrase|fantas(?:y|ia|ie)|variations|"
+    r"reminiscences|potpourri|medley|"
+    r"acts?|akt|aufzug|acte|atto|prelude|preludes|vorspiel|overture|ouverture|intermezzo|interlude|entr acte|"
+    r"aria|arias|duet|chorus|march|dances?|ballet music|music from|good friday|karfreitagszauber|liebestod)\b")
+# works joined in one title ("Blanc et noir; Prélude à l'après-midi d'un faune", "Cavalleria / Pagliacci"):
+# split at a top-level ';' or ' / ' (not inside brackets: "Daphnis et Chloé (complete ballet; possible)")
+_JOIN = re.compile(r"\s*;\s*|\s+/\s+")
+
+
+def _segments(title: str) -> list[str]:
+    out, depth, cur = [], 0, []
+    i = 0
+    while i < len(title):
+        ch = title[i]
+        depth += ch in "([{"
+        depth -= ch in ")]}" and depth > 0
+        if depth == 0 and (m := _JOIN.match(title, i)) and m.end() > i:
+            out.append("".join(cur))
+            cur = []
+            i = m.end()
+            continue
+        cur.append(ch)
+        i += 1
+    out.append("".join(cur))
+    return [norm_key(x) for x in out if re.search(r"[^\W\d_]{2}", x)]
 
 
 def _same_type(a: str | None, b: str) -> bool:
@@ -212,10 +247,27 @@ def _same_type(a: str | None, b: str) -> bool:
     return not a or a == "Other" or b == "Other" or a == b
 
 
+def dataset_hit(title: str, text: str, work_type: str | None, p: Any) -> bool:
+    """Is the premieres.json entry `p` (already the work's composer's) this work's own premiere? Its pattern
+    matches `text` (norm_key of the title and catalogue), the types agree, the title names one work (every joined segment
+    matches), and the work is not a suite, excerpt or arrangement unless the entry is one too. Shared
+    with curation's "On this day" for works the dates job has not settled."""
+    from . import catalogue as cat
+
+    if not p.match.search(text):
+        return False
+    segs = _segments(title)
+    if len(segs) > 1 and not all(p.match.search(x) for x in segs):
+        return False
+    if _DERIVED.search(norm_key(title)) and not _DERIVED.search(norm_key(p.work)):
+        return False
+    return _same_type(work_type, cat.work_type(p.work))
+
+
 def _from_dataset(works: list[sqlite3.Row]) -> dict[str, Any]:
-    """work id → the premieres.json entry that matches it (curation's matching: composer + pattern), when
-    exactly one date matches and the work is the premiered one itself (not a suite or an arrangement)."""
-    from . import catalogue, curation
+    """work id → the premieres.json entry that matches it (dataset_hit, after curation's composer match),
+    when exactly one date matches and the work is an "original" one."""
+    from . import curation
 
     by_composer: dict[str, list] = defaultdict(list)
     for p in curation.premieres():
@@ -229,13 +281,8 @@ def _from_dataset(works: list[sqlite3.Row]) -> dict[str, Any]:
             kc = composers.lookup(w["composer"]) or composers.find_in_credit(w["composer"])
             mine[w["composer"]] = [p for who, ps in by_composer.items()
                                    if curation._same_composer(who, kc.name if kc else None, w["composer"]) for p in ps]
-        if not mine[w["composer"]]:
-            continue
         text = norm_key(f"{w['title']} {w['catalogue_display'] or ''}")
-        derived = bool(_DERIVED.search(norm_key(w["title"])))
-        hits = [p for p in mine[w["composer"]]
-                if p.match.search(text) and not (derived and not _DERIVED.search(norm_key(p.work)))
-                and _same_type(w["work_type"], catalogue.work_type(p.work))]
+        hits = [p for p in mine[w["composer"]] if dataset_hit(w["title"], text, w["work_type"], p)]
         if len({p.date for p in hits}) == 1:
             out[w["id"]] = hits[0]
     return out
@@ -414,7 +461,7 @@ def set_user_dates(con: sqlite3.Connection, wid: str, user: str | None, composed
         if value is None:
             continue
         v = str(value).strip()
-        if v and v.lower() != UNKNOWN and parse_partial(v) is None:
+        if v and v.lower() != UNKNOWN and parse_partial(v, ranges=key == "composed") is None:
             raise ValueError(f"cannot read {key} date {v!r} (try 1804, 1804–05, 1860s, c. 1805 or 1805-11-20)")
         change[key] = UNKNOWN if v.lower() == UNKNOWN else v
     if premiered_place is not None:
@@ -463,7 +510,7 @@ def choose(con: sqlite3.Connection, only: Iterable[str] | None = None) -> int:
         up = u.get("premiered") or ""
         if up == UNKNOWN:
             new["premiered_source"] = "user"
-        elif up and (p := parse_partial(up)):
+        elif up and (p := parse_partial(up, ranges=False)):
             new.update(premiered=p[0], premiered_precision=p[2], premiered_source="user",
                        premiered_place=u.get("premiered_place") or None)
         else:
@@ -613,6 +660,17 @@ def describe(w: dict) -> dict:
             "hidden": hidden}
 
 
-def sort_year(w: dict) -> int | None:
-    """The year a list sorts and filters a work by: its composition's first year, else its premiere's."""
-    return year(w.get("composed_start")) or year(w.get("premiered"))
+def sort_year(w: dict, composer: str | None = None) -> int | None:
+    """The year a list sorts and filters a work by (period, decade, date sort): its composition's first
+    year. Without one, the premiere's year only when the composer is a known one who was alive within a
+    year of it (a living composer counts): a posthumous premiere (Schubert's Unfinished, 1865) says nothing
+    about when the work was written, so that work stays undated."""
+    if (y := year(w.get("composed_start"))) is not None:
+        return y
+    p = year(w.get("premiered"))
+    if p is None or not composer:
+        return None
+    kc = composers.lookup(composer) or composers.find_in_credit(composer)
+    if kc is None or (kc.died is None and kc.born is None):
+        return None
+    return p if (kc.died is None or kc.died >= p - 1) else None

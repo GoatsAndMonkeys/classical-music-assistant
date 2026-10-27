@@ -125,7 +125,8 @@ def works(ix: Index, vis=None, composer_id: str | None = None, work_type: str | 
     `types` counts every filter but the type; `date_coverage` says how many of the matching works carry a
     date of each kind, so the UI can say "3 of 40 works have a composition date" instead of hiding works.
     A composition range matches a year range it overlaps. `period` (dates.PERIODS) and `decade` (1800,
-    1810, ...) go by the work's year: its composition's first year, else its premiere's (dates.sort_year);
+    1810, ...) go by the work's year: its composition's first year, else a premiere in the composer's
+    lifetime (dates.sort_year);
     `periods` and `decades` count every filter but those two. `sort`: catalogue (default), date, date_desc
     (undated works last either way)."""
     if date_kind not in DATE_KINDS:
@@ -183,7 +184,7 @@ def works(ix: Index, vis=None, composer_id: str | None = None, work_type: str | 
                 return (lo is None or max(ys) >= lo) and (hi is None or min(ys) <= hi)
             return any((lo is None or y >= lo) and (hi is None or y <= hi) for y in ys)
         rows = [w for w in rows if in_range(w)]
-    wyear = {w["id"]: wd.sort_year(meta.get(w["id"], {})) for w in rows}
+    wyear = {w["id"]: wd.sort_year(meta.get(w["id"], {}), w["composer"]) for w in rows}
 
     def in_era(w: dict) -> bool:
         y = wyear[w["id"]]

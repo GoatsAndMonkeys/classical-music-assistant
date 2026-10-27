@@ -35,7 +35,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from importlib import resources
 
-from . import accolades, composers
+from . import accolades, composers, dates
 from .browse import play_uri
 from .text import norm_key, surname
 
@@ -541,7 +541,7 @@ def events(day: dt.date, cands: list[Cand], window: int = 0) -> list[tuple[Event
         if abs(g) > window:
             continue
         ev = Event("premiere", g, _years(day, md, p.date.year), p.date, md, p.date.year, p.composer, p)
-        out += [(ev, c) for c in rest if _is(c, p.composer) and p.match.search(c.text)]
+        out += [(ev, c) for c in rest if _is(c, p.composer) and dates.dataset_hit(c.title, c.text, c.work_type, p)]
     for kc in {c.kc for c in cands if c.kc}:
         for kind, md, year in (("baptised" if kc.baptised else "born", kc.born_md, kc.born),
                                ("died", kc.died_md, kc.died)):
