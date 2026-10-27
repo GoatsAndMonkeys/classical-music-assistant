@@ -47,6 +47,7 @@ def test_one_failing_album_does_not_block_the_scan(glue, tmp_path):
     p = object.__new__(glue.ClassicalProvider)
     p._con, p.index, p.logger = con, Index(con, None), logging.getLogger("test")
     p._state = {"errors": 0, "last_scan": None, "albums_indexed": 0}
+    p._jobs, p._wake = {}, asyncio.Event()
 
     async def rows(query, params, limit):
         if "IN (" in query:
@@ -75,6 +76,7 @@ def _provider(glue, tmp_path, ids=(1, 2, 3)):
     p = object.__new__(glue.ClassicalProvider)
     p._con, p.index, p.logger = con, Index(con, None), logging.getLogger("test")
     p._state = {"errors": 0, "last_scan": None, "albums_indexed": 0}
+    p._jobs, p._wake = {}, asyncio.Event()
 
     async def rows(query, params, limit):
         if "IN (" in query:
@@ -282,3 +284,82 @@ def test_write_commands_need_library_manage(glue, tmp_path):
     for name in ("classical/reindex", "classical/merge_composers", "classical/composer_name",
                  "classical/separate_work"):
         assert scopes[name] == glue.Scope.LIBRARY_MANAGE, name
+
+
+# ---- accolades (M3b) -----------------------------------------------------------------------------------------
+
+
+def test_job_order_puts_accolades_after_albums_and_scans(glue):
+    keys = ["accolades_net", "scan", "accolades", "album:7", "remove:3", "providers", "changes"]
+    assert sorted(keys, key=glue.job_order)[:2] == ["remove:3", "providers"]
+    order = sorted(keys, key=glue.job_order)
+    assert order.index("album:7") < order.index("scan") < order.index("accolades")
+    assert order.index("scan") < order.index("accolades_net")
+
+
+def test_album_ids_reads_external_ids_and_label(glue):
+    kind = types.SimpleNamespace
+    album = kind(external_ids=[(kind(value="barcode"), "0028947"), (kind(value="musicbrainz_releasegroupid"), "rg-1"),
+                               (kind(value="discogs"), "123"), ("musicbrainz_albumid", "")],
+                 metadata=kind(label="  "))
+    assert glue.album_ids(album) == (None, "0028947", None, "rg-1", "123")
+    assert glue.album_ids(kind(external_ids=None, metadata=kind(label="DG"))) == ("DG", None, None, None, None)
+    assert glue.album_ids(object()) == (None, None, None, None, None)
+
+
+def test_enrich_stores_each_album_and_stops_on_a_transient_error(glue, tmp_path, monkeypatch):
+    p, _con, _ = _provider(glue, tmp_path)
+    p._mb, p._net = object(), {}
+    stored, due = [], [{"album_library_id": str(i)} for i in range(glue.NET_CHUNK)]
+
+    async def fetch(album, mb, **net):
+        if album["album_library_id"] == "2":
+            raise glue.MBTransientError("503")
+        return album["album_library_id"]
+
+    monkeypatch.setattr(glue.accolades, "album_for_enrichment", lambda con, limit: due[:limit])
+    monkeypatch.setattr(glue.accolades, "store_net", lambda con, aid, res: stored.append((aid, res)))
+    monkeypatch.setattr(glue.accolades, "fetch_album", fetch)
+    asyncio.run(p._enrich())
+    assert stored == [("0", "0"), ("1", "1")] and "accolades_net" not in p._jobs   # deferred to the next run
+
+    due[2] = {"album_library_id": "x"}
+    stored.clear()
+    asyncio.run(p._enrich())
+    assert len(stored) == glue.NET_CHUNK and "accolades_net" in p._jobs           # a full chunk: more to do
+
+    p._mb = None
+    monkeypatch.setattr(glue.accolades, "album_for_enrichment", MagicMock(side_effect=AssertionError))
+    asyncio.run(p._enrich())                                                       # nothing enabled: no work
+
+
+def test_accolade_decide_checks_visibility_and_requeues(glue, tmp_path, monkeypatch):
+    p, _con, _ = _provider(glue, tmp_path)
+    p._user_name = staticmethod(lambda: "seth")
+    p._vis = lambda: ["filesystem_local"]
+    p.index = MagicMock()
+    decided = []
+
+    async def write(fn, *args):
+        return fn(*args)
+
+    monkeypatch.setattr(glue.views, "recording", lambda ix, rid, vis: {"id": rid})
+    monkeypatch.setattr(glue.accolades, "decide",
+                        lambda con, e, r, d, u: decided.append((e, r, d, u)) or {"decision": d})
+    p._write = write
+    out = asyncio.run(p.cmd_accolade_decide("abc123", "r-1", "confirm"))
+    assert out["decision"] == "confirm" and "accolades" in out["queued"]
+    assert decided == [("abc123", "r-1", "confirm", "seth")]
+
+    def hidden(_ix, rid, vis):
+        raise glue.views.NotFound(rid)
+
+    monkeypatch.setattr(glue.views, "recording", hidden)
+    with pytest.raises(glue.InvalidDataError, match="Not found"):
+        asyncio.run(p.cmd_accolade_decide("abc123", "r-2", "reject"))
+    assert len(decided) == 1
+
+    monkeypatch.setattr(glue.views, "recording", lambda ix, rid, vis: {"id": rid})
+    monkeypatch.setattr(glue.accolades, "decide", MagicMock(side_effect=ValueError("unknown decision")))
+    with pytest.raises(glue.InvalidDataError):
+        asyncio.run(p.cmd_accolade_decide("abc123", "r-1", "maybe"))

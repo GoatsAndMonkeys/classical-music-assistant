@@ -160,9 +160,22 @@
       year_desc: function (a, b) { return cmp(b.year || 0, a.year || 0); },
       performer: function (a, b) { return cmp(fold(a.who || "￿"), fold(b.who || "￿")); },
       duration: function (a, b) { return cmp(b.duration || 0, a.duration || 0); },
+      acclaim: function (a, b) { return cmp(b.acclaim || 1, a.acclaim || 1) || cmp(a.year || 9999, b.year || 9999); },
     }[key];
     out.sort(function (x, y) { return (by ? by(x[0], y[0]) : 0) || x[1] - y[1]; });
     return out.map(function (x) { return x[0]; });
+  }
+
+  /** A badge's words: "Grammy nominee 1963 · Best Opera Recording", with how it applies when not plainly to
+   * this recording ("for the album", "awarded to another release of this recording (1963)"). */
+  function badgeText(a, withNote) {
+    var t = a.text + (a.category ? " · " + a.category : "");
+    return withNote && a.note ? t + " (" + a.note + ")" : t;
+  }
+
+  /** Whether any recording carries a counted accolade (the "Most acclaimed" sort is offered only then). */
+  function anyAcclaim(recs) {
+    return (recs || []).some(function (r) { return (r.acclaim || 1) > 1; });
   }
 
   /** A review card's second line: never a repeat of its title (an album item's title is the album). */
@@ -244,7 +257,7 @@
     BUCKETS: BUCKETS, parseHash: parseHash, formatHash: formatHash, takeCode: takeCode, fmtDuration: fmtDuration,
     lifeDates: lifeDates, yearText: yearText, workSubtitle: workSubtitle, recordingMatches: recordingMatches,
     filterRecordings: filterRecordings, sortRecordings: sortRecordings, creditGroups: creditGroups,
-    reviewSubtitle: reviewSubtitle,
+    reviewSubtitle: reviewSubtitle, badgeText: badgeText, anyAcclaim: anyAcclaim,
     byLetter: byLetter, playArgs: playArgs, loginReturnUrl: loginReturnUrl, choosePlayer: choosePlayer, errorText: errorText, imageSrc: imageSrc,
     plural: plural,
   };
@@ -847,6 +860,11 @@
         "▶ Play whole work"));
       actions.appendChild(h("p", { class: "fine best", text: best.label + " — " + res.best.reason }));
     }
+    if (res.acclaim) {
+      actions.appendChild(h("p", { class: "fine acclaim", text: plural(res.acclaim.recordings, "recording") +
+        " with awards: " + res.acclaim.awards.map(function (a) { return a.award + (a.n > 1 ? " (" + a.n + ")" : ""); })
+        .join(", ") }));
+    }
     wrap.appendChild(actions);
 
     var count = h("p", { class: "count" });
@@ -878,11 +896,13 @@
       var sortSel = h("select", { class: "input", "aria-label": "Sort", onchange: function () {
         sortKey = sortSel.value; draw();
       } });
+      var acclaimed = anyAcclaim(recs);
       [["", "Sort: best first"], ["year", "Oldest first"], ["year_desc", "Newest first"],
         ["performer", "Performer A–Z"], ["duration", "Longest first"], ["acclaim", "Most acclaimed"]]
         .forEach(function (o) {
-          sortSel.appendChild(h("option", { value: o[0], text: o[1] + (o[0] === "acclaim" ? " (no awards yet)" : ""),
-            disabled: o[0] === "acclaim" ? true : null }));
+          var off = o[0] === "acclaim" && !acclaimed;
+          sortSel.appendChild(h("option", { value: o[0], text: o[1] + (off ? " (no awards found)" : ""),
+            disabled: off ? true : null }));
         });
       row.appendChild(sortSel);
       focus.appendChild(row);
@@ -955,7 +975,8 @@
     h("span", { class: "row-main" },
       h("span", { class: "row-title", text: r.who || r.album || "Unknown performers" }),
       h("span", { class: "row-sub", text: [yearText(r), r.album, r.tracks ? plural(r.tracks, "track") : null]
-        .filter(Boolean).join(" · ") })),
+        .filter(Boolean).join(" · ") }),
+      badges(r.accolades, 2)),
     h("span", { class: "dur", text: r.duration ? r.duration_text : "" }));
     var filled = false;
     async function fillDetail() {
@@ -974,6 +995,63 @@
     box.appendChild(detail);
     if (expanded[r.id]) fillDetail();
     return box;
+  }
+
+  /** Award badges; album-level and other-release ones say so. `max`: show that many, then "+n". */
+  function badges(accs, max) {
+    var list = (accs || []).filter(function (a) { return a.kind === "award"; });
+    if (!list.length) return null;
+    var box = h("span", { class: "badges" });
+    list.slice(0, max || list.length).forEach(function (a) {
+      box.appendChild(h("span", { class: "badge" + (a.result === "nominee" ? " nominee" : "") +
+        (a.counts ? "" : " album") + (a.grade === "other_release" ? " other" : ""),
+      title: badgeText(a, true), text: a.text + (a.counts ? "" : " (album)") + (a.grade === "other_release" ? " *" : "") }));
+    });
+    if (max && list.length > max) box.appendChild(h("span", { class: "badge more", text: "+" + (list.length - max) }));
+    return box;
+  }
+
+  function extLink(url, text) {
+    return h("a", { href: url, target: "_blank", rel: "noopener noreferrer", text: text });
+  }
+
+  /** The recording page's awards, reviews, ratings and "Read reviews" links (links only: nothing fetched). */
+  function accoladesSection(r) {
+    var sec = h("section", { class: "section accolades" }, h("h2", { text: "Awards & reviews" }));
+    var awards = r.awards || [];
+    if (awards.length) {
+      var ul = h("ul", { class: "awards" });
+      awards.forEach(function (a) {
+        ul.appendChild(h("li", null, h("span", { class: "badge" + (a.result === "nominee" ? " nominee" : ""), text: a.text }),
+          a.category ? h("span", { text: " " + a.category }) : null,
+          a.note ? h("span", { class: "fine", text: " — " + a.note }) : null,
+          a.url ? h("span", { class: "fine" }, " · ", extLink(a.url, "source")) : null));
+      });
+      sec.appendChild(ul);
+    } else {
+      sec.appendChild(h("p", { class: "fine", text: "No awards found for this recording." }));
+    }
+    (r.reviews || []).forEach(function (v) {
+      sec.appendChild(h("blockquote", { class: "review" },
+        v.excerpt ? h("p", { text: v.excerpt }) : null,
+        h("p", { class: "fine" }, [v.publication, v.reviewer, v.rating ? v.rating + "/" + (v.rating_scale || 5) : null]
+          .filter(Boolean).join(" · ") + (v.excerpt_license ? " · " + v.excerpt_license : "") + " · ",
+        extLink(v.url, "full review"))));
+    });
+    (r.ratings || []).forEach(function (v) {
+      sec.appendChild(h("p", { class: "fine" }, v.text + (v.rating_count ? " (" + plural(v.rating_count, "rating") + ")" : "") +
+        (v.counts ? "" : " · for the album") + " · ", extLink(v.url, v.publication || "source")));
+    });
+    var links = r.review_links || [];
+    if (links.length) {
+      var rl = h("p", { class: "review-links" }, h("span", { class: "fine", text: "Read reviews: " }));
+      links.forEach(function (l, i) {
+        if (i) rl.appendChild(document.createTextNode(" · "));
+        rl.appendChild(extLink(l.url, l.site + (l.kind === "search" ? " (search)" : "")));
+      });
+      sec.appendChild(rl);
+    }
+    return sec;
   }
 
   function playButtons(r) {
@@ -1043,8 +1121,9 @@
       h("div", null,
         h("p", { class: "album-name", text: album.name || r.album || "" }),
         h("p", { class: "fine", text: [album.artist, album.year].filter(Boolean).join(" · ") }),
-        r.accolades && r.accolades.length ? null : h("p", { class: "fine", text: "No awards recorded yet." }))));
+        badges(r.accolades))));
     wrap.appendChild(recordingBody(r, false));
+    wrap.appendChild(accoladesSection(r));
     if (r.merged && (state.info || {}).can_correct) {
       wrap.appendChild(h("section", { class: "section" },
         h("p", { class: "fine", text: "This album's " + (w.title || "work") +
@@ -1174,6 +1253,7 @@
   };
 
   function reasonTitle(reason) {
+    if (reason === "accolade_match") return "Possible award: is this the awarded recording?";
     var s = String(reason || "").replace(/_/g, " ");
     return s.charAt(0).toUpperCase() + s.slice(1);
   }
@@ -1201,12 +1281,24 @@
       tracks.forEach(function (t) { ul.appendChild(h("li", { text: t })); });
       box.appendChild(ul);
     }
+    if (it.reason === "accolade_match" && it.detail && it.detail.why) {
+      box.appendChild(h("p", { class: "fine", text: it.detail.why }));
+    }
     var acts = h("div", { class: "actions" });
     (it.actions || []).forEach(function (a) {
       if (!canCorrect) return;
       if (a.op === "composer_name") {
         acts.appendChild(h("button", { type: "button", class: "btn", text: "This credit means…",
           onclick: function () { composerNameSheet(a); } }));
+      } else if (a.op === "accolade_decide") {
+        acts.appendChild(h("button", { type: "button", class: "btn", text: a.label, onclick: async function () {
+          try {
+            await call("classical/accolade_decide", { entry_ref: a.entry, recording_id: a.recording_id,
+              decision: a.decision });
+            toast(a.decision === "confirm" ? "Award shown on this recording" : "Award hidden for this recording");
+            render();
+          } catch (e) { toast(e.message); }
+        } }));
       } else if (a.op === "merge_composers") {
         acts.appendChild(h("button", { type: "button", class: "btn",
           text: "Merge " + a.source.name + " into " + a.target.name,

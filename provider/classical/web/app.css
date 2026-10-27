@@ -328,3 +328,17 @@ select.input {
 .login-card .btn { margin: 14px 0 4px; }
 .login-icon { width: 72px; height: 72px; border-radius: 18px; box-shadow: var(--shadow); }
 .noscript { padding: 24px; text-align: center; }
+
+/* accolades (docs/accolades.md) */
+.badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.badge {
+  display: inline-block; font-size: 11px; line-height: 1.5; padding: 0 6px; border-radius: 999px;
+  border: 1px solid var(--accent); color: var(--accent); white-space: nowrap;
+}
+.badge.nominee { border-style: dashed; }
+.badge.album, .badge.other, .badge.more { border-color: var(--line); color: var(--muted); }
+.acclaim { flex-basis: 100%; margin: 0; }
+.accolades ul.awards { list-style: none; padding: 0; margin: 6px 0; }
+.accolades ul.awards li { margin: 4px 0; }
+.accolades blockquote.review { margin: 8px 0; padding-left: 10px; border-left: 3px solid var(--line); }
+.review-links a { overflow-wrap: anywhere; }

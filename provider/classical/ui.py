@@ -82,6 +82,7 @@ class CompanionUI:
             ("classical/performers", self.cmd_performers),
             ("classical/performer", self.cmd_performer),
             ("classical/review", self.cmd_review),
+            ("classical/accolades", self.cmd_accolades),
         ):
             handles.append(reg(command, handler, required_scope=Scope.LIBRARY_READ))
         self._web = ClassicalWeb(CORE_VERSION)
@@ -159,6 +160,11 @@ class CompanionUI:
     async def cmd_performer(self, id: str, with_id: str | None = None) -> dict[str, Any]:
         """A performer's works and partners (optionally only recordings shared with `with_id`)."""
         return await self._view(views.performer, id, with_id=with_id)
+
+    async def cmd_accolades(self, recording_id: str | None = None, work_id: str | None = None) -> dict[str, Any]:
+        """Awards, reviews and ratings of one recording (with review-site links), or of every recording of a
+        work with its acclaim and pick score."""
+        return await self._view(views.accolades, recording_id=recording_id, work_id=work_id)
 
     async def cmd_review(self) -> dict[str, Any]:
         """The review queue grouped by reason, with correction actions for composer identities."""

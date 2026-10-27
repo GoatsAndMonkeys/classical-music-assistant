@@ -155,3 +155,19 @@ test("review cards never repeat their title as the subtitle", () => {
   assert.equal(app.reviewSubtitle({ title: "Beethoven: Fidelio", album: "Beethoven: Fidelio" }), "");
   assert.equal(app.reviewSubtitle({ title: "Obertura", album: "FIDELIO" }), "FIDELIO");
 });
+
+test("Most acclaimed sorts by acclaim, then oldest first; unacclaimed keep their order last", () => {
+  const recs = [rec("a", { year: 1990 }), rec("b", { year: 1970 }), rec("c", { year: 1980 }), rec("d", { year: 1960 })];
+  recs[1].acclaim = 1.3; recs[2].acclaim = 2.5; recs[3].acclaim = 1.3;
+  assert.deepEqual(app.sortRecordings(recs, "acclaim").map((r) => r.id), ["c", "d", "b", "a"]);
+  assert.equal(app.anyAcclaim(recs), true);
+  assert.equal(app.anyAcclaim([rec("x"), { ...rec("y"), acclaim: 1 }]), false);
+});
+
+test("badge text names the category and, on request, how the award applies", () => {
+  const a = { text: "Grammy nominee 1963", category: "Best Opera Recording", note: null };
+  assert.equal(app.badgeText(a), "Grammy nominee 1963 · Best Opera Recording");
+  const b = { text: "Gramophone Award 2012", category: "Opera", note: "awarded to another release of this recording (2012)" };
+  assert.equal(app.badgeText(b, true), "Gramophone Award 2012 · Opera (awarded to another release of this recording (2012))");
+  assert.equal(app.badgeText({ text: "Wikidata award", note: "for the album" }, true), "Wikidata award (for the album)");
+});

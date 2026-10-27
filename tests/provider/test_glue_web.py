@@ -84,10 +84,11 @@ def test_register_ui_registers_commands_and_replaces_a_stale_route(mods):
     handles = p._register_ui()
     names = [c.args[0] for c in p.mass.register_api_command.call_args_list]
     assert names == ["classical/ui_info", "classical/composers", "classical/works", "classical/work",
-                     "classical/recording", "classical/performers", "classical/performer", "classical/review"]
+                     "classical/recording", "classical/performers", "classical/performer", "classical/review",
+                     "classical/accolades"]
     p.mass.webserver.unregister_dynamic_route.assert_called_once_with("/classical/*", "*")
     assert p.mass.webserver.register_dynamic_route.call_count == 2 and handles[-1] is unreg
-    assert len(handles) == 9
+    assert len(handles) == 10
     assert p._ui_url() == "http://ma.local:8095/classical/"
 
 

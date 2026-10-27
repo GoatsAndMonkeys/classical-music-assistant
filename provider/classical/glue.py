@@ -33,10 +33,10 @@ from music_assistant_models.media_items import (
 )
 
 from classical_core import __version__ as CORE_VERSION
+from classical_core import accolades, views
 from classical_core import browse as tree
-from classical_core import views
 from classical_core.index import AlbumIn, Index, MappingIn, TrackIn
-from classical_core.mb import MBClient
+from classical_core.mb import MBClient, MBTransientError
 from classical_core.names import LLMClient
 from classical_core.store import Database, SqliteMBCache
 
@@ -53,6 +53,12 @@ CONF_LLM = "llm_names"
 CONF_LLM_BASE_URL = "llm_base_url"
 CONF_LLM_MODEL = "llm_model"
 CONF_LLM_API_KEY = "llm_api_key"
+CONF_ACC_DATASET = "accolades_dataset"
+CONF_ACC_WIKIDATA = "accolades_wikidata"
+CONF_ACC_CRITIQUEBRAINZ = "accolades_critiquebrainz"
+CONF_ACC_DISCOGS = "accolades_discogs"
+CONF_DISCOGS_TOKEN = "discogs_token"
+NET_CHUNK = 20                         # albums per enrichment job; the job re-queues itself behind other work
 CONF_PROVIDERS = "providers"          # MA's raw provider-config key (controllers/config)
 PAGE = 500
 DEBOUNCE = 2.0                         # seconds to let a burst of library events settle
@@ -133,6 +139,50 @@ class ClassicalProvider(CompanionUI, PluginProvider):
                 depends_on=CONF_LLM,
                 advanced=True,
             ),
+            ConfigEntry(
+                key=CONF_ACC_DATASET,
+                type=ConfigEntryType.BOOLEAN,
+                label="Show awards from the built-in list (Grammy, Gramophone, Diapason d'Or)",
+                description="Matched offline and conservatively: an award is shown only when the work, the "
+                "performers and the year agree; doubtful matches wait in the review queue.",
+                default_value=True,
+                required=False,
+            ),
+            ConfigEntry(
+                key=CONF_ACC_WIKIDATA,
+                type=ConfigEntryType.BOOLEAN,
+                label="Look up album awards on Wikidata",
+                description="Off by default. Uses the MusicBrainz contact; asks Wikidata about albums "
+                "MusicBrainz links to it.",
+                default_value=False,
+                required=False,
+                advanced=True,
+            ),
+            ConfigEntry(
+                key=CONF_ACC_CRITIQUEBRAINZ,
+                type=ConfigEntryType.BOOLEAN,
+                label="Show CritiqueBrainz reviews (short attributed excerpts, Creative Commons)",
+                default_value=False,
+                required=False,
+                advanced=True,
+            ),
+            ConfigEntry(
+                key=CONF_ACC_DISCOGS,
+                type=ConfigEntryType.BOOLEAN,
+                label="Show Discogs community ratings (needs a personal access token)",
+                default_value=False,
+                required=False,
+                advanced=True,
+            ),
+            ConfigEntry(
+                key=CONF_DISCOGS_TOKEN,
+                type=ConfigEntryType.SECURE_STRING,
+                label="Discogs personal access token",
+                default_value="",
+                required=False,
+                depends_on=CONF_ACC_DISCOGS,
+                advanced=True,
+            ),
             *self._ui_config_entries(),
         )
 
@@ -159,6 +209,8 @@ class ClassicalProvider(CompanionUI, PluginProvider):
                 # MB's policy wants a real contact in the User-Agent: no placeholder, no lookups without one
                 self._mb_note = "set a contact (email or URL) in the Classical settings to enable MusicBrainz"
                 self.logger.warning("Classical: MusicBrainz lookups are off: %s", self._mb_note)
+        self._acc_dataset = bool(self.config.get_value(CONF_ACC_DATASET, True))
+        self._net = self._net_clients(mb_contact(self.config.get_value(CONF_MB_CONTACT, "")))
         self._llm = None
         if self.config.get_value(CONF_LLM, False):
             base = str(self.config.get_value(CONF_LLM_BASE_URL, "") or "").strip()
@@ -169,6 +221,26 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             else:
                 self.logger.warning("Classical: language-model name resolution needs a base URL and a model")
         self.index = Index(self._con, self._mb, db=self._db, llm=self._llm)
+
+    def _net_clients(self, contact: str | None) -> dict[str, MBClient]:
+        """Clients for the opt-in accolade sources (docs/accolades.md): one rate-limited, cached client per host,
+        identified by the MusicBrainz contact. Without a contact every network source stays off."""
+        if not contact:
+            return {}
+        cache = SqliteMBCache(self._con, run=self._db.write, table="web_cache")
+        out: dict[str, MBClient] = {}
+        if self.config.get_value(CONF_ACC_WIKIDATA, False):
+            out["wikidata"] = MBClient(contact, cache=cache, base_url="https://www.wikidata.org", interval=1.0)
+        if self.config.get_value(CONF_ACC_CRITIQUEBRAINZ, False):
+            out["critiquebrainz"] = MBClient(contact, cache=cache, base_url="https://critiquebrainz.org",
+                                             interval=1.0)
+        token = str(self.config.get_value(CONF_DISCOGS_TOKEN, "") or "").strip()
+        if self.config.get_value(CONF_ACC_DISCOGS, False) and token:
+            # Discogs: 60 authenticated requests a minute; its data may be kept 6 hours (API terms)
+            out["discogs"] = MBClient(contact, cache=cache, base_url="https://api.discogs.com", interval=1.1,
+                                      good_ttl=accolades.DISCOGS_TTL,
+                                      extra_headers={"Authorization": f"Discogs token={token}"})
+        return out
 
     async def loaded_in_mass(self) -> None:
         """Register commands and subscriptions, start the worker and queue the initial scan."""
@@ -181,6 +253,7 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             reg("classical/merge_composers", self.cmd_merge_composers, required_scope=Scope.LIBRARY_MANAGE),
             reg("classical/composer_name", self.cmd_composer_name, required_scope=Scope.LIBRARY_MANAGE),
             reg("classical/separate_work", self.cmd_separate_work, required_scope=Scope.LIBRARY_MANAGE),
+            reg("classical/accolade_decide", self.cmd_accolade_decide, required_scope=Scope.LIBRARY_MANAGE),
             self.mass.subscribe(self._on_sync_completed, EventType.MUSIC_SYNC_COMPLETED),
             self.mass.subscribe(self._on_providers_updated, EventType.PROVIDERS_UPDATED),
             self.mass.subscribe(
@@ -213,6 +286,8 @@ class ClassicalProvider(CompanionUI, PluginProvider):
                     await task
         if self._mb:
             await self._mb.close()
+        for client in (getattr(self, "_net", None) or {}).values():
+            await client.close()
         await self._db.close()
         # is_removed: the index database is kept (rollback leaves it untouched, §7)
 
@@ -245,9 +320,7 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             await asyncio.sleep(DEBOUNCE)
             self._wake.clear()
             while self._jobs:
-                # removals and provider checks first, then single albums, then scans
-                key = min(self._jobs, key=lambda k: (not k.startswith(("providers", "remove:")),
-                                                     k.startswith("scan")))
+                key = min(self._jobs, key=job_order)
                 del self._jobs[key]
                 self._state["current"] = key
                 try:
@@ -267,6 +340,14 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             await self._scan(force=arg == "force")
         elif kind == "album":
             await self._index_album_id(arg)
+            self._enqueue("accolades")
+        elif kind == "accolades":
+            stats = await self._write(accolades.refresh, self._con, None, getattr(self, "_acc_dataset", True))
+            self.logger.debug("Classical accolades: %s", stats)
+            if self._mb is not None or getattr(self, "_net", None):
+                self._enqueue("accolades_net")
+        elif kind == "accolades_net":
+            await self._enrich()
         elif kind == "changes":
             await self._changes()
         elif kind == "remove":
@@ -339,6 +420,7 @@ class ClassicalProvider(CompanionUI, PluginProvider):
                 await self._write(self.index.remove_album, aid)
         await self._write(self._set_job, "scan", "done", None, None, force)
         self._state["last_scan"] = time.time()
+        self._enqueue("accolades")
         self.logger.info("Classical scan done: %d albums (re)indexed; %s", n, await self._read(Index.status))
 
     async def _sync_watch(self) -> None:
@@ -426,10 +508,28 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             ],
         )
         stats = await self.index.index_album(ain, force=force)
+        await self._write(accolades.set_album_ids, self._con, ain.library_album_id, *album_ids(album))
         if stats is not None:
             self._state["albums_indexed"] += 1
             self.logger.debug("Indexed album %s (%s): %s", album_id, album.name, stats)
         return stats is not None
+
+    async def _enrich(self) -> None:
+        """One chunk of network enrichment (MB url relations; the opt-in Wikidata, CritiqueBrainz, Discogs).
+        Re-queues itself while albums are due; a transient failure leaves the rest for the next run."""
+        net = getattr(self, "_net", None) or {}
+        if self._mb is None and not net:
+            return
+        due = await self._write(accolades.album_for_enrichment, self._con, NET_CHUNK)
+        for album in due:
+            try:
+                res = await accolades.fetch_album(album, mb=self._mb, **net)
+            except MBTransientError as err:
+                self.logger.info("Classical accolades: lookups deferred (%s)", err)
+                return
+            await self._write(accolades.store_net, self._con, album["album_library_id"], res)
+        if len(due) == NET_CHUNK:
+            self._enqueue("accolades_net")
 
     # ---- provider presence (§5.6) ------------------------------------------------------------------------
 
@@ -705,6 +805,32 @@ class ClassicalProvider(CompanionUI, PluginProvider):
         self._enqueue("scan")
         return {"albums": len(albums), "queued": list(self._jobs)}
 
+    async def cmd_accolade_decide(self, entry_ref: str, recording_id: str, decision: str) -> dict[str, Any]:
+        """A user decision on a doubtful award match: 'confirm' (same recording: show it), 'reject' (never
+        show it here) or 'clear'. Only a recording the caller can see."""
+        user = self._user_name()
+        vis = self._vis()
+
+        def apply(ix: Index) -> dict:
+            ix.con.execute("BEGIN IMMEDIATE")
+            try:
+                rid = views.recording(ix, recording_id, vis)["id"]      # NotFound when hidden
+                out = accolades.decide(ix.con, entry_ref, rid, decision, user)
+                ix.con.execute("COMMIT")
+                return out
+            except BaseException:
+                ix.con.execute("ROLLBACK")
+                raise
+
+        try:
+            out = await self._write(apply, self.index)
+        except views.NotFound:
+            raise InvalidDataError(NOT_FOUND) from None
+        except ValueError as err:
+            raise InvalidDataError(str(err)) from err
+        self._enqueue("accolades")
+        return {**out, "queued": list(self._jobs)}
+
     async def cmd_separate_work(self, recording_id: str) -> dict[str, Any]:
         """A user correction: this recording's work was wrongly merged with another album's; keep them apart.
         Only a recording the caller can see: a hidden or unknown id answers the same 'Not found'."""
@@ -730,6 +856,25 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             raise InvalidDataError(str(err)) from err
         self._enqueue("scan")
         return {"albums": len(albums), "queued": list(self._jobs)}
+
+
+def job_order(key: str) -> tuple[bool, bool, bool]:
+    """The worker's order: removals and provider checks first, then single albums, then scans, then accolades
+    (the dataset refresh and the network enrichment wait until the library is indexed)."""
+    return (not key.startswith(("providers", "remove:")), key.startswith("accolades"), key.startswith("scan"))
+
+
+def album_ids(album: Any) -> tuple[str | None, ...]:
+    """(label, barcode, MB release, MB release group, Discogs release) from an MA album; any may be None."""
+    ids: dict[str, str] = {}
+    ext = getattr(album, "external_ids", None)
+    if isinstance(ext, (set, frozenset, list, tuple)):
+        for item in ext:
+            if isinstance(item, (tuple, list)) and len(item) == 2 and item[1]:
+                ids[str(getattr(item[0], "value", item[0]))] = str(item[1])
+    label = getattr(getattr(album, "metadata", None), "label", None)
+    return (label if isinstance(label, str) and label.strip() else None, ids.get("barcode"),
+            ids.get("musicbrainz_albumid"), ids.get("musicbrainz_releasegroupid"), ids.get("discogs"))
 
 
 def mb_contact(value: Any) -> str | None:
