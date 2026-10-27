@@ -242,3 +242,26 @@ def test_scored_or_keyed_form_titles_are_works_not_numbers(tmp_path):
              ("Romanze für Violine und Orchester Nr. 2 F-Dur", {"composers": BEETHOVEN})]
     add(idx, r, "Beethoven: Violin Concerto; Romances", rows)
     assert recs(idx, "Violin Concerto")[1] == [3], titles(idx)
+
+
+def test_another_opera_named_on_a_stage_album_is_not_pulled_into_the_album_work(tmp_path):
+    idx, r = new_index(tmp_path)
+    w = {"composers": ["Richard Wagner"]}
+    add(idx, r, "Wagner: Tannhäuser", [("Tannhäuser: Overture", w), ("Nr. 2", w), ("Nr. 3", w),
+                                       ("Lohengrin: Prelude to Act 1", w), ("Lohengrin: Prelude to Act 3", w)])
+    assert recs(idx, "Tannh")[1] == [3], titles(idx)
+
+
+def test_another_composers_aria_on_a_stage_album_stays_out(tmp_path):
+    """No composer tag, but the title names Gounod: not a number of the album's Mozart opera."""
+    idx, r = new_index(tmp_path)
+    m = {"composers": ["Wolfgang Amadeus Mozart"]}
+    add(idx, r, "Mozart: Le nozze di Figaro", [("Nr. 1", m), ("Nr. 2", m), ("Charles Gounod: Le veau d'or", None)])
+    assert recs(idx, "Figaro")[1] == [2], titles(idx)
+
+
+def test_album_named_after_its_performer_invents_no_work(tmp_path):
+    idx, r = new_index(tmp_path)
+    m = {"composers": ["Wolfgang Amadeus Mozart"]}
+    add(idx, r, "Bryn Terfel", [("Aria", m), ("Recitativo", m), ("Nr. 3", m)], artist="Bryn Terfel")
+    assert "Bryn Terfel" not in titles(idx)

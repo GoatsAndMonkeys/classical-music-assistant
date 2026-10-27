@@ -1161,7 +1161,12 @@ class Index:
         """The work an album is a recording of, for tracks titled only 'Nr. 3' or 'Act 2': the work named
         by the album ('Beethoven: Fidelio [Disc 1]') — as a track already identifies it when one does —
         else the album's only specific work."""
-        segs = [s for s in album_work_segments(album.name) if not self._names_composer(s)]
+        # a performer is not a work: 'Bryn Terfel' (album artist) would otherwise become one
+        performers = {norm_key(p.name) for f in facts for p in f.credits}
+        for a in [album.artist] + [f.track["artist"] for f in facts]:
+            performers.update(norm_key(x) for x in re.split(r"\s*(?:;|/|,|&|\x00)\s*", a or ""))
+        segs = [s for s in album_work_segments(album.name)
+                if not self._names_composer(s) and norm_key(s) not in performers]
         cands = [f.cand for f in facts if f.cand and not self._generic(f)]
         if segs:
             tk = norm_key(segs[0])
@@ -1181,6 +1186,24 @@ class Index:
             return Cand(key=key, title=segs[0], tier="title", composers=composers, key_sig=cat.parse_key(segs[0]))
         specific = {c.key: c for c in cands if c.tier != "title" or c.catalogues}
         return next(iter(specific.values())) if len(specific) == 1 else None
+
+    def _names_other_work(self, f: OccFacts, tpl: Cand) -> bool:
+        """'Lohengrin: Prelude to Act 1' on a Tannhäuser album: a title prefix that is neither a composer
+        nor the album's work names another work, so the track is not one of the album work's numbers."""
+        p = parse_title(strip_track_number(f.track["title"] or ""))
+        if p is None:
+            return False
+        # 'Charles Gounod: Le veau d'or' on a Mozart opera album: another composer's piece
+        for head in (p.composer_hint, p.work if p.movement_name else None):
+            c = parse_one(head) if head else None
+            k = (lookup(head) or authority_match(c, self._name_ctx)[0]) if c else None
+            if k is not None and tpl.composers and norm_key(k.name) != norm_key(tpl.composers[0][0]):
+                return True
+        head = p.composer_hint
+        if not head or self._names_composer(head):
+            return False
+        hk, tk = norm_key(split_act_suffix(head)[0]), norm_key(split_act_suffix(tpl.title)[0])
+        return bool(hk and tk and not (hk.startswith(tk) or tk.startswith(hk)))
 
     def _own_composer(self, f: OccFacts) -> list[tuple[str, str | None]]:
         """The track's first tagged composer as resolved, or [] (no tag, or only librettists and the like)."""
@@ -1206,11 +1229,12 @@ class Index:
             c = f.cand
             # in an opera, numbers titled by their text ('Marzelline!', 'Mit Gewitter und Sturm') belong too
             other = stage and not f.talk and not f.extra_works and (
-                c is None or (c.tier == "title" and not c.catalogues and c.key != tpl.key))
+                c is None or (c.tier == "title" and not c.catalogues and c.key != tpl.key)) and not (
+                self._names_other_work(f, tpl))
             if not (g or other):
                 continue
-            own = self._own_composer(f)
-            if own and tpl.composers and own[0] != tpl.composers[0]:
+            own = self._own_composer(f) or (c.composers[:1] if c else [])
+            if own and tpl.composers and norm_key(own[0][0]) != norm_key(tpl.composers[0][0]):
                 if g:
                     f.cand = None
                 continue
