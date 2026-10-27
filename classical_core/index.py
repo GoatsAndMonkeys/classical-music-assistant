@@ -22,7 +22,7 @@ import logging
 import re
 import sqlite3
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any
@@ -2199,6 +2199,41 @@ class Index:
             sql += " LIMIT :lim OFFSET :off"
             args.update(lim=limit, off=offset)
         return [dict(r) for r in self._q(sql, args)]
+
+    def composer_albums(self, cid: str | None = None, vis=None, aid: str | None = None) -> list[dict]:
+        """One entry per composer and album holding a visible recording of their work, by composer then album
+        title: a compilation is listed under each of its composers (MA discussion #5481). Each entry has its
+        recording ids in album order, its work count and every composer on the album."""
+        rows = self._q(
+            "SELECT c.id AS cid, c.name AS composer, c.sort_name AS composer_sort, r.album_library_id AS aid, "
+            "a.name, a.artist, a.year, a.image_json, r.id AS rid, r.work_id, "
+            "(SELECT MIN(COALESCE(o.disc,1)*10000+COALESCE(o.position,0)) FROM recording_slot s "
+            " JOIN occurrence o ON o.id=s.occurrence_id WHERE s.recording_id=r.id) AS first_pos "
+            "FROM recording r JOIN work_composer wc ON wc.work_id=r.work_id JOIN composer c ON c.id=wc.composer_id "
+            "LEFT JOIN album_info a ON a.album_library_id=r.album_library_id "
+            f"WHERE r.album_library_id IS NOT NULL AND {self._VIS_REC} "
+            "AND (:aid IS NULL OR r.album_library_id=:aid) "
+            "AND (:cid IS NULL OR r.album_library_id IN (SELECT r3.album_library_id FROM recording r3 "
+            " JOIN work_composer wc3 ON wc3.work_id=r3.work_id WHERE wc3.composer_id=:cid)) "
+            "ORDER BY c.sort_name, c.id, a.name, r.album_library_id, first_pos",
+            {"cid": self.resolve("composer", cid) if cid else None, "aid": aid, **self._vis(vis)})
+        entries: dict[tuple[str, str], dict] = {}
+        on_album: dict[str, dict[str, str]] = defaultdict(dict)
+        for r in rows:
+            on_album[r["aid"]].setdefault(r["cid"], r["composer"])
+            e = entries.get((r["cid"], r["aid"]))
+            if e is None:
+                e = entries[(r["cid"], r["aid"])] = {
+                    "composer_id": r["cid"], "composer": r["composer"], "composer_sort": r["composer_sort"],
+                    "id": r["aid"], "name": r["name"], "artist": r["artist"], "year": r["year"],
+                    "image": json.loads(r["image_json"]) if r["image_json"] else None, "recordings": [], "wids": set()}
+            if r["rid"] not in e["recordings"]:
+                e["recordings"].append(r["rid"])
+            e["wids"].add(r["work_id"])
+        want = self.resolve("composer", cid) if cid else None
+        return [{**{k: v for k, v in e.items() if k != "wids"}, "works": len(e["wids"]),
+                 "composers": [{"id": k, "name": v} for k, v in on_album[e["id"]].items()]}
+                for e in entries.values() if want is None or e["composer_id"] == want]
 
     def count_works(self, cid: str | None, work_type: str | None, vis=None) -> int:
         return len(self.works(cid, work_type, vis))

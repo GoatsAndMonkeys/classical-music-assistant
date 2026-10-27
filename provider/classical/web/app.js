@@ -474,6 +474,13 @@
     return d.subtitle ? n + " · " + d.subtitle : n;
   }
 
+  /** "1999 · 2 works · with Bach, Rimsky-Korsakov" under an album: the other composers on a compilation. */
+  function albumSubtitle(a, cid) {
+    var others = (a.composers || []).filter(function (c) { return c.id !== cid; }).map(function (c) { return c.name; });
+    var who = others.length > 3 ? plural(others.length + 1, "composer") : others.length ? (cid ? "with " : "") + others.join(", ") : null;
+    return [a.year, a.works ? plural(a.works, "work") : null, who].filter(Boolean).join(" · ");
+  }
+
   var pure = {
     BUCKETS: BUCKETS, parseHash: parseHash, formatHash: formatHash, takeCode: takeCode, fmtDuration: fmtDuration,
     lifeDates: lifeDates, yearText: yearText, sourceLabels: sourceLabels, anyStreaming: anyStreaming,
@@ -483,7 +490,7 @@
     reviewSubtitle: reviewSubtitle, albumRows: albumRows, reviewQuery: reviewQuery, reviewArgs: reviewArgs, cardMeta: cardMeta,
     actionCount: actionCount, tapGate: tapGate, historyLine: historyLine, mbWorkCandidates: mbWorkCandidates, mbLinkLine: mbLinkLine, badgeText: badgeText, anyAcclaim: anyAcclaim, safeHref: safeHref,
     byLetter: byLetter, playArgs: playArgs, loginReturnUrl: loginReturnUrl, choosePlayer: choosePlayer, errorText: errorText, imageSrc: imageSrc,
-    plural: plural, pickLines: pickLines, boxLine: boxLine, boxSummary: boxSummary, discTitle: discTitle, daySubtitle: daySubtitle, localDate: localDate, probeOrder: probeOrder,
+    plural: plural, pickLines: pickLines, boxLine: boxLine, boxSummary: boxSummary, albumSubtitle: albumSubtitle, discTitle: discTitle, daySubtitle: daySubtitle, localDate: localDate, probeOrder: probeOrder,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = pure;
   if (typeof document === "undefined") return;
@@ -823,7 +830,7 @@
     { id: "review", label: "Review", icon: "✓" },
   ];
   var TAB_OF = { today: "today", composers: "composers", composer: "composers", works: "works", work: "works", recording: "works",
-    boxes: "works", box: "works", performers: "performers", performer: "performers", review: "review" };
+    boxes: "works", box: "works", albums: "works", performers: "performers", performer: "performers", review: "review" };
   var VIEWS = {};
   var renderId = 0;
 
@@ -990,8 +997,63 @@
     draw();
     wrap.appendChild(chips);
     wrap.appendChild(list);
+    // the composer's albums, compilations included (filled in when they arrive; the works come first)
+    var albums = h("section", { class: "section" });
+    wrap.appendChild(albums);
+    var asort = "title";
+    function drawAlbums() {
+      call("classical/albums", { composer_id: cid, sort: asort, limit: 1000 }).then(function (ar) {
+        clear(albums);
+        if (!ar.items.length) return;
+        albums.appendChild(h("h2", null, "Albums (" + ar.total + ")"));
+        albums.appendChild(h("div", { class: "chips" },
+          chip("By title", asort === "title", function () { asort = "title"; drawAlbums(); }),
+          chip("By year", asort === "year", function () { asort = "year"; drawAlbums(); })));
+        var al = h("div", { class: "list box-discs" });
+        ar.items.forEach(function (a) { al.appendChild(albumBlock(a, cid)); });
+        albums.appendChild(al);
+      }, function () { /* the section is optional */ });
+    }
+    drawAlbums();
     return wrap;
   }
+
+  /** An album as a disclosure row: cover, name, year and other composers; inside, its recordings. */
+  function albumBlock(a, cid) {
+    var det = h("details", { class: "box-disc" },
+      h("summary", { class: "row" }, img(a.image_url, "thumb"), h("span", { class: "row-main" },
+        h("span", { class: "row-title", text: a.name || "Unknown album" }),
+        h("span", { class: "row-sub", text: albumSubtitle(a, cid) }))));
+    var inner = h("div", { class: "list box-disc-recs" });
+    a.recordings.forEach(function (r) { inner.appendChild(boxRecRow(r, !cid, false)); });
+    det.appendChild(inner);
+    return det;
+  }
+
+  VIEWS.albums = async function (args, query) {
+    var sort = ["title", "year"].indexOf(query.sort) >= 0 ? query.sort : "composer";
+    var res = await call("classical/albums", { sort: sort, limit: 1000 });
+    var wrap = h("div", { class: "page" }, header("Albums", plural(res.total, sort === "composer" ? "entry" : "album", sort === "composer" ? "entries" : null),
+      { href: formatHash(["works"]), label: "Works" }));
+    wrap.appendChild(h("div", { class: "chips" },
+      chip("By composer", sort === "composer", function () { go(["albums"], {}, true); }),
+      chip("By title", sort === "title", function () { go(["albums"], { sort: "title" }, true); }),
+      chip("By year", sort === "year", function () { go(["albums"], { sort: "year" }, true); })));
+    if (!res.items.length) wrap.appendChild(empty("No albums yet."));
+    var sec = null, last = null;
+    res.items.forEach(function (a) {
+      var c = a.composer;
+      if (!sec || (c && c.id !== last)) {
+        sec = h("div", { class: "list box-discs" });
+        if (c) wrap.appendChild(h("h2", { class: "letter-head" }, link(["composer", c.id], null, c.name)));
+        wrap.appendChild(sec);
+        last = c && c.id;
+      }
+      sec.appendChild(albumBlock(a, c ? c.id : null));
+    });
+    if (res.total > res.items.length) wrap.appendChild(h("p", { class: "fine", text: "Showing the first " + res.items.length + "." }));
+    return wrap;
+  };
 
   function workRow(w, scope, noComposer) {
     var sub = noComposer ? Object.assign({}, w, { composer: null }) : w;
@@ -1090,6 +1152,7 @@
         boxSlot.appendChild(link(["boxes"], null, "Box sets (" + bx.boxes.length + ") ›", "more-link"));
       }
     }, function () { /* the list is optional */ });
+    wrap.appendChild(link(["albums"], null, "Albums by composer ›", "more-link"));
 
     var list = h("div", { class: "list" });
     res.items.forEach(function (w) { list.appendChild(workRow(w, f.performer_id)); });

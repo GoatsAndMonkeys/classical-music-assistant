@@ -321,3 +321,12 @@ test("box sets: where a recording sits, a box's summary and disc headings", () =
   assert.equal(app.discTitle({ disc: 61, subtitle: "Leonore Part 1" }), "CD 61 · Leonore Part 1");
   assert.equal(app.discTitle({ disc: 3, subtitle: null }), "CD 3");
 });
+
+test("an album's subtitle names the other composers on a compilation", () => {
+  const cs = [{ id: "c_b", name: "Bach" }, { id: "c_m", name: "Mozart" }, { id: "c_r", name: "Rimsky-Korsakov" }];
+  assert.equal(app.albumSubtitle({ year: 1999, works: 1, composers: cs }, "c_m"), "1999 · 1 work · with Bach, Rimsky-Korsakov");
+  assert.equal(app.albumSubtitle({ year: null, works: 2, composers: [cs[1]] }, "c_m"), "2 works");
+  assert.equal(app.albumSubtitle({ works: 3, composers: cs }, null), "3 works · Bach, Mozart, Rimsky-Korsakov");
+  assert.equal(app.albumSubtitle({ works: 5, composers: cs.concat(cs.map((c) => ({ id: c.id + "2", name: c.name }))) }, "c_m"),
+    "5 works · 6 composers");
+});

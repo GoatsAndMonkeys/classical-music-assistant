@@ -606,6 +606,51 @@ def box(ix: Index, box_id: str, vis=None) -> dict:
             "composers": composers_out}
 
 
+ALBUM_SORTS = ("composer", "title", "year")
+
+
+def albums(ix: Index, vis=None, composer_id: str | None = None, sort: str = "composer", offset: int = 0,
+           limit: int = 200) -> dict:
+    """Albums by the composers on them (MA discussion #5481). `sort`: composer (an album is listed under each
+    of its composers, by composer then title), title or year (each album once, undated last). `composer_id`
+    keeps that composer's albums, with only their recordings. Each item lists its recordings as box rows."""
+    if sort not in ALBUM_SORTS:
+        raise ValueError(f"sort must be one of {', '.join(ALBUM_SORTS)}")
+    offset = max(0, int(offset or 0))
+    limit = max(1, min(int(limit or 200), MAX_LIMIT))
+    header = None
+    if composer_id:
+        cid = ix.resolve("composer", composer_id)
+        c = next((c for c in ix.composers(vis) if c["id"] == cid), None)
+        if c is None:
+            raise NotFound(composer_id)
+        header = _composer(c)
+    entries = ix.composer_albums(header["id"] if header else None, vis)
+    if sort != "composer" and not header:
+        once: dict[str, dict] = {}
+        for e in entries:
+            prev = once.setdefault(e["id"], {**e, "recordings": [], "composer_id": None})
+            prev["recordings"] += [r for r in e["recordings"] if r not in prev["recordings"]]
+        entries = list(once.values())
+    if sort != "composer":
+        entries.sort(key=lambda e: _sort_key(e["name"]))
+    if sort == "year":
+        entries.sort(key=lambda e: (e["year"] is None, e["year"] or 0))
+    page = entries[offset:offset + limit]
+    recs = {r["id"]: r for r in _box_recordings(ix, sorted({e["id"] for e in page}), vis)} if page else {}
+    items = []
+    for e in page:
+        keep = set(e["recordings"])
+        items.append({
+            "id": e["id"], "name": e["name"], "artist": e["artist"], "year": e["year"], "image": e["image"],
+            "composer": {"id": e["composer_id"], "name": e["composer"]} if e["composer_id"] else None,
+            "composers": e["composers"], "works": len({r["work_id"] for r in recs.values() if r["id"] in keep}),
+            "recordings": [_box_item(r, None) for r in recs.values()
+                           if r["id"] in keep and r["album_library_id"] == e["id"]]})
+    return {"total": len(entries), "offset": offset, "limit": limit, "sort": sort, "composer": header,
+            "items": items}
+
+
 def accolades(ix: Index, recording_id: str | None = None, work_id: str | None = None, vis=None) -> dict:
     """`classical/accolades`: one recording's awards, reviews, ratings and review links, or every recording of
     a work with its acclaim and pick score (the curation hook, §5.9)."""
