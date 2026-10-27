@@ -16,7 +16,7 @@ from music_assistant.controllers.webserver.helpers.auth_middleware import get_cu
 from music_assistant_models.auth import Scope
 from music_assistant_models.config_entries import ConfigEntry
 from music_assistant_models.enums import ConfigEntryType
-from music_assistant_models.errors import InvalidDataError, MediaNotFoundError
+from music_assistant_models.errors import InvalidDataError
 
 from classical_core import __version__ as CORE_VERSION
 from classical_core import views
@@ -25,6 +25,7 @@ from classical_core.index import Index
 from .web import ROUTE, ClassicalWeb, image_urls
 
 UI_PATH = "/classical/"
+NOT_FOUND = "Not found"
 
 
 def can(user: Any, scope: Any) -> bool:
@@ -60,16 +61,29 @@ class CompanionUI:
     def _register_ui(self) -> list[Callable[[], None]]:
         """Register the UI's commands and its static route; returns the unregister handles."""
         reg = self.mass.register_api_command
-        handles = [
-            reg("classical/ui_info", self.cmd_ui_info, required_scope=Scope.LIBRARY_READ),
-            reg("classical/composers", self.cmd_composers, required_scope=Scope.LIBRARY_READ),
-            reg("classical/works", self.cmd_works, required_scope=Scope.LIBRARY_READ),
-            reg("classical/work", self.cmd_work, required_scope=Scope.LIBRARY_READ),
-            reg("classical/recording", self.cmd_recording, required_scope=Scope.LIBRARY_READ),
-            reg("classical/performers", self.cmd_performers, required_scope=Scope.LIBRARY_READ),
-            reg("classical/performer", self.cmd_performer, required_scope=Scope.LIBRARY_READ),
-            reg("classical/review", self.cmd_review, required_scope=Scope.LIBRARY_READ),
-        ]
+        handles: list[Callable[[], None]] = []
+        try:
+            self._register_ui_into(handles, reg)
+        except Exception:
+            # a half-registered UI would block the next load ("already registered"): undo what was done
+            for undo in reversed(handles):
+                undo()
+            raise
+        self.logger.info("Classical companion UI: %s", self._ui_url())
+        return handles
+
+    def _register_ui_into(self, handles: list[Callable[[], None]], reg: Callable[..., Callable[[], None]]) -> None:
+        for command, handler in (
+            ("classical/ui_info", self.cmd_ui_info),
+            ("classical/composers", self.cmd_composers),
+            ("classical/works", self.cmd_works),
+            ("classical/work", self.cmd_work),
+            ("classical/recording", self.cmd_recording),
+            ("classical/performers", self.cmd_performers),
+            ("classical/performer", self.cmd_performer),
+            ("classical/review", self.cmd_review),
+        ):
+            handles.append(reg(command, handler, required_scope=Scope.LIBRARY_READ))
         self._web = ClassicalWeb(CORE_VERSION)
         ws = self.mass.webserver
         try:
@@ -78,8 +92,6 @@ class CompanionUI:
             # a route left behind by a reload that crashed before unload: replace it once
             ws.unregister_dynamic_route(ROUTE, "*")
             handles.append(ws.register_dynamic_route(ROUTE, self._web.handle, "*"))
-        self.logger.info("Classical companion UI: %s", self._ui_url())
-        return handles
 
     # ---- helpers -----------------------------------------------------------------------------------------
 
@@ -95,8 +107,10 @@ class CompanionUI:
 
         try:
             res = await self._read(build)
-        except views.NotFound as err:
-            raise MediaNotFoundError("Not found") from err
+        except views.NotFound:
+            # not MediaNotFoundError: MA 2.10.8's `POST /api` answers that with a 500 and logs a traceback for
+            # every stale or probed id; InvalidDataError is a plain 400. The text never says hidden vs unknown.
+            raise InvalidDataError(NOT_FOUND) from None
         except ValueError as err:
             raise InvalidDataError(str(err)) from err
         return image_urls(res, self._image_id)

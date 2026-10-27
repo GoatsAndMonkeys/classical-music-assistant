@@ -265,3 +265,52 @@ def test_large_work_facets_are_small_and_fast(tmp_path):
     assert len(res["facets"]["soloists"]) == 60
     assert size < 400_000, size
     assert took < 1.0, took
+
+
+def _count_queries(ix):
+    n = {"q": 0}
+    q, one = ix._q, ix._one
+
+    def cq(*a, **k):
+        n["q"] += 1
+        return q(*a, **k)
+
+    def co(*a, **k):
+        n["q"] += 1
+        return one(*a, **k)
+
+    ix._q, ix._one = cq, co
+    return n
+
+
+@pytest.mark.parametrize("view", ["work", "recording"])
+def test_work_and_recording_pages_do_not_query_per_recording(tmp_path, view):
+    counts = []
+    for size in (3, 30):
+        lib = Lib(tmp_path / f"{view}{size}")
+        for i in range(size):
+            lib.add(CONCERTO, [person(f"Conductor {i}", "conductor"), BPH], recorded=str(1950 + i))
+        wid = lib.work_id(CONCERTO)
+        rid = views.work(lib.ix, wid)["recordings"][-1]["id"]
+        n = _count_queries(lib.ix)
+        res = views.work(lib.ix, wid) if view == "work" else views.recording(lib.ix, rid)
+        counts.append(n["q"])
+        if view == "recording":
+            assert res["id"] == rid and res["who"].startswith("Conductor ") and len(res["movements"]) == 2
+        else:
+            assert len(res["recordings"]) == size
+            assert all(r["label"].startswith(r["who"]) for r in res["recordings"])
+    assert counts[0] == counts[1], counts
+
+
+def test_review_does_not_name_works_on_hidden_sources(tmp_path):
+    lib = Lib(tmp_path)
+    lib.add("Fantasia for Strings", [BPH], provider="filesystem_local--hidden", composer="Ralph Vaughan Williams")
+    lib.add("Fantasia for Strings", [VPH], composer="Ralph Vaughan Williams", year=2001)
+    vis = {"filesystem_local"}
+    everything = [it for g in views.review(lib.ix)["groups"] for it in g["items"]]
+    same = [it for it in everything if it["reason"] == "possible same work on another album"]
+    assert same and all("other" in it["detail"] for it in same), everything
+    visible = [it for g in views.review(lib.ix, vis=vis)["groups"] for it in g["items"]
+               if it["reason"] == "possible same work on another album"]
+    assert visible and all("other" not in it["detail"] for it in visible)

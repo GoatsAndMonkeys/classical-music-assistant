@@ -132,6 +132,17 @@ Each entry says what the plan asked for, what was built instead, and why.
 - **View SQL lives in `classical_core/views.py`, not in new `Index` methods.** This keeps `index.py` untouched
   while it is being reviewed. The views reuse the index's visibility clause, so hidden sources are absent and
   unknown ids return "not found" just as in browse.
+- **Not found is a 400, not `MediaNotFoundError`.** 2.10.8's `POST /api` turns `MediaNotFoundError` into a 500
+  and logs a traceback, so a stale bookmark or a probed id would flood the log. The view commands raise
+  `InvalidDataError("Not found")` instead, with the same text for hidden and unknown ids; the page shows its
+  "not found" message for that answer.
+- **The login carries a state nonce.** The page sends `return_url=…/classical/?state=<random>` and keeps the
+  nonce in `localStorage`; a returning `?code=` is stored only when its `state` matches, so a crafted
+  `?code=` link can't sign the page in to another account. Both parameters are stripped at once. Signing out
+  of a borrowed MA web token stops borrowing it until the next sign-in on this page.
+- **The work and recording views query MA-free SQL of their own.** `Index.recordings` runs one credits query
+  per recording (and `Index.recording` lists the whole work to return one), so `views` fetches recordings and
+  all their credits in two queries.
 - **The static route is registered with method `"*"`.** The handler answers only GET and HEAD (405 otherwise).
   MA's prefix match means `/classicalfoo` also reaches it, so it returns 404 for anything outside `/classical/`.
   A route left over from a crashed reload is replaced once.

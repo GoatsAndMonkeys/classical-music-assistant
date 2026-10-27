@@ -11,6 +11,7 @@ benchmark ever says otherwise.
 
 from __future__ import annotations
 
+import json
 import re
 from collections import Counter, defaultdict
 from collections.abc import Iterable
@@ -200,6 +201,40 @@ def _credits_by_recording(ix: Index, wid: str, vis, rid: str | None = None) -> d
     return out
 
 
+_RECORDINGS_SQL = (
+    # `Index.recordings` without its per-recording credits query (N+1): the views fetch every credit of the
+    # work in one query (`_credits_by_recording`) and build the label from those
+    "SELECT r.*, a.name AS album, a.artist AS album_artist, a.year AS album_year, a.image_json, "
+    "(SELECT COALESCE(SUM(t.duration),0) FROM recording_slot s JOIN occurrence o ON o.id=s.occurrence_id "
+    " JOIN track_info t ON t.library_track_id=o.library_track_id WHERE s.recording_id=r.id) AS duration, "
+    "(SELECT COUNT(*) FROM recording_slot s WHERE s.recording_id=r.id) AS tracks, "
+    "(SELECT t.artist FROM recording_slot s JOIN occurrence o ON o.id=s.occurrence_id "
+    " JOIN track_info t ON t.library_track_id=o.library_track_id WHERE s.recording_id=r.id "
+    " ORDER BY s.ord LIMIT 1) AS track_artist, "
+    "(SELECT MIN(COALESCE(o.disc,1)*10000+COALESCE(o.position,0)) FROM recording_slot s "
+    " JOIN occurrence o ON o.id=s.occurrence_id WHERE s.recording_id=r.id) AS first_pos, "
+    "(SELECT GROUP_CONCAT(c.name, ';') FROM work_composer wc JOIN composer c ON c.id=wc.composer_id "
+    " WHERE wc.work_id=r.work_id) AS composer_names "
+    "FROM recording r LEFT JOIN album_info a ON a.album_library_id=r.album_library_id "
+    f"WHERE r.work_id=:wid AND (:rid IS NULL OR r.id=:rid) AND {Index._VIS_REC} "
+    "ORDER BY r.recorded_start IS NULL, r.recorded_start, r.album_library_id, first_pos")
+
+
+def _recordings(ix: Index, wid: str, vis, rid: str | None = None) -> tuple[list[dict], dict[str, list[dict]]]:
+    """A work's visible recordings (or just `rid`) as `Index.recordings` returns them, plus their credits:
+    two queries however many recordings the work has."""
+    credits = _credits_by_recording(ix, wid, vis, rid)
+    out = []
+    for row in ix._q(_RECORDINGS_SQL, {"wid": wid, "rid": rid, **_vis_args(vis)}):
+        d = dict(row)
+        d["credits"] = credits.get(d["id"], [])
+        d["label"] = recording_label(d)
+        image = d.pop("image_json", None)
+        d["image"] = json.loads(image) if image else None
+        out.append(d)
+    return out, credits
+
+
 def _summary(r: dict, credits: list[dict], wid: str) -> dict:
     """One recording as the work page lists it ("Karajan / Berliner Philharmoniker (1963) [32:00]")."""
     rec_year = _year(r.get("recorded_start"))
@@ -267,11 +302,10 @@ def work(ix: Index, wid: str, vis=None, scope: str | list[str] | None = None) ->
     if w is None:
         raise NotFound(wid)
     wid = w["id"]
-    recs = ix.recordings(wid, vis)
+    recs, credits = _recordings(ix, wid, vis)
     extra = ix.contained_tracks(wid, vis)
     if not recs and not extra:
         raise NotFound(wid)
-    credits = _credits_by_recording(ix, wid, vis)
     summaries = [_summary(r, credits.get(r["id"], []), wid) for r in recs]
     best = _best(recs)
     ids = [s for s in (scope.split(",") if isinstance(scope, str) else (scope or [])) if s]
@@ -295,12 +329,14 @@ def work(ix: Index, wid: str, vis=None, scope: str | list[str] | None = None) ->
 
 def recording(ix: Index, rid: str, vis=None) -> dict:
     """One recording: summary, movements in order (with track URIs to play from any of them), full credits."""
-    r = ix.recording(ix.resolve("recording", rid), vis)
-    if r is None:
+    rid = ix.resolve("recording", rid)
+    row = ix._one("SELECT work_id FROM recording WHERE id=?", (rid,))
+    recs, _ = _recordings(ix, row["work_id"], vis, rid) if row else ([], {})
+    if not recs:
         raise NotFound(rid)
+    r = recs[0]
     w = ix.work(r["work_id"]) or {}
-    credits = _credits_by_recording(ix, r["work_id"], vis, r["id"]).get(r["id"], [])
-    s = _summary(r, credits, r["work_id"])
+    s = _summary(r, r["credits"], r["work_id"])
     s["movements"] = [{
         "ord": t["ord"], "movement_no": t["movement_no"], "name": t["movement_name"] or t["title"] or "",
         "title": t["title"], "duration": int(t["duration"] or 0), "duration_text": _fmt_duration(t["duration"] or 0),
@@ -446,6 +482,12 @@ def review(ix: Index, vis=None) -> dict:
     comp_ids = {c["id"]: c for c in comps}
     visible_works = {w["id"] for w in ix.works(vis=vis)}
     albums = {r[0]: r[1] for r in ix._q("SELECT album_library_id, name FROM album_info")}
+    # one query for every occurrence item's recording, not one per item
+    occ_rec = {r["oid"]: (r["id"], r["work_id"]) for r in ix._q(
+        "SELECT s.occurrence_id AS oid, r.id, r.work_id FROM review_item v "
+        "JOIN recording_slot s ON s.occurrence_id=v.entity_id JOIN recording r ON r.id=s.recording_id "
+        f"WHERE v.entity='occurrence' AND {Index._VIS_REC}", _vis_args(vis))}
+    visible_names = {norm_key(c["name"]) for c in comps}
 
     def comp_ref(name: str | None) -> dict | None:
         c = by_name.get(norm_key(name or "")) if name else None
@@ -460,10 +502,9 @@ def review(ix: Index, vis=None) -> dict:
             if w in visible_works:
                 link = {"kind": "work", "id": w}
         elif it["entity"] == "occurrence" and it.get("entity_id"):
-            r = ix._one("SELECT r.id, r.work_id FROM recording_slot s JOIN recording r ON r.id=s.recording_id "
-                        f"WHERE s.occurrence_id=:oid AND {Index._VIS_REC}", {"oid": it["entity_id"], **_vis_args(vis)})
+            r = occ_rec.get(it["entity_id"])
             if r:
-                link = {"kind": "recording", "id": r["id"], "work_id": r["work_id"]}
+                link = {"kind": "recording", "id": r[0], "work_id": r[1]}
         elif it["entity"] == "composer" and it.get("entity_id"):
             c = comp_ids.get(ix.resolve("composer", it["entity_id"]))
             if c:
@@ -483,6 +524,11 @@ def review(ix: Index, vis=None) -> dict:
                             {"op": "merge_composers", "source": b, "target": a}]
         else:
             hint = _GROUPING_HINT
+        # `other` names another composer or work, which may sit only on sources this caller can't see
+        if "other" in d and not (
+                (it["entity"] == "composer" and norm_key(str(d["other"] or "")) in visible_names)
+                or (it["entity"] == "work" and ix.resolve("work", str(d["other"] or "")) in visible_works)):
+            d = {k: v for k, v in d.items() if k != "other"}
         groups[it["reason"]].append({
             "id": it["id"], "reason": it["reason"], "entity": it["entity"], "entity_id": it.get("entity_id"),
             "title": _review_title(it), "album": albums.get(it.get("album_library_id")),

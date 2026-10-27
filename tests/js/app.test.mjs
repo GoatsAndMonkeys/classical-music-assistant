@@ -1,4 +1,4 @@
-// Pure helpers of the companion UI (provider/classical/web/app.js): node --test tests/js/
+// Pure helpers of the companion UI (provider/classical/web/app.js): node --test "tests/js/*.test.mjs"
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -23,13 +23,21 @@ test("hash routes parse and format round-trip", () => {
   assert.deepEqual(app.parseHash("#/x/%E0%A4%A"), { path: ["x", "%E0%A4%A"], query: {} });
 });
 
-test("the login code is taken and stripped from the URL", () => {
-  const t = app.takeCode("http://ma:8095/classical/?code=abc.def&x=1#/work/w_1");
+test("the login code is taken and stripped from the URL, only with this browser's state nonce", () => {
+  const t = app.takeCode("http://ma:8095/classical/?state=n1&code=abc.def&x=1#/work/w_1", "n1");
   assert.equal(t.code, "abc.def");
   assert.equal(t.url, "http://ma:8095/classical/?x=1#/work/w_1");
-  const u = app.takeCode("http://ma:8095/classical/?code=jwt");
+  const u = app.takeCode("http://ma:8095/classical/?state=n1&code=jwt", "n1");
   assert.equal(u.url, "http://ma:8095/classical/");
   assert.equal(app.takeCode("http://ma:8095/classical/#/").code, null);
+  // a crafted link (no nonce, or a different one) is stripped but never stored
+  for (const [href, nonce] of [["http://ma/classical/?code=evil", "n1"], ["http://ma/classical/?state=x&code=evil", "n1"],
+    ["http://ma/classical/?state=&code=evil", ""], ["http://ma/classical/?state=n1&code=evil", null]]) {
+    const r = app.takeCode(href, nonce);
+    assert.equal(r.code, null, href);
+    assert.equal(r.url, "http://ma/classical/");
+  }
+  assert.equal(app.loginReturnUrl("http://ma:8095", "/classical/", "ab12"), "http://ma:8095/classical/?state=ab12");
 });
 
 test("durations, life dates and year labels", () => {
@@ -118,6 +126,8 @@ test("player preselection", () => {
 test("errors and image URLs", () => {
   assert.match(app.errorText(403, "This command requires the library_manage scope"), /can't do this/);
   assert.match(app.errorText(404, ""), /Not found/);
+  assert.match(app.errorText(400, "Not found"), /hidden from your account/);
+  assert.equal(app.errorText(400, "role must be all"), "role must be all");
   assert.equal(app.errorText(500, "boom"), "boom");
   assert.equal(app.imageSrc("imageproxy/abc123?size=256"), "../imageproxy/abc123?size=256");
   assert.equal(app.imageSrc("javascript:alert(1)"), null);

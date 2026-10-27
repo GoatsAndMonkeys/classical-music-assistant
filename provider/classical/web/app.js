@@ -53,14 +53,25 @@
     return parts.length ? h + "?" + parts.join("&") : h;
   }
 
-  /** The login redirect returns `?code=<JWT>`: take it and the URL without it (to replaceState at once). */
-  function takeCode(href) {
+  /**
+   * The login redirect returns `?state=<nonce>&code=<JWT>`: take the code and the URL without either (to
+   * replaceState at once). The code counts only when `state` matches the nonce this browser stored before it
+   * left for the login page, so a crafted link can't sign the page in to someone else's account.
+   */
+  function takeCode(href, expected) {
     var u = new URL(href);
-    var code = u.searchParams.get("code");
-    if (!code) return { code: null, url: href };
+    var code = u.searchParams.get("code"), st = u.searchParams.get("state");
+    if (!code && !st) return { code: null, url: href };
     u.searchParams.delete("code");
+    u.searchParams.delete("state");
     var search = u.searchParams.toString();
-    return { code: code, url: u.origin + u.pathname + (search ? "?" + search : "") + u.hash };
+    return { code: code && expected && st === expected ? code : null,
+      url: u.origin + u.pathname + (search ? "?" + search : "") + u.hash };
+  }
+
+  /** MA's login page appends `code` to this URL (same origin, so MA trusts it without asking). */
+  function loginReturnUrl(origin, pathname, nonce) {
+    return origin + pathname + "?state=" + encodeURIComponent(nonce);
   }
 
   function fmtDuration(sec) {
@@ -213,7 +224,7 @@
     text = String(text || "").trim();
     if (status === 401) return "Please sign in again.";
     if (status === 403) return "Your account can't do this" + (text ? " (" + text + ")" : "") + ".";
-    if (status === 404) return "Not found — it may be hidden from your account or no longer in the library.";
+    if (status === 404 || (status === 400 && text === "Not found")) return "Not found — it may be hidden from your account or no longer in the library.";
     return text || "Something went wrong (" + status + ").";
   }
 
@@ -225,7 +236,7 @@
     BUCKETS: BUCKETS, parseHash: parseHash, formatHash: formatHash, takeCode: takeCode, fmtDuration: fmtDuration,
     lifeDates: lifeDates, yearText: yearText, workSubtitle: workSubtitle, recordingMatches: recordingMatches,
     filterRecordings: filterRecordings, sortRecordings: sortRecordings, creditGroups: creditGroups,
-    byLetter: byLetter, playArgs: playArgs, choosePlayer: choosePlayer, errorText: errorText, imageSrc: imageSrc,
+    byLetter: byLetter, playArgs: playArgs, loginReturnUrl: loginReturnUrl, choosePlayer: choosePlayer, errorText: errorText, imageSrc: imageSrc,
     plural: plural,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = pure;
@@ -347,22 +358,30 @@
 
   /** Ingress first (no token), then our own token, then MA's web UI token on this origin (never written). */
   async function authenticate() {
-    var taken = takeCode(location.href);
+    var taken = takeCode(location.href, storage("cma_login_state"));
+    if (taken.url !== location.href) history.replaceState(null, "", taken.url);
+    storage("cma_login_state", null);
     if (taken.code) {
       storage("cma_token", taken.code);
-      history.replaceState(null, "", taken.url);
+      storage("cma_no_borrow", null);
     }
     if (await probe(null)) { state.source = "ingress"; return true; }
     var own = storage("cma_token");
     if (own && await probe(own)) { state.token = own; state.source = "own"; return true; }
     if (own) storage("cma_token", null);
-    var borrowed = storage("ma_access_token");
+    var borrowed = storage("cma_no_borrow") ? null : storage("ma_access_token");
     if (borrowed && await probe(borrowed)) { state.token = borrowed; state.source = "borrowed"; return true; }
     return false;
   }
 
-  function loginUrl() {
-    return "../login?return_url=" + encodeURIComponent(location.origin + location.pathname);
+  function startLogin() {
+    var nonce = "";
+    var bytes = new Uint8Array(16);
+    window.crypto.getRandomValues(bytes);
+    for (var i = 0; i < bytes.length; i++) nonce += (bytes[i] < 16 ? "0" : "") + bytes[i].toString(16);
+    storage("cma_login_state", nonce);
+    location.href = "../login?return_url=" + encodeURIComponent(loginReturnUrl(location.origin, location.pathname,
+      nonce));
   }
 
   var seq = 0;
@@ -388,7 +407,7 @@
       showLogin();
     }
     var err = new Error(errorText(r.status, body));
-    err.status = r.status;
+    err.status = r.status === 400 && body.trim() === "Not found" ? 404 : r.status;
     throw err;
   }
 
@@ -399,7 +418,10 @@
       } catch (e) { /* the token expires on its own */ }
       storage("cma_token", null);
     }
+    // a borrowed token belongs to MA's web UI: leave it alone, but stop using it until the next sign-in here
+    if (state.source === "borrowed") storage("cma_no_borrow", "1");
     state.token = null;
+    state.source = null;
     showLogin();
   }
 
@@ -412,7 +434,7 @@
       h("img", { src: "icon.svg", alt: "", class: "login-icon" }),
       h("h1", { text: "Classical" }),
       h("p", { text: "Browse your classical library by composer, work and performer." }),
-      h("a", { class: "btn primary", href: loginUrl(), text: "Sign in to Music Assistant" }),
+      h("button", { type: "button", class: "btn primary", text: "Sign in to Music Assistant", onclick: startLogin }),
       h("p", { class: "fine", text: "You'll come straight back here after signing in." })));
   }
 
@@ -860,7 +882,7 @@
         var dchips = h("div", { class: "chips scroll" });
         var drawDecades = function () {
           clear(dchips);
-          dchips.appendChild(chip("Any year", !f.decade, function () { f.decade = null; drawDecades(); draw(); }));
+          dchips.appendChild(chip("Any year", !f.decade, function () { f.decade = null; shown = PAGE; drawDecades(); draw(); }));
           decs.forEach(function (d) {
             dchips.appendChild(chip(d.decade + "s", f.decade === d.decade, function () {
               f.decade = f.decade === d.decade ? null : d.decade; shown = PAGE; drawDecades(); draw();

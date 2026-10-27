@@ -137,7 +137,20 @@ def test_view_maps_errors_and_images(mods):
         raise ValueError("unknown role")
 
     assert asyncio.run(p._view(ok)) == {"ix": "IX", "vis": ["filesystem_local"], "image_url": "imageproxy/fs-x?size=256"}
-    with pytest.raises(MediaNotFoundError):
+    # a plain 400 on `POST /api` (MediaNotFoundError is a logged 500 there), and the same text for any id
+    with pytest.raises(sys.modules["music_assistant_models.errors"].InvalidDataError, match="^Not found$"):
         asyncio.run(p._view(missing))
     with pytest.raises(sys.modules["music_assistant_models.errors"].InvalidDataError):
         asyncio.run(p._view(bad))
+
+
+def test_register_ui_undoes_a_partial_registration(mods):
+    p = object.__new__(mods.glue.ClassicalProvider)
+    p.mass, p.logger = MagicMock(), MagicMock()
+    undo = [MagicMock() for _ in range(3)]
+    p.mass.register_api_command.side_effect = [*undo, RuntimeError("Command classical/work is already registered")]
+    with pytest.raises(RuntimeError):
+        p._register_ui()
+    for u in undo:
+        u.assert_called_once_with()
+    p.mass.webserver.register_dynamic_route.assert_not_called()
