@@ -54,6 +54,15 @@ def test_refs_takes_performer_ids_only_from_exactly_named_musicbrainz_credits(li
     assert ln.performer_mbid(lib.ix, lib.pid("Anne-Sophie Mutter"))[1] is None
 
 
+def test_a_name_credited_to_two_musicbrainz_artists_gets_no_id(lib):
+    other = "0d0d0d0d-0000-4000-8000-000000000001"
+    with_mb_credits(lib, credit("Herbert von Karajan", KARAJAN_MB, "conductor", "person", 0),
+                    credit("Herbert von Karajan", other, "conductor", "person", 1))      # a namesake
+    ref = ln.refs(lib.ix, lib.work_id(WORK5))
+    assert {p["name"]: p["mbid"] for p in ref["performers"]}["Herbert von Karajan"] is None
+    assert ln.performer_mbid(lib.ix, lib.pid("Herbert von Karajan"))[1] is None
+
+
 def test_the_cache_expires_after_the_ttl_but_keeps_the_stale_value(lib):
     con = lib.ix.con
     assert ln.cached(con, "artist:x", 100.0) == (False, None)

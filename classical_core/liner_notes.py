@@ -41,13 +41,15 @@ def _mbids(ix: Index, entity: str, eid: str) -> list[str]:
 
 
 def _credit_mbids(ix: Index, track_ids: list[str]) -> dict[str, str]:
-    """ident_key(credited name) → MusicBrainz artist id, from the MusicBrainz recordings of these tracks."""
+    """ident_key(credited name) → MusicBrainz artist id, from the MusicBrainz recordings of these tracks. A
+    name credited to more than one MusicBrainz artist (two namesakes) is left out: no bio beats a wrong one."""
     if not track_ids:
         return {}
     marks = ",".join("?" * len(track_ids))
     recs = [r[0] for r in ix._q(f"SELECT DISTINCT mbid FROM mapping_state WHERE library_track_id IN ({marks}) "
                                 "AND mbid IS NOT NULL", track_ids)]
     out: dict[str, str] = {}
+    clash: set[str] = set()
     for rec in recs:
         for r in ix._q("SELECT value FROM evidence WHERE entity='mb_recording' AND entity_id=? AND field='credit' "
                        "AND retracted_at IS NULL", (rec,)):
@@ -57,8 +59,9 @@ def _credit_mbids(ix: Index, track_ids: list[str]) -> dict[str, str]:
                 continue
             mbid = (c.get("mbid") or "").lower() if isinstance(c, dict) else ""
             if _MBID.match(mbid) and (k := ident_key(c.get("name") or "")):
-                out.setdefault(k, mbid)
-    return out
+                if out.setdefault(k, mbid) != mbid:
+                    clash.add(k)
+    return {k: v for k, v in out.items() if k not in clash}
 
 
 def _person_keys(ix: Index, pid: str, name: str) -> set[str]:
