@@ -519,3 +519,69 @@ def test_accolade_decide_checks_visibility_and_requeues(glue, tmp_path, monkeypa
     monkeypatch.setattr(glue.accolades, "decide", MagicMock(side_effect=ValueError("unknown decision")))
     with pytest.raises(glue.InvalidDataError):
         asyncio.run(p.cmd_accolade_decide("abc123", "r-1", "maybe"))
+
+
+def test_job_order_puts_the_art_job_after_albums_and_scans(glue):
+    order = sorted(["art", "scan", "album:7", "changes"], key=glue.job_order)
+    assert order.index("album:7") < order.index("scan") < order.index("art")
+
+
+def test_art_job_walks_in_chunks_and_resumes_after_a_transient_error(glue, tmp_path, monkeypatch):
+    p, _con, _ = _provider(glue, tmp_path)
+    p._mb, p._caa, p._art_after = object(), object(), None
+    rows = [{"album_library_id": f"{i:03d}"} for i in range(2 * glue.artwork.CHUNK + 3)]
+    applied, fail = [], {"005"}
+
+    async def find(album, caa, mb):
+        if album["album_library_id"] in fail:
+            raise glue.MBTransientError("503")
+        return glue.artwork.Art(f"u{album['album_library_id']}", None, None, False)
+
+    async def apply(aid, art):
+        applied.append(aid)
+
+    monkeypatch.setattr(glue.artwork, "due", lambda con, after, limit: [r for r in rows if
+                                                                        r["album_library_id"] > (after or "")][:limit])
+    monkeypatch.setattr(glue.artwork, "find", find)
+    p._apply_art = apply
+    asyncio.run(p._art())
+    assert applied == ["000", "001", "002", "003", "004"] and p._art_after == "004" and "art" not in p._jobs
+    fail.clear()
+    asyncio.run(p._art())                       # resumes at 005; a full chunk queues the next one
+    assert applied[5] == "005" and len(applied) == 5 + glue.artwork.CHUNK and "art" in p._jobs
+    asyncio.run(p._art())                       # the rest; the walk starts over next time
+    assert len(applied) == len(rows) and p._art_after is None
+
+    p._caa = None
+    monkeypatch.setattr(glue.artwork, "due", MagicMock(side_effect=AssertionError))
+    asyncio.run(p._art())                       # off (no contact, or switched off): no work
+
+
+def test_apply_art_adds_a_remote_image_and_confident_ids_to_the_ma_album(glue, tmp_path):
+    p, con, _ = _provider(glue, tmp_path)
+    con.execute("INSERT INTO album_info(album_library_id, name, artist) VALUES ('7', 'A', 'B')")
+    kind = types.SimpleNamespace
+    album = MagicMock(item_id=7, image=None, external_ids=[(kind(value="barcode"), "123")])
+    album.name = "A"
+    p.mass.music.albums.get_library_item = MagicMock(side_effect=lambda i: _done(album))
+    updated = []
+    p.mass.music.albums.update_item_in_library = MagicMock(side_effect=lambda i, a: _done(updated.append((i, a))))
+    art = glue.artwork.Art("https://coverartarchive.org/release/r/front-500", "rel-1", None, True)
+    assert asyncio.run(p._apply_art("7", art)) is True
+    assert updated == [(7, album)]
+    album.add_external_id.assert_called_once_with(glue.ExternalID.MB_ALBUM, "rel-1")
+    img = glue.MediaItemImage.call_args.kwargs
+    assert img["path"] == art.url and img["provider"] == "coverartarchive" and img["remotely_accessible"] is True
+    album.metadata.add_image.assert_called_once()
+    assert "front-500" in con.execute("SELECT image_json FROM album_info WHERE album_library_id='7'").fetchone()[0]
+
+    # a picture-only match adds no ids; an album that has an image is left alone
+    album.add_external_id.reset_mock()
+    assert asyncio.run(p._apply_art("7", glue.artwork.Art("u", None, "rg", False))) is True
+    album.add_external_id.assert_not_called()
+    album.image = object()
+    assert asyncio.run(p._apply_art("7", art)) is False and len(updated) == 2
+
+
+async def _done(value=None):
+    return value
