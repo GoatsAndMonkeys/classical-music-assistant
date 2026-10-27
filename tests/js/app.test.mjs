@@ -271,7 +271,7 @@ test("review cards: meta line, action counts and the recent-decisions line", () 
   assert.equal(app.cardMeta({ n: 1, impact: 1, acclaim: 2.25 }), "1 item · 1 track · acclaim 2.3");
   assert.equal(app.actionCount([{ op: "dismiss", items: ["a", "b", "c"] }]), 3);
   assert.equal(app.actionCount([{ op: "work_mb_link" }, { op: "work_mb_link" }]), 2);
-  assert.equal(app.actionCount([{ op: "restore", items: ["a"] }]), 1);
+  assert.equal(app.actionCount([{ op: "restore", keys: ["a"] }]), 1);
   const now = 1_000_000;
   assert.equal(app.historyLine({ at: now - 30, actions: 1 }, now), "just now");
   assert.equal(app.historyLine({ at: now - 600, actions: 3, undone: true }, now), "10 min ago · 3 changes · undone");
@@ -284,4 +284,26 @@ test("a credit card lists each album once, with every composer the credit could 
   const rows = app.albumRows([it("1", "x", "Robert Schumann"), it("2", "x", "Clara Schumann"), it("3", "y", "Robert Schumann")]);
   assert.deepEqual(rows.map((r) => [r.title, r.n, r.others]),
     [["Ax", 2, ["Robert Schumann", "Clara Schumann"]], ["Ay", 1, ["Robert Schumann"]]]);
+});
+
+test("a confirm gate: a fast double click only arms it, a second tap later runs once, never twice at a time", () => {
+  const g = app.tapGate(true, 400, 5000);
+  assert.equal(g.tap(1000), "arm");
+  assert.equal(g.tap(1050), "wait");            // the second click of a double click
+  assert.equal(g.tap(1600), "run");
+  assert.equal(g.tap(1601), "busy");            // in flight: no second request
+  assert.equal(g.tap(2500), "busy");
+  g.done();
+  assert.equal(g.tap(3000), "arm");             // confirmed once: the next run asks again
+  assert.equal(g.tap(9000), "arm");             // too late: armed afresh
+  g.disarm();
+  assert.equal(g.tap(9100), "arm");
+  const one = app.tapGate(false);
+  assert.equal(one.tap(0), "run");
+  assert.equal(one.tap(1), "busy");
+  one.done();
+  assert.equal(one.tap(2), "run");
+  assert.equal(app.actionCount([{ op: "restore", keys: ["a", "b"] }]), 2);
+  assert.equal(app.historyLine({ at: 0, actions: 1, blocked_by: 9, blocked_by_other: true }, 10),
+    "just now · changed since by someone else");
 });

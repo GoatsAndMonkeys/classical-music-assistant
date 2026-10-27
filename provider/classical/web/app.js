@@ -280,11 +280,33 @@
     return out.join(" · ");
   }
 
-  /** How many review items an action list touches (a hide lists its items; other actions are one each). */
+  /** How many review items an action list touches (a hide lists its items, a restore its keys; other actions
+   * are one each). */
   function actionCount(actions) {
     return (actions || []).reduce(function (n, a) {
-      return n + (a.op === "dismiss" || a.op === "restore" ? (a.items || []).length : 1);
+      return n + (a.op === "dismiss" ? (a.items || []).length : a.op === "restore" ? (a.keys || []).length : 1);
     }, 0);
+  }
+
+  /** A tap gate for buttons that change things. With `confirm`, the first tap arms it and a second tap at least
+   * `gap` ms later (and within `win` ms) runs it, so a fast double click can't confirm by itself. Either way
+   * nothing runs again until `done()`: one request at a time. tap(now) answers "arm", "wait", "busy" or "run". */
+  function tapGate(confirm, gap, win) {
+    var armedAt = null, busy = false;
+    gap = gap == null ? 400 : gap;
+    win = win == null ? 5000 : win;
+    return {
+      tap: function (now) {
+        if (busy) return "busy";
+        if (confirm && (armedAt === null || now - armedAt > win)) { armedAt = now; return "arm"; }
+        if (confirm && now - armedAt < gap) return "wait";
+        armedAt = null;
+        busy = true;
+        return "run";
+      },
+      done: function () { busy = false; },
+      disarm: function () { armedAt = null; },
+    };
   }
 
   function agoText(at, now) {
@@ -300,6 +322,7 @@
     var out = [agoText(b.at, now)];
     if (b.actions > 1) out.push(plural(b.actions, "change"));
     if (b.undone) out.push("undone");
+    else if (b.blocked_by_other) out.push("changed since by someone else");
     else if (b.blocked_by) out.push("undo decision #" + b.blocked_by + " first");
     return out.join(" · ");
   }
@@ -438,7 +461,7 @@
     recordingMatches: recordingMatches,
     filterRecordings: filterRecordings, sortRecordings: sortRecordings, creditGroups: creditGroups,
     reviewSubtitle: reviewSubtitle, albumRows: albumRows, reviewQuery: reviewQuery, reviewArgs: reviewArgs, cardMeta: cardMeta,
-    actionCount: actionCount, historyLine: historyLine, mbWorkCandidates: mbWorkCandidates, mbLinkLine: mbLinkLine, badgeText: badgeText, anyAcclaim: anyAcclaim, safeHref: safeHref,
+    actionCount: actionCount, tapGate: tapGate, historyLine: historyLine, mbWorkCandidates: mbWorkCandidates, mbLinkLine: mbLinkLine, badgeText: badgeText, anyAcclaim: anyAcclaim, safeHref: safeHref,
     byLetter: byLetter, playArgs: playArgs, loginReturnUrl: loginReturnUrl, choosePlayer: choosePlayer, errorText: errorText, imageSrc: imageSrc,
     plural: plural, pickLines: pickLines, daySubtitle: daySubtitle, localDate: localDate, probeOrder: probeOrder,
   };
@@ -1112,15 +1135,13 @@
     }
     var ml = mbLinkLine(res.mb_link);
     if (ml && canCorrect) {
-      var armed = false;
-      var unlink = h("button", { type: "button", class: "link-btn", text: "Unlink", onclick: async function () {
-        if (!armed) { armed = true; unlink.textContent = "Unlink? Tap again"; return; }
+      var unlink = guarded("Unlink", "link-btn", async function () {
         try {
           var res = await call("classical/work_mb_link", { work_id: w.id, decision: "reject", mbid: ml.mbid });
           undoToast("Unlinked; not proposed again", res.batch);
           render();
         } catch (e) { toast(e.message); }
-      } });
+      }, true);
       actions.appendChild(h("p", { class: "fine mb-link" }, h("span", { text: ml.text + " " }),
         ml.href ? h("a", { href: ml.href, target: "_blank", rel: "noopener noreferrer", text: "MusicBrainz" }) : null,
         " ", unlink));
@@ -1713,16 +1734,28 @@
     return wrap;
   };
 
-  /** A button that asks once more before doing something to many items. */
-  function armed(label, cls, run) {
-    var ready = false;
+  /** A button that runs one request at a time; with `confirm`, it asks for a second, separate tap first. */
+  function guarded(label, cls, run, confirm) {
+    var gate = tapGate(confirm), timer = null;
     var b = h("button", { type: "button", class: cls, text: label, onclick: async function () {
-      if (!ready) { ready = true; b.textContent = label + "? Tap again"; return; }
+      var t = gate.tap(Date.now());
+      if (t === "arm") {
+        b.textContent = label + "? Tap again";
+        clearTimeout(timer);
+        timer = setTimeout(function () { gate.disarm(); b.textContent = label; }, 5000);
+        return;
+      }
+      if (t !== "run") return;
+      clearTimeout(timer);
       b.disabled = true;
-      try { await run(); } finally { b.disabled = false; }
+      b.textContent = label;
+      try { await run(); } finally { gate.done(); b.disabled = false; }
     } });
     return b;
   }
+
+  /** A button that asks once more before doing something to many items. */
+  function armed(label, cls, run) { return guarded(label, cls, run, true); }
 
   function refresh() { state.keep = true; render(); }
 
@@ -1764,8 +1797,7 @@
               h("span", { class: "row-main" },
                 h("span", { class: "row-title", text: b.label || b.op }),
                 h("span", { class: "row-sub", text: historyLine(b, now) })),
-              b.can_undo ? h("button", { type: "button", class: "btn small", text: "Undo",
-                onclick: function () { undoBatch(b.batch); } }) : null));
+              b.can_undo ? guarded("Undo", "btn small", function () { return undoBatch(b.batch); }) : null));
           });
           if (!res.items.length) list.appendChild(empty("No decisions yet."));
         } catch (e) { opener.disabled = false; toast(e.message); }
@@ -1825,8 +1857,7 @@
     var cls = "btn small" + (a.accept && !group ? " primary" : "");
     var n = actionCount(a.actions);
     var run = function () { return decide(a.actions); };
-    if (n > 1) return armed(a.label, cls, run);
-    return h("button", { type: "button", class: cls, text: a.label, onclick: run });
+    return guarded(a.label, cls, run, n > 1);
   }
 
   /** One album under a credit card: where the credit appears, and its per-album exception. */
@@ -1888,9 +1919,11 @@
   function composerNameSheet(a) {
     var chosen = null;
     var list = h("div", { class: "list" });
+    var saving = false;
     var confirm = h("button", { type: "button", class: "btn primary", text: "Save", disabled: true,
       onclick: async function () {
-        if (!chosen) return;
+        if (!chosen || saving) return;
+        saving = true;
         try {
           var args = { name: a.name, composer_id: chosen.id };
           if (a.album_id) args.album_id = a.album_id;
@@ -1899,6 +1932,7 @@
           undoToast("Saved: “" + a.name + "” is " + chosen.name + (a.album_id ? " on this album" : ""), res.batch);
           refresh();
         } catch (e) { toast(e.message); }
+        saving = false;
       } });
     function option(c) {
       return h("button", { type: "button", class: "row row-btn", onclick: function (e) {

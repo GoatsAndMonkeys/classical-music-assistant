@@ -46,7 +46,8 @@ _COUNTED_GRADES = ("this_release", "other_release", "confirmed")
 
 # ---- fingerprints -----------------------------------------------------------------------------------------
 
-_VOLATILE = ("earlier_recording", "other", "others")      # derived ids: the entity and album carry the identity
+_VOLATILE = ("earlier_recording",)      # a derived recording id: the album pair carries the identity
+_WORK_REFS = ("other", "others")        # on a work item: the other works, through redirects (a new candidate is news)
 
 
 def fingerprint(raw: dict, rec_work: dict[str, str] | None = None, resolve=None) -> str:
@@ -60,7 +61,15 @@ def fingerprint(raw: dict, rec_work: dict[str, str] | None = None, resolve=None)
     d = raw.get("detail")
     if d is None:
         d = json.loads(raw.get("detail_json") or "{}")
-    d = {k: v for k, v in d.items() if k not in _VOLATILE} if isinstance(d, dict) else d
+    if isinstance(d, dict):
+        d = {k: v for k, v in d.items() if k not in _VOLATILE}
+        if entity == "work" and resolve:
+            for k in _WORK_REFS:
+                v = d.get(k)
+                if isinstance(v, str):
+                    d[k] = resolve("work", v)
+                elif isinstance(v, list):
+                    d[k] = sorted({resolve("work", x) if isinstance(x, str) else str(x) for x in v})
     s = "\x1f".join([raw.get("reason") or "", raw.get("album_library_id") or "", entity, eid,
                      json.dumps(d, sort_keys=True, ensure_ascii=False)])
     return hashlib.sha1(s.encode("utf-8")).hexdigest()[:24]
@@ -438,6 +447,14 @@ def _row(con, sql: str, args: tuple) -> dict | None:
     return dict(r) if r is not None else None
 
 
+def _decision(a: dict) -> str:
+    """The decision an action carries, exactly as its op will read it (a missing join decision is a join)."""
+    return str(a.get("decision") or ("together" if a.get("op") == "join_discs" else ""))
+
+
+_SINGLE = ("composer_name", "separate_discs")       # changes, not rejections: one per request
+
+
 def _check_accepts(actions: list[dict]) -> None:
     if not isinstance(actions, list) or not actions:
         raise ValueError("no actions")
@@ -446,10 +463,9 @@ def _check_accepts(actions: list[dict]) -> None:
     for a in actions:
         if not isinstance(a, dict) or not isinstance(a.get("op"), str):
             raise ValueError("each action needs an op")  # noqa: TRY004 - the API answers bad input as ValueError
-    accepts = sum(1 for a in actions if (a["op"], a.get("decision", "together" if a["op"] == "join_discs"
-                                                                     else None)) in _ACCEPTS)
-    names = sum(1 for a in actions if a["op"] == "composer_name")
-    if accepts > 1 or names > 1 or (accepts and names):
+    accepts = sum(1 for a in actions if (a["op"], _decision(a)) in _ACCEPTS)
+    singles = sum(1 for a in actions if a["op"] in _SINGLE)
+    if accepts + singles > 1:
         raise ValueError("accept one match at a time: only rejections and hiding apply to many at once")
 
 
@@ -541,7 +557,7 @@ def _do_mb(ix: Index, a: dict, run: _Run, user, vis, cache: dict) -> None:
     match = _row(con, "SELECT * FROM mb_work_match WHERE work_id=?", (wid,))
     item = _row(con, "SELECT * FROM review_item WHERE id=?", (f"mbw:{wid}",))
     before = _max_override(con)
-    out = work_link.set_user_link(con, wid, user, str(a.get("decision") or ""), ids)
+    out = work_link.set_user_link(con, wid, user, _decision(a), ids)
     after = {r[0] for r in con.execute("SELECT value FROM alias WHERE entity='work' AND kind='mbid' "
                                        "AND entity_id=?", (wid,))}
     run.undo += [{"t": "overrides", "ids": _new_overrides(con, before)},
@@ -564,7 +580,7 @@ def _do_accolade(ix: Index, a: dict, run: _Run, user, vis, cache: dict) -> None:
     key = [entry, str(r[0]), str(r[1])]
     prev = _row(con, "SELECT * FROM accolade_decision WHERE entry_ref=? AND album_library_id=? AND work_id=?",
                 tuple(key))
-    out = accolades.decide(con, entry, rid, str(a.get("decision") or ""), user)
+    out = accolades.decide(con, entry, rid, _decision(a), user)
     run.undo.append({"t": "accolade", "key": key, "row": prev})
     run.targets.add("accolade:" + ":".join(key))
     run.jobs.add("accolades")
@@ -588,7 +604,7 @@ def _do_join(ix: Index, a: dict, run: _Run, user, vis, cache: dict) -> None:
     for rid in (first, second):
         views.recording(ix, rid, vis)      # NotFound when hidden
     before = _max_override(ix.con)
-    leads = ix.join_discs(first, second, user, str(a.get("decision") or "together"))
+    leads = ix.join_discs(first, second, user, _decision(a))
     _disc_targets(ix, _new_overrides(ix.con, before), run)
     run.out.append({"op": "join_discs", "recordings": leads})
 
@@ -655,10 +671,10 @@ def apply(ix: Index, actions: list[dict], user: str | None, vis=None, label: str
 
 
 def _conflict(con, seq: int, targets: set[str]) -> dict | None:
-    for r in con.execute("SELECT seq, label, targets_json FROM review_batch WHERE seq>? AND undone_at IS NULL "
-                         "ORDER BY seq", (seq,)):
+    for r in con.execute("SELECT seq, label, by_user, targets_json FROM review_batch "
+                         "WHERE seq>? AND undone_at IS NULL ORDER BY seq", (seq,)):
         if targets & set(json.loads(r["targets_json"])):
-            return {"batch": r["seq"], "label": r["label"]}
+            return {"batch": r["seq"], "label": r["label"], "by_user": r["by_user"]}
     return None
 
 
@@ -672,6 +688,8 @@ def undo(ix: Index, seq: int, user: str | None) -> dict:
     if b["undone_at"] is not None:
         raise ValueError("already undone")
     later = _conflict(con, b["seq"], set(json.loads(b["targets_json"])))
+    if later and later["by_user"] != user:
+        raise ValueError("someone else decided this since; it can't be undone from here")
     if later:
         raise ValueError(f"undo the later decision first: {later['label']}")
     jobs: set[str] = set()
@@ -737,5 +755,6 @@ def history(ix: Index, user: str | None, limit: int = 30) -> list[dict]:
         blocked = None if r["undone_at"] else _conflict(ix.con, r["seq"], set(json.loads(r["targets_json"])))
         out.append({"batch": r["seq"], "op": r["op"], "label": r["label"], "at": r["at"], "actions": r["actions"],
                     "undone": r["undone_at"] is not None, "can_undo": r["undone_at"] is None and blocked is None,
-                    "blocked_by": blocked["batch"] if blocked else None})
+                    "blocked_by": blocked["batch"] if blocked else None,
+                    "blocked_by_other": bool(blocked) and blocked["by_user"] != user})
     return out

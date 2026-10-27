@@ -1009,7 +1009,11 @@ class ClassicalProvider(CompanionUI, PluginProvider):
     async def cmd_review_history(self, limit: int = 30) -> dict[str, Any]:
         """The caller's recent review decisions, newest first, with whether each can be undone now."""
         user = self._user_name()
-        return {"items": await self._read(lambda ix: triage.history(ix, user, int(limit)))}
+        try:
+            n = int(limit)
+        except (TypeError, ValueError) as err:
+            raise InvalidDataError("limit must be a number") from err
+        return {"items": await self._read(lambda ix: triage.history(ix, user, n))}
 
     async def cmd_composer_name(self, name: str, composer_id: str, album_id: str | None = None) -> dict[str, Any]:
         """A user correction: this credit string always means this composer (with `album_id`, only on that

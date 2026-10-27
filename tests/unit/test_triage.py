@@ -299,3 +299,89 @@ def test_ten_thousand_items_build_quickly(tmp_path):
     ids = triage.items_for(idx, None, reason="ambiguous album positions")
     b = apply(idx, [{"op": "dismiss", "items": ids}])
     assert triage.view(idx)["dismissed"] == len(ids) and b["label"] == f"Hid {len(ids)} items"
+
+
+# ---- adversarial review (2026-10-27) ------------------------------------------------------------------------
+
+def test_a_join_without_a_decision_counts_as_an_accept(tmp_path):
+    """A missing or empty decision is read as 'together' by the op, so it must count as an accept too."""
+    idx, r = new_index(tmp_path)
+    mahler_disc(idx, r, 1)
+    d2 = mahler_disc(idx, r, 2, performers=[], artist="Sir Georg Solti")
+    for t in d2.tracks:
+        t.artist = "Various Artists"
+    asyncio.run(idx.index_album(d2, force=True))
+    [card] = triage.view(idx, can_correct=True, kind="discs")["cards"]
+    one = next(a for a in card["items"][0]["actions"] if a.get("accept"))["actions"][0]
+    for dec in (None, "", 0):
+        sneaky = {**one, "decision": dec}
+        with pytest.raises(ValueError, match="one match at a time"):
+            apply(idx, [sneaky, sneaky])
+        with pytest.raises(ValueError, match="one match at a time"):
+            apply(idx, [sneaky, {**one, "decision": "together"}])
+    rid = visible(idx)[0]["id"]
+    with pytest.raises(ValueError, match="one match at a time"):
+        apply(idx, [{"op": "separate_discs", "recording_id": rid}] * 2)
+    assert not idx._q("SELECT 1 FROM review_batch")
+    assert len(visible(idx)) == 2
+
+
+def test_work_items_naming_other_works_are_distinct_and_stable(tmp_path):
+    idx, r = make_index(tmp_path)
+    for a in ("A", "B", "C"):
+        add(idx, r, a, "Robert Schumann", "Symphony No. 3")
+    k1 = sorted(triage._keys(idx).values())
+    for a in ("A", "B", "C"):
+        add(idx, r, a, "Robert Schumann", "Symphony No. 3", force=True)
+    assert sorted(triage._keys(idx).values()) == k1
+    base = {"reason": "same catalogue number, different title", "album_library_id": "a", "entity": "work",
+            "entity_id": "w1", "detail": {"title": "T", "other": "w2", "why": "x"}}
+    same = {"w2": "w2", "w3": "w3", "w2b": "w2"}
+
+    def res(_e, x):
+        return same.get(x, x)
+
+    assert triage.fingerprint(base, resolve=res) != \
+        triage.fingerprint({**base, "detail": {**base["detail"], "other": "w3"}}, resolve=res)
+    assert triage.fingerprint(base, resolve=res) == \
+        triage.fingerprint({**base, "detail": {**base["detail"], "other": "w2b"}}, resolve=res)
+    dup = {**base, "reason": "possible same work on another album", "detail": {"others": ["w2"], "other": "w2"}}
+    more = {**dup, "detail": {"others": ["w2", "w3"], "other": "w2"}}
+    assert triage.fingerprint(dup, resolve=res) != triage.fingerprint(more, resolve=res)
+    # a credit's "other" is a composer name, not a work: kept as is
+    comp = {"reason": "possible same composer", "album_library_id": "a", "entity": "composer", "entity_id": "c1",
+            "detail": {"name": "Schumann", "other": "Robert Schumann"}}
+    assert triage.fingerprint(comp) != triage.fingerprint({**comp, "detail": {"name": "Schumann", "other": "x"}})
+
+
+def test_another_users_later_decision_blocks_undo_and_says_so(tmp_path):
+    idx, _r = schumann_library(tmp_path)
+    card = triage.view(idx, can_correct=True, kind="name")["cards"][0]
+    ids = [it["id"] for it in card["items"]]
+    b1 = apply(idx, [{"op": "dismiss", "items": ids[:1]}])
+    key = triage.view(idx, can_correct=True, kind="name", status="dismissed")["cards"][0]["items"][0]["key"]
+    b2 = apply(idx, [{"op": "restore", "keys": [key]}], user="admin")
+    with pytest.raises(ValueError, match="someone else"):
+        undo(idx, b1["batch"])
+    [h] = triage.history(idx, "seth")
+    assert not h["can_undo"] and h["blocked_by_other"] and h["blocked_by"] == b2["batch"]
+    with pytest.raises(views.NotFound):
+        undo(idx, b2["batch"])                     # only your own, admin or not
+    undo(idx, b2["batch"], user="admin")
+    undo(idx, b1["batch"])
+    assert triage.view(idx, kind="name")["cards"][0]["n"] == card["n"]
+
+
+def test_schema_6_index_migrates_to_7_and_keeps_its_data(tmp_path, monkeypatch):
+    from classical_core import store
+    real = store._migrations()
+    monkeypatch.setattr(store, "_migrations", lambda: [m for m in real if m[0] <= 6])
+    con = store.connect(tmp_path / "index.db")
+    assert store.migrate(con) == 6
+    con.execute("INSERT INTO review_item VALUES ('v1','no work identified on this album','A','album','A','{}')")
+    monkeypatch.setattr(store, "_migrations", lambda: real)
+    assert store.migrate(con) == 7
+    assert con.execute("SELECT COUNT(*) FROM review_item").fetchone()[0] == 1
+    assert {r[0] for r in con.execute("SELECT name FROM sqlite_master")} >= {
+        "review_dismissal", "review_batch", "review_item_reason", "review_batch_user"}
+    assert store.migrate(con) == 7
