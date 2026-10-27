@@ -202,7 +202,7 @@ def test_media_item_event_from_item_without_uri(glue):
 
 
 def test_merge_command_reads_nothing_on_the_loop_and_rejects_unknown_ids(glue, tmp_path):
-    p, con, _ = _provider(glue, tmp_path)
+    p, _con, _ = _provider(glue, tmp_path)
     p.index.resolve = MagicMock(side_effect=AssertionError("SQLite touched on the event loop"))
     calls = []
 
