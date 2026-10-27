@@ -148,3 +148,39 @@ Each entry says what the plan asked for, what was built instead, and why.
   work chain. Several fitting releases, or lengths that disagree, give the review item "MusicBrainz release
   match uncertain" and no links.
 - **No license file yet.**
+
+## Companion UI (M3, 2026-10)
+
+- **Data goes over `POST /api`, not the websocket.** §6 says the page uses the authenticated websocket.
+  `POST /api` runs the same command handlers and scope checks, and plain request/response is simpler for a
+  build-free page. The token is MA's own: a login through `../login?return_url=` (returning `?code=`), or the
+  `ma_access_token` MA's frontend already stored for the same origin. Borrowing that token is a convenience,
+  and the page falls back to its own login.
+- **View SQL lives in `classical_core/views.py`, not in new `Index` methods.** This keeps `index.py` untouched
+  while it is being reviewed. The views reuse the index's visibility clause, so hidden sources are absent and
+  unknown ids return "not found" just as in browse.
+- **Not found is a 400, not `MediaNotFoundError`.** 2.10.8's `POST /api` turns `MediaNotFoundError` into a 500
+  and logs a traceback, so a stale bookmark or a probed id would flood the log. The view commands raise
+  `InvalidDataError("Not found")` instead, with the same text for hidden and unknown ids; the page shows its
+  "not found" message for that answer.
+- **The login carries a state nonce.** The page sends `return_url=…/classical/?state=<random>` and keeps the
+  nonce in `localStorage`; a returning `?code=` is stored only when its `state` matches, so a crafted
+  `?code=` link can't sign the page in to another account. Both parameters are stripped at once. Signing out
+  of a borrowed MA web token stops borrowing it until the next sign-in on this page.
+- **The work and recording views query MA-free SQL of their own.** `Index.recordings` runs one credits query
+  per recording (and `Index.recording` lists the whole work to return one), so `views` fetches recordings and
+  all their credits in two queries.
+- **The static route is registered with method `"*"`.** The handler answers only GET and HEAD (405 otherwise).
+  MA's prefix match means `/classicalfoo` also reaches it, so it returns 404 for anything outside `/classical/`.
+  A route left over from a crashed reload is replaced once.
+- **Corrections need LIBRARY_MANAGE.** The UI calls the existing `classical/merge_composers` and
+  `classical/composer_name` commands, and hides those controls when `classical/ui_info` says the user lacks the
+  scope. The server still enforces the scope.
+- **"Most acclaimed" sorting is a disabled placeholder.** Recordings carry an empty `accolades` list until award
+  data exists.
+- **Composed-date filters return nothing yet.** The index stores no composition dates, so the Works filter
+  reports `date_coverage.composed = 0`. Recorded and released years work.
+- **MA's remote (WebRTC) mode is not supported.** The page needs to reach MA over HTTP (LAN, reverse proxy or HA
+  ingress).
+- **The work page's recording list is compact.** Credits omit `kind`, and `instrument` appears only when it is
+  set. The page derives performer ids from the credits. This keeps a 400-recording work under 400 KB of JSON.
