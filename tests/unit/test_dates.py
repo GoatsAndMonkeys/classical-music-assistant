@@ -234,7 +234,10 @@ class DatesMB:
             return 503, b"{}"
         m = url.split("/work/")[1].split("?")[0]
         if m in self.works:
-            return 200, json.dumps(self.works[m]).encode()
+            w = self.works[m]
+            if "event-rels" in url and "work-rels" not in url:     # the dates answer: no parts
+                w = {**w, "relations": [r for r in w["relations"] if r["target-type"] != "work"]}
+            return 200, json.dumps(w).encode()
         return 404, b'{"error": "Not Found"}'
 
     def client(self, con):
@@ -246,7 +249,7 @@ def _link(con, wid, mbid):
     con.commit()
 
 
-def test_musicbrainz_composer_dates_parts_and_premiere(lib):
+def test_musicbrainz_composer_dates_parts_and_premiere(lib, monkeypatch):
     lib.add(FIDELIO)
     lib.add(WORK5)
     con = lib.ix.con
@@ -263,7 +266,7 @@ def test_musicbrainz_composer_dates_parts_and_premiere(lib):
     assert run(wd.fetch_mb(mb, due)) == (2, None)
     assert wd.mb_due(con, limit=50) == []
     # the acts are read from the cache the indexer's hierarchy walk fills; the dates job fetches no parts
-    for p in (act1, act2):
+    for p in (fid, act1, act2):
         run(mb.get(mb.url("work", p, WORK_INC)))
     st = lib.refresh()
     assert st["musicbrainz"] >= 3
@@ -273,6 +276,15 @@ def test_musicbrainz_composer_dates_parts_and_premiere(lib):
     s = lib.row(WORK5)
     assert (s["composed_start"], s["composed_end"]) == ("1804", "1808")
     # a second refresh reads nothing new from the cache
+    assert lib.refresh().get("musicbrainz", 0) == 0
+    # an answer read wrongly before (a reader that missed the parts) is re-read once when the reader changes
+    con.execute("DELETE FROM work_date WHERE source='musicbrainz' AND kind='composed'")
+    con.commit()
+    lib.refresh()
+    assert lib.row(FIDELIO)["composed_start"] is None
+    monkeypatch.setattr(wd, "MB_READER", "next")
+    assert lib.refresh()["musicbrainz"] >= 2
+    assert (lib.row(FIDELIO)["composed_start"], lib.row(FIDELIO)["composed_end"]) == ("1805", "1814")
     assert lib.refresh().get("musicbrainz", 0) == 0
     calls = len(fake.calls)
     assert run(wd.fetch_mb(mb, wd.mb_due(con, limit=50))) == (0, None) and len(fake.calls) == calls

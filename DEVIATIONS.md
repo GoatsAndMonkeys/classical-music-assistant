@@ -371,7 +371,9 @@ filter by period (Early, Baroque, Classical, Romantic, 20th c., Contemporary) an
   source go into `work`. For a premiere, a lower source that agrees on the year but is more precise wins
   (MB "1805" plus the list's "1805-11-20").
 - **The job.** A `dates` job runs after album jobs and scans. It reads tags, the dataset and the MB cache,
-  writes only changes, and remembers when it last read each work's MB answer (`dates_mb_at`). If MusicBrainz
+  writes only changes, and remembers when it last read each work's MB answer (`dates_mb_at`). The dates
+  answer and the indexer's work answer are read together (only the latter lists an opera's parts). Changing
+  `dates.MB_READER` re-reads every cached answer once. If MusicBrainz
   is on, a `dates_net` job then fetches `artist-rels+event-rels` for linked works, 10 at a time, at the
   client's 1 request a second, through the cache. It skips works whose dates are settled by the user or by
   tags, and stops on a transient error. With MusicBrainz off, only answers already cached are used. No

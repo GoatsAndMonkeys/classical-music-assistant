@@ -37,6 +37,8 @@ PRIORITY = ("user", "tags", "musicbrainz", "dataset")
 SOURCE_LABEL = {"user": "your correction", "tags": "file tags", "musicbrainz": "MusicBrainz",
                 "dataset": "premieres list"}
 DATES_INC = "artist-rels+event-rels"      # composer dates and premiere events in one response
+# how the cached MusicBrainz answers are read; a change re-reads every work's once (job row 'dates:mb_reader')
+MB_READER = "2"
 MB_CHUNK = 10                             # works per network job run (1 req/s: ~10 s on the shared client)
 UNKNOWN = "unknown"
 MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
@@ -343,9 +345,23 @@ def _premiere(data: dict | None) -> tuple[str, str | None] | None:
     return best
 
 
+def _answer(got: dict[str, tuple[float, Any]], base: str, mbid: str) -> dict | None:
+    """A work's cached MusicBrainz answers as one: the dates answer (DATES_INC) has the composer and premiere
+    relationships but not the parts, which only the indexer's WORK_INC answer has (an opera's acts)."""
+    rels: list[dict] = []
+    found = False
+    for inc in (DATES_INC, WORK_INC):
+        data = (got.get(_url(base, mbid, inc)) or (0, None))[1]
+        if isinstance(data, dict):
+            found = True
+            rels += data.get("relations") or []
+    return {"relations": rels} if found else None
+
+
 def _parts(data: dict | None) -> list[str]:
-    return [rel["work"]["id"] for rel in (data or {}).get("relations", [])
-            if rel.get("type") == "parts" and rel.get("direction") == "forward" and (rel.get("work") or {}).get("id")]
+    return list(dict.fromkeys(
+        rel["work"]["id"] for rel in (data or {}).get("relations", [])
+        if rel.get("type") == "parts" and rel.get("direction") == "forward" and (rel.get("work") or {}).get("id")))
 
 
 def _parts_span(con: sqlite3.Connection, base: str, data: dict | None) -> tuple[str | None, str | None]:
@@ -361,7 +377,7 @@ def _parts_span(con: sqlite3.Connection, base: str, data: dict | None) -> tuple[
         got = _cached(con, [u for p in ids for u in (_url(base, p, DATES_INC), _url(base, p, WORK_INC))], bodies=True)
         level = []
         for p in ids:
-            d = (got.get(_url(base, p, DATES_INC)) or got.get(_url(base, p, WORK_INC)) or (0, None))[1]
+            d = _answer(got, base, p)
             b, e = _composer_span(d)
             if b:
                 begins.append(b)
@@ -382,8 +398,9 @@ def _work_mbids(con: sqlite3.Connection) -> dict[str, set[str]]:
 
 
 def _from_mb(con: sqlite3.Connection, works: dict[str, sqlite3.Row], mbids: dict[str, set[str]],
-             base: str) -> tuple[dict[str, dict], dict[str, float]]:
-    """For works whose cached MusicBrainz answers changed since they were last read: work id →
+             base: str, reread: bool = False) -> tuple[dict[str, dict], dict[str, float]]:
+    """For works whose cached MusicBrainz answers changed since they were last read (all of them when
+    `reread`): work id →
     {'composed': (from, to, precision, ref) | None, 'premiered': (date, precision, ref) | None}, and the
     new read marks."""
     due: dict[str, list[str]] = {}
@@ -395,7 +412,7 @@ def _from_mb(con: sqlite3.Connection, works: dict[str, sqlite3.Row], mbids: dict
         if w is None:
             continue
         seen = [meta[u][0] for m in ids for u in (_url(base, m, DATES_INC), _url(base, m, WORK_INC)) if u in meta]
-        if seen and (w["dates_mb_at"] is None or max(seen) > w["dates_mb_at"]):
+        if seen and (reread or w["dates_mb_at"] is None or max(seen) > w["dates_mb_at"]):
             due[wid] = sorted(ids)
             marks[wid] = max(seen)
     out: dict[str, dict] = {}
@@ -403,7 +420,7 @@ def _from_mb(con: sqlite3.Connection, works: dict[str, sqlite3.Row], mbids: dict
         got = _cached(con, [u for m in ids for u in (_url(base, m, DATES_INC), _url(base, m, WORK_INC))], bodies=True)
         begins, ends, prem = [], [], []
         for m in ids:
-            data = (got.get(_url(base, m, DATES_INC)) or got.get(_url(base, m, WORK_INC)) or (0, None))[1]
+            data = _answer(got, base, m)
             b, e = _composer_span(data)
             if b is None:
                 b, e = _parts_span(con, base, data)
@@ -575,7 +592,12 @@ def refresh(con: sqlite3.Connection, base: str = DEFAULT_BASE) -> dict[str, int]
             p = data.get(wid)
             stats["dataset"] += _put(con, wid, "premiered", "dataset",
                                      (p.date.isoformat(), None, "day", p.place or None, p.source) if p else None, have)
-        mb, marks = _from_mb(con, by_id, _work_mbids(con), base)
+        r = con.execute("SELECT cursor FROM job WHERE id='dates:mb_reader'").fetchone()
+        reread = r is None or r[0] != MB_READER
+        mb, marks = _from_mb(con, by_id, _work_mbids(con), base, reread)
+        if reread:
+            con.execute("INSERT OR REPLACE INTO job(id, kind, scope, cursor, state, started_at, error) "
+                        "VALUES ('dates:mb_reader', 'dates', 'all', ?, 'done', ?, NULL)", (MB_READER, time.time()))
         for wid, res in mb.items():
             c, p = res["composed"], res["premiered"]
             stats["musicbrainz"] += _put(con, wid, "composed", "musicbrainz", (*c[:3], None, c[3]) if c else None, have)
