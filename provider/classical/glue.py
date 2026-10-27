@@ -269,6 +269,8 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             reg("classical/merge_composers", self.cmd_merge_composers, required_scope=Scope.LIBRARY_MANAGE),
             reg("classical/composer_name", self.cmd_composer_name, required_scope=Scope.LIBRARY_MANAGE),
             reg("classical/separate_work", self.cmd_separate_work, required_scope=Scope.LIBRARY_MANAGE),
+            reg("classical/join_discs", self.cmd_join_discs, required_scope=Scope.LIBRARY_MANAGE),
+            reg("classical/separate_discs", self.cmd_separate_discs, required_scope=Scope.LIBRARY_MANAGE),
             reg("classical/accolade_decide", self.cmd_accolade_decide, required_scope=Scope.LIBRARY_MANAGE),
             self.mass.subscribe(self._on_sync_completed, EventType.MUSIC_SYNC_COMPLETED),
             self.mass.subscribe(self._on_providers_updated, EventType.PROVIDERS_UPDATED),
@@ -948,6 +950,47 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             raise InvalidDataError(str(err)) from err
         self._enqueue("scan")
         return {"albums": len(albums), "queued": list(self._jobs)}
+
+    async def _disc_correction(self, rids: list[str], fn: Callable[[Index], Any]) -> Any:
+        """Run a cross-disc correction on the writer, only on recordings the caller can see."""
+        vis = self._vis()  # on the loop: the current user is a context variable
+
+        def apply(ix: Index) -> Any:
+            ix.con.execute("BEGIN IMMEDIATE")
+            try:
+                for rid in rids:
+                    views.recording(ix, rid, vis)      # NotFound when hidden
+                out = fn(ix)
+                ix.con.execute("COMMIT")
+                return out
+            except BaseException:
+                ix.con.execute("ROLLBACK")
+                raise
+
+        try:
+            out = await self._write(apply, self.index)
+        except views.NotFound:
+            raise InvalidDataError(NOT_FOUND) from None
+        except ValueError as err:
+            raise InvalidDataError(str(err)) from err
+        self._enqueue("accolades")      # dataset matches are per recording: one recording now, or several
+        return out
+
+    async def cmd_join_discs(self, first_recording_id: str, second_recording_id: str,
+                             decision: str = "together") -> dict[str, Any]:
+        """A user correction on two discs of a set ripped as separate albums: the second recording continues
+        the first ('together') or is another recording ('separate'). Survives re-index."""
+        user = self._user_name()
+        leads = await self._disc_correction(
+            [first_recording_id, second_recording_id],
+            lambda ix: ix.join_discs(first_recording_id, second_recording_id, user, decision))
+        return {"recordings": leads, "queued": list(self._jobs)}
+
+    async def cmd_separate_discs(self, recording_id: str) -> dict[str, Any]:
+        """A user correction: the discs this recording spans are separate recordings."""
+        user = self._user_name()
+        rids = await self._disc_correction([recording_id], lambda ix: ix.separate_discs(recording_id, user))
+        return {"recordings": rids, "queued": list(self._jobs)}
 
 
 def job_order(key: str) -> tuple[bool, bool, bool]:

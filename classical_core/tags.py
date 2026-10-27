@@ -29,6 +29,8 @@ _ALIASES = {
     "musicbrainz work id": "musicbrainz_workid", "musicbrainz_workid": "musicbrainz_workid",
     "musicbrainz track id": "musicbrainz_trackid", "musicbrainz_trackid": "musicbrainz_trackid",
     "musicbrainz recording id": "musicbrainz_trackid", "musicbrainz_recordingid": "musicbrainz_trackid",
+    "musicbrainz album id": "musicbrainz_albumid", "musicbrainz_albumid": "musicbrainz_albumid",
+    "disctotal": "disctotal", "totaldiscs": "disctotal", "disc total": "disctotal",
     "work": "work", "movementname": "movementname", "movement": "movement", "movementnumber": "movement",
     "movementtotal": "movementtotal", "movementcount": "movementtotal", "composer": "composer",
     "conductor": "conductor", "performer": "performer", "ensemble": "ensemble", "orchestra": "ensemble",
@@ -73,6 +75,8 @@ class TagInfo:
     work_mbid: str | None = None
     recording_mbid: str | None = None
     disc: int | None = None
+    disc_total: int | None = None      # TOTALDISCS / DISCTOTAL, or the '/2' of a 'n/2' disc number
+    release_mbid: str | None = None    # MUSICBRAINZ_ALBUMID (the MB release)
     track: int | None = None
     recorded: str | None = None        # only an explicit recording-date tag
     release_date: str | None = None    # originaldate, else date
@@ -88,6 +92,9 @@ class TagInfo:
         """asdict, without the credit `detail` field when it is empty (hashes and stored evidence of tags
         without nested credits stay what they were before the field existed)."""
         d = asdict(self)
+        for k in ("disc_total", "release_mbid"):     # later fields: absent when empty, so old hashes stay
+            if d[k] is None:
+                del d[k]
         d["performers"] = [{k: v for k, v in p.items() if not (k == "detail" and v is None)}
                            for p in d["performers"]]
         return d
@@ -170,6 +177,7 @@ def read_raw(path: str | Path) -> dict[str, list[str]]:
                 put("tracknumber", [str(x[0]) for x in v])
             elif key == "disk":
                 put("discnumber", [str(x[0]) for x in v])
+                put("disctotal", [str(x[1]) for x in v if len(x) > 1 and x[1]])
             elif key.startswith("----:"):
                 put(key.split(":", 2)[2], [bytes(x) for x in v])
     else:  # Vorbis comments (FLAC, Ogg, Opus) and APEv2 behave like a {key: [str]} mapping
@@ -235,6 +243,11 @@ def parse(raw: dict[str, list[str]]) -> TagInfo:
     )
     wid = (first("musicbrainz_workid") or "").strip().lower()
     info.work_mbid = wid if is_mbid(wid) else None
+    disc = first("discnumber") or ""
+    total = _int(first("disctotal")) or (_int(disc.partition("/")[2]) if "/" in disc else None)
+    info.disc_total = total if total and total > 0 else None
+    rel = (first("musicbrainz_albumid") or "").strip().lower()
+    info.release_mbid = rel if is_mbid(rel) else None
     rid = (first("musicbrainz_trackid") or "").strip().lower()
     info.recording_mbid = rid if is_mbid(rid) else None
     for c in many("conductor"):

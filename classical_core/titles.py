@@ -361,6 +361,30 @@ def strip_disc_marks(name: str | None) -> str:
     return re.sub(r"\s+", " ", s).strip(" ,;:-–—")
 
 
+# a disc number in an album name, with an optional total: '[Disc 1 of 2]', 'CD2', '(disc 3/3)', '(2)', 'Fidelio1'.
+# Acts and parts are left alone: 'Götterdämmerung, Act 1' names a part of the work, not a disc of the set.
+_DISC_NUMBER = (
+    re.compile(r"[\s,;:–—-]*[\[(]\s*(?:disc|disk|cd)\s*(\d{1,2})(?:\s*(?:of|/)\s*(\d{1,2}))?\s*[\])]", re.IGNORECASE),
+    re.compile(r"[\s,;:–—-]*\b(?:disc|disk|cd)\s*(\d{1,2})(?:\s*(?:of|/)\s*(\d{1,2}))?\b", re.IGNORECASE),
+    re.compile(r"\s*\(\s*(\d{1,2})\s*\)\s*$()"),
+    re.compile(r"(?<=[^\W\d_])(\d)$()"),
+)
+
+
+def disc_marker(name: str | None) -> tuple[str, int | None, int | None]:
+    """'Mahler: Symphony No. 2 [Disc 1 of 2]' -> ('Mahler: Symphony No. 2', 1, 2); no marker -> (name, None, None)."""
+    s = (name or "").strip()
+    for rx in _DISC_NUMBER:
+        m = rx.search(s)
+        if m and m.start() > 0:
+            n, total = int(m.group(1)), int(m.group(2)) if m.group(2) else None
+            if n < 1 or (total is not None and not n <= total):
+                return s, None, None
+            base = re.sub(r"[\[(]\s*[,;:–—-]?\s*[\])]", "", s[:m.start()] + s[m.end():])
+            return re.sub(r"\s+", " ", base).strip(" ,;:-–—"), n, total
+    return s, None, None
+
+
 _ALBUM_JUNK = re.compile(r"^(?:opera|oper|op[ée]ra|complete works?|complete|works|werke|live|stereo|mono|highlights|"
                          r"excerpts|auszüge|various(?: artists)?|unknown(?: album)?|untitled|título desconocido|"
                          r"met|recital|collection|edition|box|remastered)$", re.IGNORECASE)

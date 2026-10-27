@@ -4,7 +4,8 @@ A mixin of `ClassicalProvider`, kept apart from `glue.py` so the indexing glue s
 ordinary MA API commands (websocket, `POST /api`, HA automations all reach them) with `LIBRARY_READ`. Each
 takes the caller's visible sources on the loop, builds its view on a reader thread with `classical_core.views`,
 then maps images to image-proxy URLs. Corrections reuse the existing `classical/merge_composers` and
-`classical/composer_name` commands and `classical/separate_work` (LIBRARY_MANAGE).
+`classical/composer_name` commands, `classical/separate_work`, `classical/join_discs` and
+`classical/separate_discs` (LIBRARY_MANAGE).
 """
 
 from __future__ import annotations

@@ -269,6 +269,50 @@ def test_separate_work_refuses_a_recording_the_caller_cannot_see(glue, tmp_path,
     p._enqueue.assert_not_called()
 
 
+def test_disc_commands_check_both_recordings_and_queue_accolades(glue, tmp_path, monkeypatch):
+    """Joining discs checks the caller can see both recordings, runs the correction and requeues the
+    dataset matches; a hidden one answers 'Not found' with nothing changed, a refusal is invalid data."""
+    p, _con, _ = _provider(glue, tmp_path)
+    p._user_name = staticmethod(lambda: "seth")
+    p._vis = lambda: ["filesystem--x"]
+    ix = p.index = MagicMock()
+    ix.join_discs.return_value = ["r-1"]
+    ix.separate_discs.return_value = ["r-1", "r-2"]
+    seen = []
+
+    async def write(fn, *args):
+        return fn(*args)
+
+    monkeypatch.setattr(glue.views, "recording", lambda _ix, rid, vis: seen.append(rid) or {"id": rid})
+    p._write = write
+    p._enqueue = MagicMock()
+    p._jobs = {}
+    assert asyncio.run(p.cmd_join_discs("r-1", "r-2"))["recordings"] == ["r-1"]
+    assert seen == ["r-1", "r-2"]
+    ix.join_discs.assert_called_once_with("r-1", "r-2", "seth", "together")
+    p._enqueue.assert_called_once_with("accolades")
+    assert asyncio.run(p.cmd_separate_discs("r-1"))["recordings"] == ["r-1", "r-2"]
+    ix.separate_discs.assert_called_once_with("r-1", "seth")
+
+    def hidden(_ix, rid, vis):
+        if rid == "r-2":
+            raise glue.views.NotFound(rid)
+        return {"id": rid}
+
+    monkeypatch.setattr(glue.views, "recording", hidden)
+    ix.join_discs.reset_mock()
+    p._enqueue.reset_mock()
+    with pytest.raises(glue.InvalidDataError, match="Not found"):
+        asyncio.run(p.cmd_join_discs("r-1", "r-2", "separate"))
+    ix.join_discs.assert_not_called()
+    p._enqueue.assert_not_called()
+
+    monkeypatch.setattr(glue.views, "recording", lambda _ix, rid, vis: {"id": rid})
+    ix.join_discs.side_effect = ValueError("these recordings are not of the same work")
+    with pytest.raises(glue.InvalidDataError, match="same work"):
+        asyncio.run(p.cmd_join_discs("r-1", "r-3"))
+
+
 def test_write_commands_need_library_manage(glue, tmp_path):
     p, _con, _ = _provider(glue, tmp_path)
     p.mass, p._unsub = MagicMock(), []
@@ -282,7 +326,7 @@ def test_write_commands_need_library_manage(glue, tmp_path):
     asyncio.run(p.loaded_in_mass())
     scopes = {c.args[0]: c.kwargs["required_scope"] for c in p.mass.register_api_command.call_args_list}
     for name in ("classical/reindex", "classical/merge_composers", "classical/composer_name",
-                 "classical/separate_work"):
+                 "classical/separate_work", "classical/join_discs", "classical/separate_discs"):
         assert scopes[name] == glue.Scope.LIBRARY_MANAGE, name
 
 
