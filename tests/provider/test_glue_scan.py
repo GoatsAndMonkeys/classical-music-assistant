@@ -400,7 +400,8 @@ def test_work_mb_link_command_checks_visibility(glue, tmp_path, monkeypatch):
         return fn(*args)
 
     p._write = write
-    monkeypatch.setattr(glue.work_link, "set_user_link", lambda con, wid, user, d, ids: calls.append((wid, user, d, ids)))
+    monkeypatch.setattr(glue.work_link, "set_user_link",
+                        lambda con, wid, user, d, ids: calls.append((wid, user, d, ids)) or {"work_id": wid})
     monkeypatch.setattr(glue.views, "work", lambda _ix, wid, vis: {"work": {"id": wid + "-live"}})
     asyncio.run(p.cmd_work_mb_link("w-1", "reject", mbids=["a", "b"]))
     assert calls == [("w-1-live", "seth", "reject", ["a", "b"])] and "dates" in p._jobs

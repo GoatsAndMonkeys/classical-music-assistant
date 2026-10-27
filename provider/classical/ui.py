@@ -23,7 +23,7 @@ from music_assistant_models.enums import ConfigEntryType, MediaType, ProviderFea
 from music_assistant_models.errors import InvalidDataError, MediaNotFoundError
 
 from classical_core import __version__ as CORE_VERSION
-from classical_core import curation, streaming, views
+from classical_core import curation, streaming, triage, views
 from classical_core.index import Index
 
 from .web import ROUTE, ClassicalWeb, image_urls
@@ -86,6 +86,7 @@ class CompanionUI:
             ("classical/performers", self.cmd_performers),
             ("classical/performer", self.cmd_performer),
             ("classical/review", self.cmd_review),
+            ("classical/review_triage", self.cmd_review_triage),
             ("classical/accolades", self.cmd_accolades),
             ("classical/today", self.cmd_today),
             ("classical/streaming", self.cmd_streaming),
@@ -270,6 +271,16 @@ class CompanionUI:
     async def cmd_review(self) -> dict[str, Any]:
         """The review queue grouped by reason, with correction actions for composer identities."""
         return await self._view(views.review)
+
+    async def cmd_review_triage(self, kind: str | None = None, reason: str | None = None,
+                                composer: str | None = None, album: str | None = None, q: str | None = None,
+                                status: str | None = None, sort: str = "impact", offset: int = 0,
+                                limit: int = 50) -> dict[str, Any]:
+        """The review queue as decision cards: counts by kind, composer and album facets, one page of cards.
+        Actions are listed only for a caller who may decide (classical/review_apply enforces it anyway)."""
+        return await self._view(triage.view, can_correct=can(get_current_user(), Scope.LIBRARY_MANAGE),
+                                sort=sort, offset=offset, limit=limit, kind=kind, reason=reason,
+                                composer=composer, album=album, q=q, status=status)
 
 
 def _track_dict(t: Any, instance: str) -> dict[str, Any]:

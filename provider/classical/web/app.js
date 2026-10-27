@@ -231,6 +231,79 @@
     return sub && sub !== it.title ? sub : "";
   }
 
+  var REVIEW_KEYS = ["kind", "reason", "composer", "album", "q", "status", "sort"];
+
+  /** The review page's hash query after a filter change; defaults (open, by impact) and empties dropped.
+   * Changing the card kind clears the reason, which belongs to one kind. */
+  function reviewQuery(query, patch) {
+    var q = {};
+    REVIEW_KEYS.forEach(function (k) { q[k] = (query || {})[k]; });
+    patch = patch || {};
+    if ("kind" in patch && patch.kind !== q.kind) q.reason = "";
+    Object.assign(q, patch);
+    if (q.status === "open") q.status = "";
+    if (q.sort === "impact") q.sort = "";
+    Object.keys(q).forEach(function (k) { if (q[k] === undefined || q[k] === null || q[k] === "") delete q[k]; });
+    return q;
+  }
+
+  /** classical/review_triage arguments for a review hash query. */
+  function reviewArgs(query, offset) {
+    var a = { sort: (query && query.sort) || "impact", offset: offset || 0, limit: 30 };
+    REVIEW_KEYS.forEach(function (k) { if (k !== "sort" && query && query[k]) a[k] = query[k]; });
+    return a;
+  }
+
+  /** A credit card's rows: one per album (a bare credit can raise several notes on one album), each naming the
+   * composers the credit might mean. */
+  function albumRows(items) {
+    var rows = [], at = {};
+    (items || []).forEach(function (it) {
+      var k = it.album_id || it.id;
+      var row = at[k];
+      if (!row) {
+        row = at[k] = { item: it, title: it.album || it.title, others: [], n: 0 };
+        rows.push(row);
+      }
+      row.n++;
+      var o = it.detail && it.detail.other;
+      if (o && row.others.indexOf(o) < 0) row.others.push(o);
+    });
+    return rows;
+  }
+
+  /** "14 items · 208 tracks · acclaim 3" for a decision card. */
+  function cardMeta(card) {
+    var out = [plural(card.n || 0, "item")];
+    if (card.impact) out.push(plural(card.impact, "track"));
+    if (card.acclaim) out.push("acclaim " + Math.round(card.acclaim * 10) / 10);
+    return out.join(" · ");
+  }
+
+  /** How many review items an action list touches (a hide lists its items; other actions are one each). */
+  function actionCount(actions) {
+    return (actions || []).reduce(function (n, a) {
+      return n + (a.op === "dismiss" || a.op === "restore" ? (a.items || []).length : 1);
+    }, 0);
+  }
+
+  function agoText(at, now) {
+    var s = Math.max(0, Math.round((now || Date.now() / 1000) - at));
+    if (s < 60) return "just now";
+    if (s < 3600) return Math.floor(s / 60) + " min ago";
+    if (s < 86400) return Math.floor(s / 3600) + " h ago";
+    return plural(Math.floor(s / 86400), "day") + " ago";
+  }
+
+  /** A recent decision's second line: when, how many changes, and why it can't be undone now. */
+  function historyLine(b, now) {
+    var out = [agoText(b.at, now)];
+    if (b.actions > 1) out.push(plural(b.actions, "change"));
+    if (b.undone) out.push("undone");
+    else if (b.blocked_by) out.push("undo decision #" + b.blocked_by + " first");
+    return out.join(" · ");
+  }
+
   /** Credits grouped for display: [{group, title, people: [{id, name, role}]}] in bucket order. */
   function creditGroups(credits) {
     var groups = {};
@@ -364,7 +437,8 @@
     workSubtitle: workSubtitle, rowDate: rowDate, datesLine: datesLine, worksQuery: worksQuery,
     recordingMatches: recordingMatches,
     filterRecordings: filterRecordings, sortRecordings: sortRecordings, creditGroups: creditGroups,
-    reviewSubtitle: reviewSubtitle, mbWorkCandidates: mbWorkCandidates, mbLinkLine: mbLinkLine, badgeText: badgeText, anyAcclaim: anyAcclaim, safeHref: safeHref,
+    reviewSubtitle: reviewSubtitle, albumRows: albumRows, reviewQuery: reviewQuery, reviewArgs: reviewArgs, cardMeta: cardMeta,
+    actionCount: actionCount, historyLine: historyLine, mbWorkCandidates: mbWorkCandidates, mbLinkLine: mbLinkLine, badgeText: badgeText, anyAcclaim: anyAcclaim, safeHref: safeHref,
     byLetter: byLetter, playArgs: playArgs, loginReturnUrl: loginReturnUrl, choosePlayer: choosePlayer, errorText: errorText, imageSrc: imageSrc,
     plural: plural, pickLines: pickLines, daySubtitle: daySubtitle, localDate: localDate, probeOrder: probeOrder,
   };
@@ -1042,8 +1116,8 @@
       var unlink = h("button", { type: "button", class: "link-btn", text: "Unlink", onclick: async function () {
         if (!armed) { armed = true; unlink.textContent = "Unlink? Tap again"; return; }
         try {
-          await call("classical/work_mb_link", { work_id: w.id, decision: "reject", mbid: ml.mbid });
-          toast("Unlinked; not proposed again");
+          var res = await call("classical/work_mb_link", { work_id: w.id, decision: "reject", mbid: ml.mbid });
+          undoToast("Unlinked; not proposed again", res.batch);
           render();
         } catch (e) { toast(e.message); }
       } });
@@ -1398,9 +1472,9 @@
       h("div", { class: "actions" },
         h("button", { type: "button", class: "btn primary", text: "Keep discs separate", onclick: async function () {
           try {
-            await call("classical/separate_discs", { recording_id: r.id });
+            var res = await call("classical/separate_discs", { recording_id: r.id });
             close();
-            toast("Discs kept separate");
+            undoToast("Discs kept separate", res.batch);
             render();
           } catch (e) { toast(e.message); }
         } }),
@@ -1538,29 +1612,234 @@
 
   // ---- review queue ---------------------------------------------------------------------------------------
 
-  VIEWS.review = async function () {
-    var res = await call("classical/review");
-    var info = state.info || {};
+  VIEWS.review = async function (args, query) {
+    var canCorrect = (state.info || {}).can_correct;
+    var res = await call("classical/review_triage", reviewArgs(query));
+    var dismissed = query.status === "dismissed";
+    var filtered = REVIEW_KEYS.some(function (k) { return k !== "sort" && k !== "status" && query[k]; });
     var wrap = h("div", { class: "page" }, header("Review", res.total
-      ? plural(res.total, "item") + " the index wasn't sure about" : "Nothing to review"));
-    if (!res.total) {
-      wrap.appendChild(empty("Every album was grouped with confidence."));
-      return wrap;
-    }
-    res.groups.forEach(function (g) {
-      var list = h("div", { class: "list" });
-      g.items.forEach(function (it) { list.appendChild(reviewItem(it, info.can_correct)); });
-      wrap.appendChild(h("section", { class: "section" },
-        h("h2", null, reasonTitle(g.reason), h("span", { class: "chip-n", text: String(g.n) })), list));
+      ? plural(res.items, "item") + " in " + plural(res.cards_total, "decision") +
+        (res.items !== res.total ? " (of " + res.total + ")" : "") +
+        (res.dismissed ? " · " + res.dismissed + " hidden" : "")
+      : res.dismissed ? "Nothing open · " + res.dismissed + " hidden" : "Nothing to review"));
+    function update(patch) { go(["review"], reviewQuery(query, patch), true); }
+
+    var chips = h("div", { class: "chips scroll" });
+    chips.appendChild(chip("All", !query.kind, function () { update({ kind: "" }); }, res.items));
+    res.kinds.forEach(function (k) {
+      if (!k.items && query.kind !== k.kind) return;
+      chips.appendChild(chip(k.title, query.kind === k.kind, function () { update({ kind: k.kind }); }, k.items));
     });
+    wrap.appendChild(chips);
+
+    var search = h("input", { type: "search", class: "input", placeholder: "Title, album or credit",
+      value: query.q || "", "aria-label": "Search review", autocomplete: "off",
+      oninput: debounce(function () { update({ q: search.value.trim() }); }, 350) });
+    function facet(label, all, key, items, name) {
+      var sel = h("select", { class: "input", "aria-label": label, onchange: function () {
+        var p = {}; p[key] = sel.value; update(p);
+      } }, h("option", { value: "", text: all }));
+      var seen = false;
+      items.forEach(function (x) {
+        var on = query[key] === String(x.id);
+        seen = seen || on;
+        sel.appendChild(h("option", { value: x.id, text: name(x) + " (" + x.n + ")", selected: on ? true : null }));
+      });
+      if (query[key] && !seen) {
+        sel.appendChild(h("option", { value: query[key], text: "Current choice", selected: true }));
+      }
+      return sel;
+    }
+    var row1 = h("div", { class: "filter-grid" },
+      facet("Composer", "All composers", "composer", res.composers, function (x) { return x.name; }),
+      facet("Album", "All albums", "album", res.albums, function (x) { return x.name; }));
+    var sortSel = h("select", { class: "input", "aria-label": "Sort decisions", onchange: function () {
+      update({ sort: sortSel.value });
+    } });
+    [["impact", "Most tracks affected"], ["acclaim", "Most acclaimed"], ["items", "Most items"], ["title", "Title"]]
+      .forEach(function (o) {
+        sortSel.appendChild(h("option", { value: o[0], text: o[1], selected: res.sort === o[0] ? true : null }));
+      });
+    var row2 = h("div", { class: "filter-grid" }, sortSel);
+    var reasons = (res.reasons || []).filter(function (r) { return r.n || r.reason === query.reason; });
+    if (reasons.length > 1 || query.reason) {
+      row2.insertBefore(facet("Reason", "All reasons", "reason", reasons.map(function (r) {
+        return { id: r.reason, name: r.title, n: r.n };
+      }), function (x) { return x.name; }), sortSel);
+    }
+    wrap.appendChild(h("div", { class: "filters" }, search, row1, row2));
+
+    var bar = h("div", { class: "actions review-bar" });
+    if (filtered) {
+      bar.appendChild(h("button", { type: "button", class: "chip on", text: "Clear filters ✕", onclick: function () {
+        go(["review"], reviewQuery({}, { status: query.status, sort: query.sort }));
+      } }));
+    }
+    if (res.dismissed || dismissed) {
+      bar.appendChild(chip(dismissed ? "Showing hidden" : "Hidden", dismissed, function () {
+        update({ status: dismissed ? "" : "dismissed" });
+      }, res.dismissed));
+    }
+    if (canCorrect && !dismissed && filtered && res.items > 1) {
+      bar.appendChild(armed("Hide all shown (" + res.items + ")", "btn small", async function () {
+        var f = {};
+        ["kind", "reason", "composer", "album", "q"].forEach(function (k) { if (query[k]) f[k] = query[k]; });
+        await decide([], f);
+      }));
+    }
+    if (bar.childNodes.length) wrap.appendChild(bar);
+
+    var list = h("div", { class: "cards" });
+    res.cards.forEach(function (c) { list.appendChild(reviewCard(c, canCorrect)); });
+    if (!res.cards.length) {
+      list.appendChild(empty(dismissed ? "Nothing hidden here." : filtered ? "Nothing matches these filters."
+        : "Every album was grouped with confidence."));
+    }
+    wrap.appendChild(list);
+    var next = res.next;
+    var more = h("button", { type: "button", class: "btn wide", text: "Show more", hidden: next ? null : true,
+      onclick: async function () {
+        more.disabled = true;
+        try {
+          var page = await call("classical/review_triage", reviewArgs(query, next));
+          page.cards.forEach(function (c) { list.appendChild(reviewCard(c, canCorrect)); });
+          next = page.next;
+          more.hidden = !next;
+        } catch (e) { toast(e.message); }
+        more.disabled = false;
+      } });
+    wrap.appendChild(more);
+    if (canCorrect) wrap.appendChild(recentDecisions());
     return wrap;
   };
 
-  function reasonTitle(reason) {
-    if (reason === "accolade_match") return "Possible award: is this the awarded recording?";
-    if (reason === "Link to MusicBrainz work?") return "Link to a MusicBrainz work?";
-    var s = String(reason || "").replace(/_/g, " ");
-    return s.charAt(0).toUpperCase() + s.slice(1);
+  /** A button that asks once more before doing something to many items. */
+  function armed(label, cls, run) {
+    var ready = false;
+    var b = h("button", { type: "button", class: cls, text: label, onclick: async function () {
+      if (!ready) { ready = true; b.textContent = label + "? Tap again"; return; }
+      b.disabled = true;
+      try { await run(); } finally { b.disabled = false; }
+    } });
+    return b;
+  }
+
+  function refresh() { state.keep = true; render(); }
+
+  /** One undoable review decision; the toast offers Undo. */
+  async function decide(actions, dismissFilter) {
+    try {
+      var args = { actions: actions };
+      if (dismissFilter) args.dismiss_filter = dismissFilter;
+      var res = await call("classical/review_apply", args);
+      undoToast(res.batch ? res.label : "Nothing changed", res.batch);
+      refresh();
+    } catch (e) { toast(e.message); }
+  }
+
+  function undoToast(text, batch) {
+    toast(text, batch ? { label: "Undo", run: function () { undoBatch(batch); } } : null);
+  }
+
+  async function undoBatch(batch) {
+    try {
+      await call("classical/review_undo", { batch: batch });
+      toast("Undone");
+      refresh();
+    } catch (e) { toast(e.message); }
+  }
+
+  function recentDecisions() {
+    var sec = h("section", { class: "section" }, h("h2", { text: "Your recent decisions" }));
+    var list = h("div", { class: "list" });
+    var opener = h("button", { type: "button", class: "btn wide", text: "Show recent decisions",
+      onclick: async function () {
+        opener.disabled = true;
+        try {
+          var res = await call("classical/review_history", { limit: 30 });
+          opener.remove();
+          var now = Date.now() / 1000;
+          res.items.forEach(function (b) {
+            list.appendChild(h("div", { class: "row" },
+              h("span", { class: "row-main" },
+                h("span", { class: "row-title", text: b.label || b.op }),
+                h("span", { class: "row-sub", text: historyLine(b, now) })),
+              b.can_undo ? h("button", { type: "button", class: "btn small", text: "Undo",
+                onclick: function () { undoBatch(b.batch); } }) : null));
+          });
+          if (!res.items.length) list.appendChild(empty("No decisions yet."));
+        } catch (e) { opener.disabled = false; toast(e.message); }
+      } });
+    sec.appendChild(opener);
+    sec.appendChild(list);
+    return sec;
+  }
+
+  var CARD_PREVIEW = 3;
+
+  function reviewCard(c, canCorrect) {
+    var card = h("section", { class: "review-card" + (c.actionable ? "" : " note") },
+      h("div", { class: "review-card-head" },
+        h("span", { class: "kind", text: KIND_LABELS[c.kind] || c.kind }),
+        h("h3", { text: c.title }),
+        c.subtitle && c.subtitle !== c.title ? h("p", { class: "row-sub", text: c.subtitle }) : null,
+        h("p", { class: "fine", text: cardMeta(c) })));
+    if (c.hint) card.appendChild(h("p", { class: "fine", text: c.hint }));
+    var acts = h("div", { class: "actions" });
+    (c.group_actions || []).forEach(function (a) { acts.appendChild(actionButton(a, true)); });
+    if (acts.childNodes.length) card.appendChild(acts);
+    if (!canCorrect && c.actionable) card.appendChild(h("p", { class: "fine", text: "An administrator can decide this." }));
+    var list = h("div", { class: "list" });
+    var rows = c.kind === "name" ? albumRows(c.items).map(function (r) {
+      return function () { return creditRow(r); };
+    }) : c.items.map(function (it) { return function () { return reviewItem(it); }; });
+    var label = "Show all " + rows.length + (c.kind === "name" ? " albums" : "");
+    var open = false;
+    function draw() {
+      clear(list);
+      (open ? rows : rows.slice(0, CARD_PREVIEW)).forEach(function (make) { list.appendChild(make()); });
+    }
+    draw();
+    card.appendChild(list);
+    if (rows.length > CARD_PREVIEW) {
+      var toggle = h("button", { type: "button", class: "link-btn", text: label, onclick: function () {
+        open = !open;
+        draw();
+        toggle.textContent = open ? "Show fewer" : label;
+      } });
+      card.appendChild(toggle);
+    }
+    if (c.more) card.appendChild(h("p", { class: "fine", text: "and " + c.more + " more: narrow with the filters" }));
+    return card;
+  }
+
+  var KIND_LABELS = { name: "Composer credit", mb: "MusicBrainz", accolade: "Award", discs: "Discs",
+    same_work: "Same work?", info: "Note" };
+
+  /** A server-built action: an undoable batch (hide, reject, link, join), or a credit mapping (a sheet). */
+  function actionButton(a, group) {
+    if (a.type === "composer") {
+      return h("button", { type: "button", class: "btn small" + (group ? " primary" : ""), text: a.label,
+        onclick: function () { composerNameSheet(a); } });
+    }
+    var cls = "btn small" + (a.accept && !group ? " primary" : "");
+    var n = actionCount(a.actions);
+    var run = function () { return decide(a.actions); };
+    if (n > 1) return armed(a.label, cls, run);
+    return h("button", { type: "button", class: cls, text: a.label, onclick: run });
+  }
+
+  /** One album under a credit card: where the credit appears, and its per-album exception. */
+  function creditRow(r) {
+    var it = r.item;
+    var box = h("div", { class: "review-item" });
+    box.appendChild(h("div", { class: "row" }, h("span", { class: "row-main" },
+      h("span", { class: "row-title", text: r.title }),
+      r.others.length ? h("span", { class: "row-sub", text: "Could be " + r.others.join(" or ") }) : null)));
+    var acts = h("div", { class: "actions" });
+    (it.actions || []).forEach(function (a) { if (a.type === "composer") acts.appendChild(actionButton(a, false)); });
+    if (acts.childNodes.length) box.appendChild(acts);
+    return box;
   }
 
   function reviewLink(l) {
@@ -1571,7 +1850,7 @@
     return null;
   }
 
-  function reviewItem(it, canCorrect) {
+  function reviewItem(it) {
     var sub = reviewSubtitle(it);
     var href = reviewLink(it.link);
     var box = h("div", { class: "review-item" });
@@ -1587,7 +1866,7 @@
       box.appendChild(ul);
     }
     if ((it.reason === "accolade_match" || it.reason === "possible continuation on another disc") &&
-        it.detail && it.detail.why) {
+        it.detail && it.detail.why && it.detail.why !== sub) {
       box.appendChild(h("p", { class: "fine", text: it.detail.why }));
     }
     if (it.reason === "Link to MusicBrainz work?") {
@@ -1600,70 +1879,10 @@
       if (cl.childNodes.length) box.appendChild(cl);
     }
     var acts = h("div", { class: "actions" });
-    (it.actions || []).forEach(function (a) {
-      if (!canCorrect) return;
-      if (a.op === "composer_name") {
-        acts.appendChild(h("button", { type: "button", class: "btn", text: "This credit means…",
-          onclick: function () { composerNameSheet(a); } }));
-      } else if (a.op === "accolade_decide") {
-        acts.appendChild(h("button", { type: "button", class: "btn", text: a.label, onclick: async function () {
-          try {
-            await call("classical/accolade_decide", { entry_ref: a.entry, recording_id: a.recording_id,
-              decision: a.decision });
-            toast(a.decision === "confirm" ? "Award shown on this recording" : "Award hidden for this recording");
-            render();
-          } catch (e) { toast(e.message); }
-        } }));
-      } else if (a.op === "work_mb_link") {
-        acts.appendChild(h("button", { type: "button", class: "btn", text: a.label, onclick: async function () {
-          try {
-            var args = { work_id: a.work_id, decision: a.decision };
-            if (a.mbid) args.mbid = a.mbid;
-            if (a.mbids) args.mbids = a.mbids;
-            await call("classical/work_mb_link", args);
-            toast(a.decision === "accept" ? "Linked to MusicBrainz" : "Not proposed again");
-            render();
-          } catch (e) { toast(e.message); }
-        } }));
-      } else if (a.op === "join_discs") {
-        acts.appendChild(h("button", { type: "button", class: "btn", text: a.label, onclick: async function () {
-          try {
-            await call("classical/join_discs", { first_recording_id: a.first_recording_id,
-              second_recording_id: a.second_recording_id, decision: a.decision });
-            toast(a.decision === "together" ? "Discs joined into one recording" : "Kept as separate recordings");
-            render();
-          } catch (e) { toast(e.message); }
-        } }));
-      } else if (a.op === "merge_composers") {
-        acts.appendChild(h("button", { type: "button", class: "btn",
-          text: "Merge " + a.source.name + " into " + a.target.name,
-          onclick: function () { mergeSheet(a); } }));
-      }
-    });
+    (it.actions || []).forEach(function (a) { acts.appendChild(actionButton(a, false)); });
     if (acts.childNodes.length) box.appendChild(acts);
-    if (it.actions && it.actions.length && !canCorrect) {
-      box.appendChild(h("p", { class: "fine", text: "An administrator can correct this." }));
-    }
     if (it.hint) box.appendChild(h("p", { class: "fine", text: it.hint }));
-    box.appendChild(h("p", { class: "fine mono", text: it.id }));
     return box;
-  }
-
-  function mergeSheet(a) {
-    var body = h("div", null,
-      h("p", { text: "All works by " + a.source.name + " will be credited to " + a.target.name +
-        ". Future scans keep this choice." }),
-      h("div", { class: "actions" },
-        h("button", { type: "button", class: "btn primary", text: "Merge", onclick: async function () {
-          try {
-            await call("classical/merge_composers", { source_id: a.source.id, target_id: a.target.id });
-            close();
-            toast("Merged");
-            render();
-          } catch (e) { toast(e.message); }
-        } }),
-        h("button", { type: "button", class: "btn", text: "Cancel", onclick: function () { close(); } })));
-    var close = sheet("Merge composers?", body);
   }
 
   function composerNameSheet(a) {
@@ -1673,10 +1892,12 @@
       onclick: async function () {
         if (!chosen) return;
         try {
-          await call("classical/composer_name", { name: a.name, composer_id: chosen.id });
+          var args = { name: a.name, composer_id: chosen.id };
+          if (a.album_id) args.album_id = a.album_id;
+          var res = await call("classical/composer_name", args);
           close();
-          toast("Saved: “" + a.name + "” is " + chosen.name);
-          render();
+          undoToast("Saved: “" + a.name + "” is " + chosen.name + (a.album_id ? " on this album" : ""), res.batch);
+          refresh();
         } catch (e) { toast(e.message); }
       } });
     function option(c) {
@@ -1706,7 +1927,8 @@
         pool.forEach(function (c) { list.appendChild(option(c)); });
       }, 250) });
     var body = h("div", null,
-      h("p", { text: "Which composer does the credit “" + a.name + "” mean?" }),
+      h("p", { text: "Which composer does the credit “" + a.name + "” mean" +
+        (a.album_id ? " on this album? Other albums keep the general choice." : "? Every album with this credit follows.") }),
       search, list,
       h("div", { class: "actions" }, confirm,
         h("button", { type: "button", class: "btn", text: "Cancel", onclick: function () { close(); } })));

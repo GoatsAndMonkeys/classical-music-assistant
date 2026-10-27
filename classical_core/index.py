@@ -285,6 +285,7 @@ class Index:
         self._name_ctx = NameContext()
         self._name_memo: dict[tuple[str, int | None, int | None], tuple[str, str | None]] = {}
         self._reviews: list = []
+        self._name_album: str | None = None
         self.tag_reader = tag_reader
         self.db = db
 
@@ -969,9 +970,15 @@ class Index:
                 ctx.siblings.add(k.name)
         return ctx
 
-    def _name_override(self, key: str) -> tuple[str, str | None] | None:
-        r = self._one("SELECT payload_json FROM override WHERE entity='name' AND entity_id=? AND op='composer' "
-                      "ORDER BY id DESC LIMIT 1", (key,))
+    def _name_override(self, key: str, album: str | None = None) -> tuple[str, str | None] | None:
+        """A user's pin of a credit key: the one for this album (a per-album exception) wins over the global one."""
+        r = None
+        if album:
+            r = self._one("SELECT payload_json FROM override WHERE entity='name' AND entity_id=? AND op='composer_album' "
+                          "AND json_extract(payload_json, '$.album')=? ORDER BY id DESC LIMIT 1", (key, album))
+        if not r:
+            r = self._one("SELECT payload_json FROM override WHERE entity='name' AND entity_id=? AND op='composer' "
+                          "ORDER BY id DESC LIMIT 1", (key,))
         if not r:
             return None
         cid = self.resolve("composer", json.loads(r[0])["composer_id"])
@@ -984,7 +991,8 @@ class Index:
         ctx = self.name_context(titles, raws)
         out: dict[str, NameCandidate] = {}
         for c in parse_names(raws):
-            if (is_lone_surname(c.name) or c.name in NON_PERSON_NAMES or self._name_override(c.key)
+            if (is_lone_surname(c.name) or c.name in NON_PERSON_NAMES
+                    or self._name_override(c.key, album.library_album_id)
                     or authority_match(c, ctx)[0]):
                 continue
             out[c.key] = c
@@ -1082,7 +1090,7 @@ class Index:
 
     def _identity(self, c: NameCandidate, reviews: list) -> tuple[str, str | None]:
         """(display name, mbid or 'cid:<composer id>') — (f) override > (b) authority > (c) MB > (e) LLM > raw."""
-        ov = self._name_override(c.key)
+        ov = self._name_override(c.key, self._name_album)
         if ov:
             return ov
         if c.name in NON_PERSON_NAMES:
@@ -1244,19 +1252,28 @@ class Index:
             raise
         return dst
 
-    def set_name_identity(self, raw: str, composer_id: str, user: str | None = None) -> list[str]:
-        """Pin a credit string to a composer (wins over every tier). Returns the albums to re-derive."""
+    def set_name_identity(self, raw: str, composer_id: str, user: str | None = None,
+                          album: str | None = None) -> list[str]:
+        """Pin a credit string to a composer (wins over every tier). With `album`, only on that album (an
+        exception to the global pin). Returns the albums to re-derive."""
         self._require_composer(composer_id)
         keys = [c.key for c in parse_names(raw)] or [norm_key(raw)]
         if not any(keys):
             raise ValueError("empty credit string")
+        if album is not None and not self._one("SELECT 1 FROM album_info WHERE album_library_id=?", (album,)):
+            raise ValueError("unknown album")
         now = time.time()
+        op, payload = ("composer", {"composer_id": composer_id}) if album is None else \
+            ("composer_album", {"composer_id": composer_id, "album": album})
         for k in keys:
             self.con.execute("INSERT INTO override(entity, entity_id, op, payload_json, created_at, by_user) "
-                             "VALUES ('name', ?, 'composer', ?, ?, ?)",
-                             (k, json.dumps({"composer_id": composer_id}), now, user))
+                             "VALUES ('name', ?, ?, ?, ?, ?)", (k, op, json.dumps(payload), now, user))
         self.con.execute("INSERT INTO correction_log(op, payload_json, user, at) VALUES (?,?,?,?)",
-                         ("name_identity", json.dumps({"raw": raw, "composer_id": composer_id}), user, now))
+                         ("name_identity", json.dumps({"raw": raw, "composer_id": composer_id, "album": album}),
+                          user, now))
+        if album is not None:
+            self.con.execute("UPDATE album_info SET signature=NULL WHERE album_library_id=?", (album,))
+            return [album]
         self.con.execute("UPDATE album_info SET signature=NULL")
         return [r[0] for r in self._q("SELECT album_library_id FROM album_info")]
 
@@ -1419,6 +1436,7 @@ class Index:
                                                                              if f.tags and f.tags.work],
             raws + ([prefix] if prefix else []))
         self._name_memo = {}
+        self._name_album = album.library_album_id
         self._reviews = reviews
         # MB chains for every occurrence that has one (from a recording link or a work-MBID tag)
         chains: list[list[str] | None] = []

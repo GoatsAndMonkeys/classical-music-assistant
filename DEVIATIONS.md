@@ -468,3 +468,48 @@ link, conservatively.
     "Hungarian Folk Songs").
 - **Not done or known gaps.**
   - Search mode cannot test uniqueness, so it never links by name alone.
+
+## Review triage (2026-10-27)
+
+The Review tab used to list every review item by reason (1285 on the M1, still growing). It now shows
+decision cards from `classical/review_triage` (classical_core/triage.py).
+- **Cards.** Items that one decision settles share a card:
+  - Composer credits: one card per bare credit ("Schumann"), with a global "This credit means…" and a
+    per-album "Only on this album…" exception. The exception is a new album-scoped name override
+    (`composer_album`), checked before the global one.
+  - MusicBrainz: one card per identical candidate set.
+  - Awards: one card per award entry.
+  - Discs: one card per earlier album and album pair.
+  - Notes with nothing to decide (no work identified, ambiguous positions, same work?): one card per reason.
+    One card per album would have been 969 cards.
+- **On the M1 copy:** 1285 open items make 200 cards, and 50 of those cards hold 1135 items.
+  - Composer credits: 15 cards, 56 items.
+  - MusicBrainz: 166 cards, 216 items.
+  - Awards: 3 cards, 16 items.
+  - Discs: 4 cards, 4 items.
+  - Same work: 1 card, 67 items.
+  - Notes: 11 cards, 926 items.
+  - The view builds in about 0.13 s; a test with 10k items takes under 1 s.
+- **Overview and filters:** counts by card kind, filters by reason, composer, album and text, and sorts by
+  tracks affected (impact), acclaim, items or title. Cards are paged 30 at a time.
+- **Bulk actions are rejections and hiding only.**
+  - A request may carry at most one accept (MB link, award confirm, disc join) or one credit mapping, never
+    both.
+  - Bulk "None of these", "Not the awarded recording" and "Different recordings" exist only on cards with 2
+    or more items, and ask for a second tap.
+  - "Hide all shown" hides what the current filter shows.
+- **Name cards map the credit and don't merge composers.** A merge is not in the undo log; a name mapping
+  is.
+- **Undo log.** Every decision is one `review_batch` row that stores its inverse steps.
+  - A toast after each decision, and "Your recent decisions", offer Undo. History and undo cover only your
+    own decisions.
+  - Undo is refused while a later decision on the same target still stands.
+  - The recording page's "Keep discs separate" and the work page's "Unlink" go through the same log, so
+    "Keep discs separate" can now be undone (the known gap).
+  - `merge_composers`, `separate_work` and work-date edits are not in the log; they keep their old
+    behaviour.
+- **Hiding.** A hidden item is keyed by a fingerprint (reason, album, stable entity, detail without
+  volatile ids), not by the review_item id, which changes on every re-derive. So a hidden item stays hidden
+  after a rescan until its facts change. Items on a hidden provider never show and cannot be hidden or
+  restored by id.
+- **Not done.** The browse review folders (MA's library view) still list hidden items.

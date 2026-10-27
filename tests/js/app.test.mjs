@@ -255,3 +255,33 @@ test("a work page's MusicBrainz link line: only a well-formed MBID makes a link"
   for (const bad of [null, {}, { mbid: "javascript:alert(1)" }, { mbid: id + "/../x" }, { mbid: 5 }])
     assert.equal(app.mbLinkLine(bad), null);
 });
+
+test("review filters: defaults dropped, a new kind clears the reason, args carry the paging", () => {
+  assert.deepEqual(app.reviewQuery({ kind: "info", reason: "x", q: "bach" }, { kind: "mb" }), { kind: "mb", q: "bach" });
+  assert.deepEqual(app.reviewQuery({ kind: "mb", reason: "x" }, { kind: "mb" }), { kind: "mb", reason: "x" });
+  assert.deepEqual(app.reviewQuery({ status: "dismissed", sort: "acclaim" }, { status: "open", sort: "impact" }), {});
+  assert.deepEqual(app.reviewQuery({ junk: 1, album: "12" }, { q: "" }), { album: "12" });
+  assert.deepEqual(app.reviewArgs({ kind: "name", composer: "c_1" }, 30),
+    { sort: "impact", offset: 30, limit: 30, kind: "name", composer: "c_1" });
+  assert.deepEqual(app.reviewArgs({}), { sort: "impact", offset: 0, limit: 30 });
+});
+
+test("review cards: meta line, action counts and the recent-decisions line", () => {
+  assert.equal(app.cardMeta({ n: 14, impact: 208, acclaim: 0 }), "14 items · 208 tracks");
+  assert.equal(app.cardMeta({ n: 1, impact: 1, acclaim: 2.25 }), "1 item · 1 track · acclaim 2.3");
+  assert.equal(app.actionCount([{ op: "dismiss", items: ["a", "b", "c"] }]), 3);
+  assert.equal(app.actionCount([{ op: "work_mb_link" }, { op: "work_mb_link" }]), 2);
+  assert.equal(app.actionCount([{ op: "restore", items: ["a"] }]), 1);
+  const now = 1_000_000;
+  assert.equal(app.historyLine({ at: now - 30, actions: 1 }, now), "just now");
+  assert.equal(app.historyLine({ at: now - 600, actions: 3, undone: true }, now), "10 min ago · 3 changes · undone");
+  assert.equal(app.historyLine({ at: now - 7200, actions: 1, blocked_by: 9 }, now), "2 h ago · undo decision #9 first");
+  assert.equal(app.historyLine({ at: now - 86400 * 2, actions: 1 }, now), "2 days ago");
+});
+
+test("a credit card lists each album once, with every composer the credit could be", () => {
+  const it = (id, album, other) => ({ id, album_id: album, album: "A" + album, detail: { other } });
+  const rows = app.albumRows([it("1", "x", "Robert Schumann"), it("2", "x", "Clara Schumann"), it("3", "y", "Robert Schumann")]);
+  assert.deepEqual(rows.map((r) => [r.title, r.n, r.others]),
+    [["Ax", 2, ["Robert Schumann", "Clara Schumann"]], ["Ay", 1, ["Robert Schumann"]]]);
+});

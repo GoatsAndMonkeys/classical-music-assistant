@@ -34,7 +34,7 @@ from music_assistant_models.media_items import (
 )
 
 from classical_core import __version__ as CORE_VERSION
-from classical_core import accolades, curation, views, work_link
+from classical_core import accolades, curation, triage, views, work_link
 from classical_core import browse as tree
 from classical_core import dates as work_dates
 from classical_core.index import AlbumIn, Index, MappingIn, TrackIn
@@ -275,6 +275,9 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             reg("classical/accolade_decide", self.cmd_accolade_decide, required_scope=Scope.LIBRARY_MANAGE),
             reg("classical/work_dates", self.cmd_work_dates, required_scope=Scope.LIBRARY_MANAGE),
             reg("classical/work_mb_link", self.cmd_work_mb_link, required_scope=Scope.LIBRARY_MANAGE),
+            reg("classical/review_apply", self.cmd_review_apply, required_scope=Scope.LIBRARY_MANAGE),
+            reg("classical/review_undo", self.cmd_review_undo, required_scope=Scope.LIBRARY_MANAGE),
+            reg("classical/review_history", self.cmd_review_history, required_scope=Scope.LIBRARY_MANAGE),
             self.mass.subscribe(self._on_sync_completed, EventType.MUSIC_SYNC_COMPLETED),
             self.mass.subscribe(self._on_providers_updated, EventType.PROVIDERS_UPDATED),
             self.mass.subscribe(
@@ -935,38 +938,16 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             raise InvalidDataError(str(err)) from err
         return {"merged": source_id, "into": into}
 
-    async def cmd_composer_name(self, name: str, composer_id: str) -> dict[str, Any]:
-        """A user correction: this credit string always means this composer; affected albums re-derive."""
+    async def _decide(self, actions: list[dict[str, Any]], label: str | None = None) -> dict[str, Any]:
+        """Apply review decisions as one undoable batch (triage.apply: visibility checked per target, one
+        transaction), then queue the jobs they need."""
         user = self._user_name()
-
-        def apply(ix: Index) -> list[str]:
-            ix.con.execute("BEGIN IMMEDIATE")
-            try:
-                out = ix.set_name_identity(name, composer_id, user)
-                ix.con.execute("COMMIT")
-                return out
-            except BaseException:
-                ix.con.execute("ROLLBACK")
-                raise
-
-        try:
-            albums = await self._write(apply, self.index)
-        except ValueError as err:
-            raise InvalidDataError(str(err)) from err
-        self._enqueue("scan")
-        return {"albums": len(albums), "queued": list(self._jobs)}
-
-    async def cmd_accolade_decide(self, entry_ref: str, recording_id: str, decision: str) -> dict[str, Any]:
-        """A user decision on a doubtful award match: 'confirm' (same recording: show it), 'reject' (never
-        show it here) or 'clear'. Only a recording the caller can see."""
-        user = self._user_name()
-        vis = self._vis()
+        vis = self._vis()  # on the loop: the current user is a context variable
 
         def apply(ix: Index) -> dict:
             ix.con.execute("BEGIN IMMEDIATE")
             try:
-                rid = views.recording(ix, recording_id, vis)["id"]      # NotFound when hidden
-                out = accolades.decide(ix.con, entry_ref, rid, decision, user)
+                out = triage.apply(ix, actions, user, vis, label)
                 ix.con.execute("COMMIT")
                 return out
             except BaseException:
@@ -979,8 +960,72 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             raise InvalidDataError(NOT_FOUND) from None
         except ValueError as err:
             raise InvalidDataError(str(err)) from err
-        self._enqueue("accolades")
+        for job in out["jobs"]:
+            self._enqueue(job)
+        return out
+
+    async def cmd_review_apply(self, actions: list[dict[str, Any]], label: str | None = None,
+                               dismiss_filter: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Review decisions in one batch: hide/show items, rejections for many items at once, or a single
+        accept or credit mapping. `dismiss_filter` hides every open item a triage filter shows."""
+        actions = list(actions or [])
+        if dismiss_filter is not None:
+            if not isinstance(dismiss_filter, dict):
+                raise InvalidDataError("dismiss_filter must be an object")
+            vis = self._vis()
+            f = {k: dismiss_filter.get(k) for k in ("kind", "reason", "composer", "album", "q")}
+            try:
+                ids = await self._read(lambda ix: triage.items_for(ix, vis, **f))
+            except ValueError as err:
+                raise InvalidDataError(str(err)) from err
+            actions.append({"op": "dismiss", "items": ids})
+        out = await self._decide(actions, label)
         return {**out, "queued": list(self._jobs)}
+
+    async def cmd_review_undo(self, batch: int) -> dict[str, Any]:
+        """Undo one of the caller's own decisions (refused while a later decision on the same thing stands)."""
+        user = self._user_name()
+
+        def apply(ix: Index) -> dict:
+            ix.con.execute("BEGIN IMMEDIATE")
+            try:
+                out = triage.undo(ix, int(batch), user)
+                ix.con.execute("COMMIT")
+                return out
+            except BaseException:
+                ix.con.execute("ROLLBACK")
+                raise
+
+        try:
+            out = await self._write(apply, self.index)
+        except views.NotFound:
+            raise InvalidDataError(NOT_FOUND) from None
+        except (TypeError, ValueError) as err:
+            raise InvalidDataError(str(err)) from err
+        for job in out["jobs"]:
+            self._enqueue(job)
+        return {**out, "queued": list(self._jobs)}
+
+    async def cmd_review_history(self, limit: int = 30) -> dict[str, Any]:
+        """The caller's recent review decisions, newest first, with whether each can be undone now."""
+        user = self._user_name()
+        return {"items": await self._read(lambda ix: triage.history(ix, user, int(limit)))}
+
+    async def cmd_composer_name(self, name: str, composer_id: str, album_id: str | None = None) -> dict[str, Any]:
+        """A user correction: this credit string always means this composer (with `album_id`, only on that
+        album); affected albums re-derive. Undoable from the review page."""
+        args = {"op": "composer_name", "name": name, "composer_id": composer_id}
+        if album_id:
+            args["album_id"] = album_id
+        out = await self._decide([args])
+        return {"albums": out["results"][0]["albums"], "batch": out["batch"], "queued": list(self._jobs)}
+
+    async def cmd_accolade_decide(self, entry_ref: str, recording_id: str, decision: str) -> dict[str, Any]:
+        """A user decision on a doubtful award match: 'confirm' (same recording: show it), 'reject' (never
+        show it here) or 'clear'. Only a recording the caller can see. Undoable from the review page."""
+        out = await self._decide([{"op": "accolade_decide", "entry": entry_ref, "recording_id": recording_id,
+                                   "decision": decision}])
+        return {**out["results"][0], "batch": out["batch"], "queued": list(self._jobs)}
 
     async def cmd_separate_work(self, recording_id: str) -> dict[str, Any]:
         """A user correction: this recording's work was wrongly merged with another album's; keep them apart.
@@ -1037,73 +1082,30 @@ class ClassicalProvider(CompanionUI, PluginProvider):
     async def cmd_work_mb_link(self, work_id: str, decision: str, mbid: str | None = None,
                                mbids: list[str] | None = None) -> dict[str, Any]:
         """A user decision on a proposed MusicBrainz work link: 'accept' one `mbid`, or 'reject' `mbid` /
-        `mbids` (a rejected candidate is never proposed again). Survives re-index. Only a work the caller
-        can see, and only an id the linking job linked or proposed for it."""
-        user = self._user_name()
-        vis = self._vis()  # on the loop: the current user is a context variable
-        ids = list(mbids or []) + ([mbid] if mbid else [])
-
-        def apply(ix: Index) -> dict:
-            ix.con.execute("BEGIN IMMEDIATE")
-            try:
-                wid = views.work(ix, work_id, vis)["work"]["id"]      # NotFound when hidden
-                out = work_link.set_user_link(ix.con, wid, user, decision, ids)
-                ix.con.execute("COMMIT")
-            except BaseException:
-                ix.con.execute("ROLLBACK")
-                raise
-            return out
-
-        try:
-            out = await self._write(apply, self.index)
-        except views.NotFound:
-            raise InvalidDataError(NOT_FOUND) from None
-        except ValueError as err:
-            raise InvalidDataError(str(err)) from err
-        self._enqueue("dates")          # the link's dates, or the old link's gone; then 'worklink'
-        return out
-
-    async def _disc_correction(self, rids: list[str], fn: Callable[[Index], Any]) -> Any:
-        """Run a cross-disc correction on the writer, only on recordings the caller can see."""
-        vis = self._vis()  # on the loop: the current user is a context variable
-
-        def apply(ix: Index) -> Any:
-            ix.con.execute("BEGIN IMMEDIATE")
-            try:
-                for rid in rids:
-                    views.recording(ix, rid, vis)      # NotFound when hidden
-                out = fn(ix)
-                ix.con.execute("COMMIT")
-                return out
-            except BaseException:
-                ix.con.execute("ROLLBACK")
-                raise
-
-        try:
-            out = await self._write(apply, self.index)
-        except views.NotFound:
-            raise InvalidDataError(NOT_FOUND) from None
-        except ValueError as err:
-            raise InvalidDataError(str(err)) from err
-        self._enqueue("accolades")      # dataset matches are per recording: one recording now, or several
-        return out
+        `mbids` (a rejected candidate is never proposed again). Survives re-index; undoable from the review
+        page. Only a work the caller can see, and only an id the linking job linked or proposed for it."""
+        args: dict[str, Any] = {"op": "work_mb_link", "work_id": work_id, "decision": decision}
+        if mbid:
+            args["mbid"] = mbid
+        if mbids:
+            args["mbids"] = list(mbids)
+        out = await self._decide([args])
+        return {**out["results"][0], "batch": out["batch"]}
 
     async def cmd_join_discs(self, first_recording_id: str, second_recording_id: str,
                              decision: str = "together") -> dict[str, Any]:
         """A user correction on two discs of a set ripped as separate albums: the second recording continues
-        the first ('together') or is another recording ('separate'). Survives re-index."""
-        user = self._user_name()
-        leads = await self._disc_correction(
-            [first_recording_id, second_recording_id],
-            lambda ix: ix.join_discs(first_recording_id, second_recording_id, user, decision))
-        return {"recordings": leads, "queued": list(self._jobs)}
+        the first ('together') or is another recording ('separate'). Survives re-index; undoable from the
+        review page."""
+        out = await self._decide([{"op": "join_discs", "first_recording_id": first_recording_id,
+                                   "second_recording_id": second_recording_id, "decision": decision}])
+        return {"recordings": out["results"][0]["recordings"], "batch": out["batch"], "queued": list(self._jobs)}
 
     async def cmd_separate_discs(self, recording_id: str) -> dict[str, Any]:
-        """A user correction: the discs this recording spans are separate recordings."""
-        user = self._user_name()
-        rids = await self._disc_correction([recording_id], lambda ix: ix.separate_discs(recording_id, user))
-        return {"recordings": rids, "queued": list(self._jobs)}
-
+        """A user correction: the discs this recording spans are separate recordings. Undoable from the review
+        page (Recent decisions)."""
+        out = await self._decide([{"op": "separate_discs", "recording_id": recording_id}])
+        return {"recordings": out["results"][0]["recordings"], "batch": out["batch"], "queued": list(self._jobs)}
 
 def job_order(key: str) -> tuple[bool, bool, bool]:
     """The worker's order: removals and provider checks first, then single albums, then scans, then accolades,

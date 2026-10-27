@@ -302,6 +302,27 @@ select.input {
 .review-item .row { border-bottom: 0; }
 .review-item > .actions, .review-item > .fine, .review-item > .detail { margin-left: 14px; margin-right: 14px; }
 .detail { margin: 0 14px 6px; padding-left: 18px; color: var(--muted); font-size: 14px; }
+.review-bar { margin: 4px 0 10px; }
+.filter-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.filter-grid > :only-child { grid-column: 1 / -1; }
+.filter-grid > select { min-width: 0; width: 100%; }
+.cards { display: flex; flex-direction: column; gap: 14px; margin-top: 8px; }
+.review-card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 14px 14px 10px; box-shadow: var(--shadow); min-width: 0;
+}
+.review-card.note { box-shadow: none; background: var(--surface-2); }
+.review-card-head h3 { margin: 4px 0 2px; font: 600 19px/1.25 var(--serif); overflow-wrap: anywhere; }
+.review-card-head .row-sub, .review-card-head .fine { margin: 2px 0 0; }
+.review-card .kind {
+  display: inline-block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--accent);
+}
+.review-card > .actions { margin: 10px 0; }
+.review-card > .list { margin: 8px -6px 4px; border-radius: 10px; }
+.review-card.note > .list { background: var(--surface); }
+.review-card > .link-btn { margin: 4px 0 2px; font-size: 13px; }
+.review-card .actions .btn { max-width: 100%; white-space: normal; text-align: center; line-height: 1.2; padding-top: 6px; padding-bottom: 6px; }
 
 /* ---- sheet, toasts, login ---- */
 
