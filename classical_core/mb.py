@@ -299,7 +299,7 @@ class MBClient:
                     await asyncio.sleep(wait)
                 try:
                     status, body = await self._fetch(url, self.headers)
-                except (TimeoutError, OSError) as e:
+                except Exception as e:  # noqa: BLE001 - aiohttp.ClientError and friends: retry as a network error
                     status, body = -1, str(e).encode()
                 finally:
                     self._last = time.monotonic()

@@ -84,6 +84,11 @@ def _contradicts(run_slots: list[Slot], s: Slot) -> str | None:
     return None
 
 
+def _whole(s: Slot) -> bool:
+    """The track performs the whole work (not one movement of it, not partially)."""
+    return s.part_key is not None and s.part_key == s.work_key
+
+
 def group_album(slots: list[Slot], ambiguous: bool = False) -> GroupingResult:
     runs: list[Run] = []
     notes: list[tuple[str, list[int]]] = []
@@ -113,6 +118,8 @@ def group_album(slots: list[Slot], ambiguous: bool = False) -> GroupingResult:
                 reason = "new work"
             elif s.part_key and any(slots[j].part_key == s.part_key for j in cur):
                 reason = "repeated movement (alternate take or second performance)"
+            elif _whole(s) or any(_whole(slots[j]) for j in cur):
+                reason = "complete performance of the whole work"
             elif (s.movement_no is not None and prev.movement_no is not None and prev.parent_key == s.parent_key
                   and s.movement_no <= prev.movement_no):
                 reason = "movement numbers restart"

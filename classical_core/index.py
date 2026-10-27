@@ -40,6 +40,7 @@ log = logging.getLogger("classical.index")
 
 FOLDER_CAP = 500
 MAX_PARENT_DEPTH = 3
+CUE_TRACK = "::track"                  # MA's CUE-sheet track item_id delimiter (file.cue::trackNN)
 
 
 # ---- inputs from the glue ------------------------------------------------------------------------------
@@ -241,7 +242,8 @@ class Index:
         if not m.available:
             self._upsert_mapping(m, track, row, status="unavailable")
             return "unavailable"
-        if m.path is None:
+        if m.path is None or CUE_TRACK in m.item_id:
+            # no file to read; a CUE track's item_id names a track inside one image file (PLAN §5: no Tier 1)
             self._upsert_mapping(m, track, row, status="ok")
             return "skipped"
         if (not force and row is not None and row["status"] == "ok" and row["file_fingerprint"] == m.fingerprint
@@ -253,9 +255,9 @@ class Index:
             self._upsert_mapping(m, track, row, status="read_error", error=str(e)[:500], retry_after=now + 3600)
             return "error"
         h = info.tag_hash()
-        if force or row is None or row["tag_hash"] != h:
-            rows = [("mapping", f"{m.provider_instance}/{m.item_id}", f, v, e) for f, v, e in _tag_rows(info)]
-            self.replace_origin(origin, "tags", rows)
+        # always reconcile: a mapping returning from 'gone' has an unchanged hash but retracted evidence
+        rows = [("mapping", f"{m.provider_instance}/{m.item_id}", f, v, e) for f, v, e in _tag_rows(info)]
+        self.replace_origin(origin, "tags", rows)
         self._upsert_mapping(m, track, row, status="ok", tag_hash=h, mbid=info.recording_mbid, indexed_at=now)
         return "read"
 
@@ -293,7 +295,11 @@ class Index:
             log.debug("MB recording %s: %s", mbid, e)
             return
         stats.mb_requests += 1
-        rec = parse_recording(data)
+        try:
+            rec = parse_recording(data)
+        except Exception as e:  # noqa: BLE001 - malformed MB JSON abstains; it must not fail the album
+            log.warning("MB recording %s: unparseable response: %r", mbid, e)
+            return
         rows = [("mb_recording", mbid, "title", json.dumps(rec.title), "title")]
         rows += [("mb_recording", mbid, "work_link", json.dumps(asdict(w), sort_keys=True), w.edge) for w in rec.works]
         rows += [("mb_recording", mbid, "credit", json.dumps(asdict(c), sort_keys=True), c.edge) for c in rec.credits]
@@ -323,7 +329,11 @@ class Index:
             log.debug("MB work %s: %s", mbid, e)
             return self._mb_work(mbid)
         stats.mb_requests += 1
-        w = parse_work(data)
+        try:
+            w = parse_work(data)
+        except Exception as e:  # noqa: BLE001 - malformed MB JSON abstains; it must not fail the album
+            log.warning("MB work %s: unparseable response: %r", mbid, e)
+            return self._mb_work(mbid)
         e = ("mb_work", mbid)
         rows = [(*e, "title", json.dumps(w.title), "title")]
         for f in ("work_type", "key", "title_en"):
@@ -433,6 +443,12 @@ class Index:
                 res = await self.refresh_mapping(t, m, force=force)
                 stats.tag_reads += res == "read"
                 stats.read_errors += res == "error"
+            # mappings MA no longer lists on this track are gone (their evidence and visibility go with them)
+            current = {(m.provider_instance, m.item_id) for m in t.mappings}
+            for r in self._q("SELECT provider_instance, item_id FROM mapping_state WHERE library_track_id=? "
+                             "AND status<>'gone'", (t.library_track_id,)):
+                if (r["provider_instance"], r["item_id"]) not in current:
+                    self.mark_gone(r["provider_instance"], r["item_id"])
         # Tier 2 entry points: recording MBIDs (MA's or the tag's) and work MBID tags
         rec_ids: set[str] = set()
         work_ids: set[str] = set()
@@ -623,6 +639,10 @@ class Index:
         for f in facts:
             t = f.tags
             chain = None
+            if f.mb and f.mb.works:
+                f.partial = any(w.partial for w in f.mb.works)
+                f.live = any(w.live for w in f.mb.works)
+                f.medley = any(w.medley for w in f.mb.works)
             if t and t.work_mbid and self._mb_work(t.work_mbid):
                 chain, why = self.mb_chain(t.work_mbid)
                 if why:
@@ -636,9 +656,6 @@ class Index:
                         reviews.append((f"MusicBrainz: {why}", "occurrence", f.occ_id, {"work": link.work_mbid}))
                         ch = ch[:1]
                     tops.setdefault(ch[-1], ch)
-                f.partial = any(w.partial for w in f.mb.works)
-                f.live = any(w.live for w in f.mb.works)
-                f.medley = any(w.medley for w in f.mb.works)
                 if len(tops) > 1:
                     f.extra_works = [self._mb_cand(ch, ch[-1], f) for ch in tops.values()]
                 else:
@@ -728,7 +745,10 @@ class Index:
         return Cand(
             key=f"mb:{top}", title=title, tier="mb", composers=composers, mbid=top,
             mb_type=topw.work_type if topw else None, key_sig=topw.key if topw else None, catalogues=cats,
-            parent_key=f"mb:{parent}" if parent else None, part_key=f"mb:{leaf}" if parent else None,
+            # a complete (non-partial) performance of the boundary work itself is its own whole "part", so two
+            # adjacent ones split as a repeat instead of merging into one recording
+            parent_key=f"mb:{parent}" if parent else None,
+            part_key=f"mb:{leaf}" if parent else (None if f.partial else f"mb:{top}"),
             movement_no=movement_no, movement_name=movement_name,
             mb_parts=len(topw.parts) if topw and topw.parts and idx == 1 else None)
 
@@ -750,7 +770,9 @@ class Index:
             key=key, title=t.work, tier="tags", composers=composers, mbid=mbid,
             mb_type=mb_cand.mb_type if mb_cand and mbid else None, key_sig=cat.parse_key(t.work),
             catalogues=cats or (mb_cand.catalogues if mb_cand and mbid else []),
-            parent_key=key, part_key=f"tagpart:{norm_key(part)}" if part else None, movement_no=t.movement_no,
+            parent_key=key, movement_no=t.movement_no,
+            # no movement in the tags: keep MB's whole-work part so complete performances still split
+            part_key=f"tagpart:{norm_key(part)}" if part else (mb_cand.part_key if mb_cand and mbid else None),
             movement_name=t.movement_name, movement_total=t.movement_total,
             mb_parts=mb_cand.mb_parts if mb_cand and mbid else None)
 
@@ -991,8 +1013,9 @@ class Index:
             f"AND {self._VIS_OCC}", {"wid": self.resolve("work", wid), **self._vis(vis)})
         return [dict(r) for r in rows]
 
-    def occurrence_track(self, oid: str) -> str | None:
-        r = self._one("SELECT library_track_id FROM occurrence WHERE id=? AND present=1", (oid,))
+    def occurrence_track(self, oid: str, vis=None) -> str | None:
+        r = self._one(f"SELECT o.library_track_id FROM occurrence o WHERE o.id=:oid AND {self._VIS_OCC}",
+                      {"oid": oid, **self._vis(vis)})
         return r[0] if r else None
 
     def album_ids(self) -> list[str]:
@@ -1047,8 +1070,10 @@ class Index:
 
     def review(self, vis=None) -> list[dict]:
         rows = self._q(
-            "SELECT v.* FROM review_item v WHERE v.album_library_id IS NULL OR EXISTS (SELECT 1 FROM occurrence o "
-            f"WHERE o.album_library_id=v.album_library_id AND {self._VIS_OCC}) ORDER BY v.reason, v.id", self._vis(vis))
+            "SELECT v.* FROM review_item v WHERE (v.album_library_id IS NULL OR EXISTS (SELECT 1 FROM occurrence o "
+            f"WHERE o.album_library_id=v.album_library_id AND {self._VIS_OCC})) "
+            "AND (v.entity IS NOT 'occurrence' OR v.entity_id IS NULL OR EXISTS (SELECT 1 FROM occurrence o "
+            f"WHERE o.id=v.entity_id AND {self._VIS_OCC})) ORDER BY v.reason, v.id", self._vis(vis))
         return [dict(r) | {"detail": json.loads(r["detail_json"])} for r in rows]
 
     def best_recording(self, wid: str, vis=None) -> tuple[dict, str] | None:

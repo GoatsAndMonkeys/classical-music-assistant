@@ -71,3 +71,10 @@ def test_non_adjacent_parts_listed_for_review():
 def test_ambiguous_album_not_grouped():
     res = group_album([s(0, no=1), s(1, no=2)], ambiguous=True)
     assert res.runs == [] and res.notes[0][0] == "ambiguous album positions"
+
+
+def test_complete_performances_of_whole_work_split():
+    # part_key == work_key marks a track that performs the whole work (not partial)
+    assert runs([s(0, part="W"), s(1, part="W")]) == [[0], [1]]
+    assert runs([s(0, part="W"), s(1, no=1), s(2, no=2)]) == [[0], [1, 2]]
+    assert runs([s(0), s(1)]) == [[0, 1]]                 # partial links (no part key) still join

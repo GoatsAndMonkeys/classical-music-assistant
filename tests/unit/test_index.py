@@ -336,3 +336,100 @@ def test_multi_work_track_contained_not_grouped(tmp_path, library):
     for wid in ws:
         assert len(idx.contained_tracks(wid)) == 1
     assert any(v["reason"] == "track contains several works" for v in idx.review())
+
+
+# ---- regressions from the 2026-10 code review ----
+
+VLTAVA_WORK = "009b2276-f259-3f13-9112-7f1df8e6962a"
+VLTAVA_REC = "e40b8e05-d10a-4cb9-9219-818ee6b9d329"
+
+
+def test_adjacent_complete_performances_of_a_partless_work_do_not_merge(tmp_path):
+    """Two adjacent tracks, each a full (non-partial) performance of Vltava, are two recordings."""
+    idx = new_index(tmp_path)
+    a = AlbumIn("V", "Vltava x2", "", 2000, None, [
+        TrackIn(str(i), 1, i + 1, "Vltava", "", 700, mbid=VLTAVA_REC,
+                mappings=[MappingIn("filesystem_local", f"v{i}", "f", None)]) for i in range(2)])
+    run(idx.index_album(a))
+    [w] = [w for w in idx.works() if "Vltava" in w["title"]]
+    assert sorted(r["tracks"] for r in idx.recordings(w["id"])) == [1, 1]
+
+
+def test_adjacent_whole_work_tags_with_work_mbid_do_not_merge(tmp_path):
+    r = Reader()
+    idx = new_index(tmp_path, reader=r)
+    a = album("V", ["Vltava", "Vltava"])
+    for t in a.tracks:
+        r.tags[t.mappings[0].path] = tag("Vltava", composer="Bedřich Smetana", work_mbid=VLTAVA_WORK)
+    run(idx.index_album(a))
+    [w] = idx.works()
+    assert sorted(x["tracks"] for x in idx.recordings(w["id"])) == [1, 1]
+
+
+def test_mapping_dropped_by_ma_is_marked_gone(tmp_path):
+    """A provider mapping MA no longer lists on the track must stop granting visibility and tags."""
+    r = Reader()
+    idx = new_index(tmp_path, mb=False, reader=r)
+    m1 = MappingIn("filesystem_local", "a", "f", path="a")
+    m2 = MappingIn("filesystem_local--other", "b", "f", path="b")
+    r.tags["a"] = r.tags["b"] = tag("Ballade No. 1 in G minor, Op. 23")
+    t = TrackIn("1", 1, 1, "t", "", 100, mappings=[m1, m2])
+    run(idx.index_album(AlbumIn("A", "A", "", 2000, None, [t])))
+    assert len(idx.works(vis={"filesystem_local--other"})) == 1
+    t.mappings = [m1]
+    run(idx.index_album(AlbumIn("A", "A", "", 2000, None, [t])))
+    assert idx.works(vis={"filesystem_local--other"}) == []
+    assert len(idx.works(vis={"filesystem_local"})) == 1
+    st = idx.con.execute("SELECT status FROM mapping_state WHERE item_id='b'").fetchone()[0]
+    assert st == "gone"
+
+
+def test_returning_gone_mapping_gets_its_evidence_back(tmp_path):
+    r = Reader()
+    idx = new_index(tmp_path, mb=False, reader=r)
+    a = album("A", ["m1"])
+    r.tags["A/0"] = tag("Ballade No. 1 in G minor, Op. 23")
+    run(idx.index_album(a))
+    idx.retract_provider("filesystem_local")
+    idx.set_provider_state("filesystem_local", "configured")       # the provider is added back
+    run(idx.index_album(a))                                         # same file, same tags
+    live = idx.con.execute("SELECT COUNT(*) FROM evidence WHERE source='tags' AND retracted_at IS NULL").fetchone()[0]
+    assert live > 0 and len(idx.works()) == 1
+
+
+def test_cue_track_mapping_is_not_read_as_a_file(tmp_path):
+    r = Reader()
+    idx = new_index(tmp_path, mb=False, reader=r)
+    m = MappingIn("filesystem_local", "disc.cue::track03", "f", path="/music/disc.cue::track03")
+    run(idx.index_album(AlbumIn("A", "A", "", 2000, None, [TrackIn("1", 1, 1, "t", "", 100, mappings=[m])])))
+    assert idx.status()["mappings"] == {"ok": 1}
+    assert idx.album_signature("A") is not None and not idx._retry_due(
+        AlbumIn("A", "A", "", 2000, None, [TrackIn("1", 1, 1, "t", "", 100, mappings=[m])]))
+
+
+@pytest.mark.parametrize("failure", ["client_error", "malformed_json"])
+def test_unexpected_mb_failures_do_not_fail_the_album(tmp_path, failure):
+    idx = new_index(tmp_path)
+    idx.mb.interval = 0
+
+    class ServerDisconnectedError(Exception):   # aiohttp.ClientError is not an OSError
+        pass
+
+    async def fetch(url, headers):
+        if failure == "client_error":
+            raise ServerDisconnectedError("server disconnected")
+        return 200, b'[]'                           # valid JSON, wrong shape
+
+    idx.mb._fetch = fetch
+    import classical_core.mb as mbmod
+    orig = mbmod.asyncio.sleep
+
+    async def nosleep(_):
+        await orig(0)
+    mbmod.asyncio.sleep = nosleep
+    try:
+        a = AlbumIn("V", "V", "", 2000, None, [TrackIn("1", 1, 1, "Vltava", "", 700, mbid=VLTAVA_REC,
+                                                       mappings=[MappingIn("filesystem_local", "v", "f", None)])])
+        assert run(idx.index_album(a)) is not None
+    finally:
+        mbmod.asyncio.sleep = orig

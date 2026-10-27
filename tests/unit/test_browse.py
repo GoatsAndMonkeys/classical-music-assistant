@@ -98,3 +98,26 @@ def test_provider_presence_states(idx):
     st = idx.status()
     assert st["mappings"] == {"gone": 42}
     assert all(idx.album_signature(a) is None for a in albums)              # next pass re-derives them
+
+
+def test_review_hides_occurrences_from_invisible_providers(tmp_path):
+    """An album with one visible and one hidden track must not expose the hidden track via Review."""
+    from classical_core.index import AlbumIn, MappingIn, TrackIn
+    from tests.unit.test_index import Reader, tag
+
+    r = Reader()
+    i = new_index(tmp_path, mb=False, reader=r)
+    r.tags["a"] = tag("Ballade No. 1 in G minor, Op. 23")
+    r.tags["b"] = tag("Secret Nocturne, Op. 9 No. 2")
+    run(i.index_album(AlbumIn("A", "A", "", 2000, None, [
+        TrackIn("1", 1, 1, "t1", "", 100, mappings=[MappingIn("filesystem_local", "a", "f", path="a")]),
+        TrackIn("2", 1, 2, "t2", "", 100, mappings=[MappingIn("hidden_share", "b", "f", path="b")])])))
+    hidden_occ = i.con.execute("SELECT id FROM occurrence WHERE library_track_id='2'").fetchone()[0]
+    i.con.execute("INSERT INTO review_item VALUES ('v_x', 'test reason', 'A', 'occurrence', ?, ?)",
+                  (hidden_occ, '{"title": "Secret Nocturne"}'))
+    vis = ["filesystem_local"]
+    assert not [v for v in i.review(vis) if v["id"] == "v_x"]
+    assert any(v["id"] == "v_x" for v in i.review())
+    assert i.occurrence_track(hidden_occ, vis) is None and i.occurrence_track(hidden_occ) == "2"
+    for n in tree.browse(i, "review", vis=vis):
+        assert all("Secret" not in x.name for x in tree.browse(i, n.path, vis=vis))

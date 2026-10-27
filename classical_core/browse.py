@@ -233,7 +233,7 @@ def review_nodes(index: Index, rest: list[str], vis, page: int | None) -> list[N
         detail = it["detail"] or {}
         label = detail.get("title") or detail.get("track") or detail.get("work") or ""
         if it["entity"] == "occurrence" and it.get("entity_id"):
-            tid = index.occurrence_track(it["entity_id"])
+            tid = index.occurrence_track(it["entity_id"], vis)
             if tid:
                 return Node("track", "", label or it["reason"], version=f"{it['id']} · {it['reason']}", track_id=tid)
         if it["entity"] == "work" and it.get("entity_id"):
