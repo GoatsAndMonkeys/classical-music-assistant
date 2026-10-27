@@ -2142,6 +2142,7 @@ class Index:
     def works(self, cid: str | None = None, work_type: str | None = None, vis=None,
               limit: int | None = None, offset: int = 0) -> list[dict]:
         sql = ("SELECT w.id, w.title, w.work_type, w.key, w.catalogue_display, w.identity_tier, "
+               "w.premiered, w.premiered_precision, w.premiered_place, w.premiered_source, "
                "COUNT(DISTINCT r.id) AS recordings, "
                "(SELECT c.name FROM work_composer wc2 JOIN composer c ON c.id=wc2.composer_id "
                " WHERE wc2.work_id=w.id ORDER BY wc2.ord LIMIT 1) AS composer "

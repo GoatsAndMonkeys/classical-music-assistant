@@ -150,11 +150,13 @@ class CompanionUI:
 
     async def cmd_works(self, composer_id: str | None = None, work_type: str | None = None, q: str | None = None,
                         date_kind: str = "composed", date_from: int | None = None, date_to: int | None = None,
-                        performer_id: str | None = None, offset: int = 0, limit: int = 200) -> dict[str, Any]:
-        """Works filtered by composer, type, text, performer and a composed/recorded/released year range."""
+                        performer_id: str | None = None, period: str | None = None, decade: int | None = None,
+                        sort: str | None = None, offset: int = 0, limit: int = 200) -> dict[str, Any]:
+        """Works filtered by composer, type, text, performer, a composed/premiered/recorded/released year range,
+        period and decade; sorted by catalogue or by date."""
         return await self._view(views.works, composer_id=composer_id, work_type=work_type, q=q, date_kind=date_kind,
-                                date_from=date_from, date_to=date_to, performer_id=performer_id, offset=offset,
-                                limit=limit)
+                                date_from=date_from, date_to=date_to, performer_id=performer_id, period=period,
+                                decade=decade, sort=sort, offset=offset, limit=limit)
 
     async def cmd_work(self, id: str, scope: str | None = None) -> dict[str, Any]:
         """A work with all its recordings, facets for filtering, and the recording Play picks."""

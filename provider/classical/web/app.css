@@ -202,6 +202,10 @@ a.row:active, .row-btn:active { background: var(--surface-2); }
 .icon-btn.big { background: var(--accent); color: var(--accent-text); font-size: 14px; letter-spacing: -2px; }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; }
 .best { flex-basis: 100%; margin: 0; }
+.dates { flex-basis: 100%; margin: 0; font-size: 14px; }
+.dates-src { color: var(--muted); font-size: 12px; }
+.link-btn { margin-left: 8px; padding: 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; text-decoration: underline; cursor: pointer; }
+.sheet-body .mini { display: block; }
 
 .filters { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 4px; }
 .filter-row { display: flex; gap: 8px; align-items: center; }

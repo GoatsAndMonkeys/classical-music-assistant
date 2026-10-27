@@ -36,8 +36,9 @@ from music_assistant_models.media_items import (
 from classical_core import __version__ as CORE_VERSION
 from classical_core import accolades, curation, views
 from classical_core import browse as tree
+from classical_core import dates as work_dates
 from classical_core.index import AlbumIn, Index, MappingIn, TrackIn
-from classical_core.mb import MBClient, MBTransientError
+from classical_core.mb import DEFAULT_BASE, MBClient, MBTransientError
 from classical_core.names import LLMClient
 from classical_core.store import Database, SqliteMBCache
 
@@ -272,6 +273,7 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             reg("classical/join_discs", self.cmd_join_discs, required_scope=Scope.LIBRARY_MANAGE),
             reg("classical/separate_discs", self.cmd_separate_discs, required_scope=Scope.LIBRARY_MANAGE),
             reg("classical/accolade_decide", self.cmd_accolade_decide, required_scope=Scope.LIBRARY_MANAGE),
+            reg("classical/work_dates", self.cmd_work_dates, required_scope=Scope.LIBRARY_MANAGE),
             self.mass.subscribe(self._on_sync_completed, EventType.MUSIC_SYNC_COMPLETED),
             self.mass.subscribe(self._on_providers_updated, EventType.PROVIDERS_UPDATED),
             self.mass.subscribe(
@@ -359,6 +361,7 @@ class ClassicalProvider(CompanionUI, PluginProvider):
         elif kind == "album":
             await self._index_album_id(arg)
             self._enqueue("accolades")
+            self._enqueue("dates")
         elif kind == "accolades":
             stats = await self._write(accolades.refresh, self._con, None, getattr(self, "_acc_dataset", True))
             self.logger.debug("Classical accolades: %s", stats)
@@ -366,6 +369,13 @@ class ClassicalProvider(CompanionUI, PluginProvider):
                 self._enqueue("accolades_net")
         elif kind == "accolades_net":
             await self._enrich()
+        elif kind == "dates":
+            stats = await self._write(work_dates.refresh, self._con, self._mb_base())
+            self.logger.debug("Classical work dates: %s", stats)
+            if self._mb is not None:
+                self._enqueue("dates_net")
+        elif kind == "dates_net":
+            await self._dates_net()
         elif kind == "changes":
             await self._changes()
         elif kind == "remove":
@@ -439,6 +449,7 @@ class ClassicalProvider(CompanionUI, PluginProvider):
         await self._write(self._set_job, "scan", "done", None, None, force)
         self._state["last_scan"] = time.time()
         self._enqueue("accolades")
+        self._enqueue("dates")
         self.logger.info("Classical scan done: %d albums (re)indexed; %s", n, await self._read(Index.status))
 
     async def _sync_watch(self) -> None:
@@ -553,6 +564,25 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             await self._write(accolades.store_net, self._con, album["album_library_id"], res)
         if len(due) == NET_CHUNK:
             self._enqueue("accolades_net")
+
+    def _mb_base(self) -> str:
+        return self._mb.base_url if getattr(self, "_mb", None) is not None else DEFAULT_BASE
+
+    async def _dates_net(self) -> None:
+        """One chunk of MusicBrainz work-date lookups (MB-linked works only, never a search; MB on only).
+        The answers land in the MB cache; the offline 'dates' job then reads them and re-queues this one,
+        until nothing is due. A transient failure leaves the rest for the next scan."""
+        if self._mb is None:
+            return
+        due = await self._write(work_dates.mb_due, self._con, self._mb_base(), work_dates.MB_CHUNK)
+        if not due:
+            return
+        n, err = await work_dates.fetch_mb(self._mb, due)
+        if err:
+            self.logger.info("Classical work dates: lookups deferred (%s)", err)
+            if not n:
+                return
+        self._enqueue("dates")
 
     # ---- provider presence (§5.6) ------------------------------------------------------------------------
 
@@ -951,6 +981,32 @@ class ClassicalProvider(CompanionUI, PluginProvider):
         self._enqueue("scan")
         return {"albums": len(albums), "queued": list(self._jobs)}
 
+    async def cmd_work_dates(self, work_id: str, composed: str | None = None, premiered: str | None = None,
+                             premiered_place: str | None = None) -> dict[str, Any]:
+        """A user correction of a work's composition or premiere date ('1804–05', '1860s', 'c. 1805',
+        '1805-11-20'); '' returns to the automatic sources, 'unknown' hides them. Survives re-index. Only a
+        work the caller can see."""
+        user = self._user_name()
+        vis = self._vis()  # on the loop: the current user is a context variable
+
+        def apply(ix: Index) -> dict:
+            ix.con.execute("BEGIN IMMEDIATE")
+            try:
+                wid = views.work(ix, work_id, vis)["work"]["id"]      # NotFound when hidden
+                work_dates.set_user_dates(ix.con, wid, user, composed, premiered, premiered_place)
+                ix.con.execute("COMMIT")
+            except BaseException:
+                ix.con.execute("ROLLBACK")
+                raise
+            return {"work_id": wid, "dates": work_dates.describe(ix.work(wid) or {})}
+
+        try:
+            return await self._write(apply, self.index)
+        except views.NotFound:
+            raise InvalidDataError(NOT_FOUND) from None
+        except ValueError as err:
+            raise InvalidDataError(str(err)) from err
+
     async def _disc_correction(self, rids: list[str], fn: Callable[[Index], Any]) -> Any:
         """Run a cross-disc correction on the writer, only on recordings the caller can see."""
         vis = self._vis()  # on the loop: the current user is a context variable
@@ -995,8 +1051,9 @@ class ClassicalProvider(CompanionUI, PluginProvider):
 
 def job_order(key: str) -> tuple[bool, bool, bool]:
     """The worker's order: removals and provider checks first, then single albums, then scans, then accolades
-    (the dataset refresh and the network enrichment wait until the library is indexed)."""
-    return (not key.startswith(("providers", "remove:")), key.startswith("accolades"), key.startswith("scan"))
+    and work dates (the dataset refreshes and the network lookups wait until the library is indexed)."""
+    return (not key.startswith(("providers", "remove:")), key.startswith(("accolades", "dates")),
+            key.startswith("scan"))
 
 
 def external_ids(item: Any, kind: str) -> list[str]:

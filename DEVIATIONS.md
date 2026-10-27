@@ -342,3 +342,41 @@ Each entry says what the plan asked for, what was built instead, and why.
   tags are next read, but disc numbers from titles and DISCNUMBER work at once.
 - **Not done.** An MB release found later by enrichment does not trigger a re-join until the album next
   re-derives. A user's award decision is keyed by the lead recording's album.
+
+## Work dates (2026-10-27)
+
+Work pages say "composed 1804–05 · premiered 1805", with the source in small muted text. The Works list can
+filter by period (Early, Baroque, Classical, Romantic, 20th c., Contemporary) and decade, and sort by date.
+"On this day" uses the stored premiere.
+
+- **Sources, highest first.** The sources (`classical_core/dates.py`, schema v5) are:
+  1. A user correction (`classical/work_dates`, "Edit dates" on the work page). It is an `override` row
+     (op `dates`) and is logged in `correction_log`, so it survives re-index. "unknown" hides an automatic
+     value; a blank field goes back to the automatic sources.
+  2. An explicit COMPOSITIONDATE tag, taking the commonest readable value across the work's files.
+  3. MusicBrainz, only for works that are already MB-linked. It reads the composer relationship's
+     begin/end; a work without its own dates takes the span of its cached parts, three levels down (Fidelio
+     gives 1805–1814). Premieres come from the earliest premiere event that was not cancelled. There is no
+     search.
+  4. The bundled `premieres.json`. It is used only for an "original" work of the same type with exactly one
+     matching date, and not for suites, excerpts, arrangements, fantasies or variations unless the list
+     entry is one too.
+
+  ORIGINALDATE, recording years and release years are never used. Each source's answer is a `work_date` row
+  holding a partial ISO date and a precision (day, month, year, decade or circa). The chosen value and its
+  source go into `work`. For a premiere, a lower source that agrees on the year but is more precise wins
+  (MB "1805" plus the list's "1805-11-20").
+- **The job.** A `dates` job runs after album jobs and scans. It reads tags, the dataset and the MB cache,
+  writes only changes, and remembers when it last read each work's MB answer (`dates_mb_at`). If MusicBrainz
+  is on, a `dates_net` job then fetches `artist-rels+event-rels` for linked works, 10 at a time, at the
+  client's 1 request a second, through the cache. It skips works whose dates are settled by the user or by
+  tags, and stops on a transient error. With MusicBrainz off, only answers already cached are used. No
+  DERIVE_VERSION bump.
+- **Lists.** A work's list year is the first year it was composed, or else its premiere year. A composition
+  range matches any year range it overlaps. "premiered" is a new date kind. Undated works sort last.
+- **Not done or known gaps.**
+  - Existing files need a forced reindex before COMPOSITIONDATE is read.
+  - The dataset's loose patterns can still misfire on combined titles, and excerpts (Parsifal excerpts)
+    take the opera's premiere.
+  - The dates job fetches no uncached parts.
+  - A hyphenated "1804-05" reads as May 1804; use "1804–05" or "1804/05".
