@@ -22,9 +22,9 @@ import json
 import logging
 import re
 import urllib.parse
-from difflib import SequenceMatcher
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
+from difflib import SequenceMatcher
 from typing import Any
 
 from .composers import PERFORMING, WORLD_AMBIGUOUS, KnownComposer, by_surname, lookup
