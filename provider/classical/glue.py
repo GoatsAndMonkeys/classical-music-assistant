@@ -122,7 +122,7 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             ConfigEntry(
                 key=CONF_LLM_BASE_URL,
                 type=ConfigEntryType.STRING,
-                label="OpenAI-compatible API base URL (e.g. http://localhost:11434/v1)",
+                label="API base URL: https://api.anthropic.com for Claude, or OpenAI-compatible (e.g. http://localhost:11434/v1)",
                 default_value="",
                 required=False,
                 depends_on=CONF_LLM,
@@ -131,7 +131,7 @@ class ClassicalProvider(CompanionUI, PluginProvider):
             ConfigEntry(
                 key=CONF_LLM_MODEL,
                 type=ConfigEntryType.STRING,
-                label="Model name",
+                label="Model name (e.g. claude-opus-5-5)",
                 default_value="",
                 required=False,
                 depends_on=CONF_LLM,

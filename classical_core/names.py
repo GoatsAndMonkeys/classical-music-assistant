@@ -480,8 +480,24 @@ class LLMProposal:
     confidence: float
 
 
+ANTHROPIC_VERSION = "2026-10-21"
+# Structured output for the Claude Messages API; parse_llm_reply still checks every field.
+_REPLY_SCHEMA = {
+    "type": "object", "additionalProperties": False, "required": ["results"],
+    "properties": {"results": {"type": "array", "items": {
+        "type": "object", "additionalProperties": False, "required": ["id", "canonical", "mbid", "confidence"],
+        "properties": {"id": {"type": "string"}, "canonical": {"type": ["string", "null"]},
+                       "mbid": {"type": ["string", "null"]}, "confidence": {"type": "number"}}}}},
+}
+
+
+def is_anthropic_url(base_url: str) -> bool:
+    return urllib.parse.urlparse(base_url).hostname == "api.anthropic.com"
+
+
 class LLMClient:
-    """OpenAI-compatible chat completions client. Sends only the names and a little album context."""
+    """OpenAI-compatible chat completions client, or the Claude Messages API when the base URL is
+    api.anthropic.com. Sends only the names and a little album context."""
 
     def __init__(self, base_url: str, model: str, api_key: str | None = None, fetch: Fetch | None = None,
                  batch_size: int = 20, timeout: float = 60.0) -> None:
@@ -511,6 +527,8 @@ class LLMClient:
         return out
 
     async def _one_batch(self, batch: list[dict]) -> dict[str, LLMProposal]:
+        if is_anthropic_url(self.base_url):
+            return await self._one_batch_claude(batch)
         body = json.dumps({
             "model": self.model, "temperature": 0, "response_format": {"type": "json_object"},
             "messages": [{"role": "system", "content": _SYSTEM},
@@ -523,6 +541,25 @@ class LLMClient:
         if status != 200:
             raise RuntimeError(f"HTTP {status}")
         return parse_llm_reply(json.loads(raw), {b["id"] for b in batch})
+
+    async def _one_batch_claude(self, batch: list[dict]) -> dict[str, LLMProposal]:
+        base = self.base_url if self.base_url.endswith("/v1") else f"{self.base_url}/v1"
+        body = json.dumps({
+            "model": self.model, "max_tokens": 16000, "system": _SYSTEM,
+            "output_config": {"format": {"type": "json_schema", "schema": _REPLY_SCHEMA}},
+            "messages": [{"role": "user", "content": json.dumps({"items": batch}, ensure_ascii=False)}],
+        }).encode()
+        headers = {"Content-Type": "application/json", "anthropic-version": ANTHROPIC_VERSION}
+        if self.api_key:
+            headers["x-api-key"] = self.api_key
+        status, raw = await self._fetch(f"{base}/messages", headers, body)
+        if status != 200:
+            raise RuntimeError(f"HTTP {status}")
+        data = json.loads(raw)
+        if data.get("stop_reason") in ("refusal", "max_tokens"):
+            raise RuntimeError(f"stop_reason {data['stop_reason']}")
+        text = "".join(b.get("text", "") for b in data.get("content") or [] if b.get("type") == "text")
+        return parse_llm_reply({"choices": [{"message": {"content": text}}]}, {b["id"] for b in batch})
 
 
 def parse_llm_reply(data: dict, ids: set[str]) -> dict[str, LLMProposal]:
